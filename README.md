@@ -1,0 +1,95 @@
+# eiffelbs-ui
+
+Shared JUCE library implementing the **EiffelBS design system**: the dark/light
+palette, typography helpers, the application-wide `LookAndFeel` and a small set
+of generic widgets — extracted from [OpenVoxTuner](https://github.com/EiffelBS/OpenVoxTuner)
+(origin) and [OpenTimbre](https://github.com/EiffelBS/OpenTimbre) so every new
+JUCE project consumes ONE versioned implementation instead of a per-app copy.
+
+## Contents
+
+| Header | Provides |
+|---|---|
+| `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger` |
+| `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
+| `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` |
+| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs), framed chrome mode, play/stop toggle state |
+| `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
+| `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`) |
+| `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
+
+## Requirements
+
+- JUCE 8 (developed against **8.0.8**)
+- C++20, CMake 3.22+
+- The consumer links `juce::juce_gui_basics`; the library never pulls JUCE in
+  by itself.
+
+## Consumption (FetchContent, pinned tag)
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(eiffelbs-ui
+    GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
+    GIT_TAG        v0.1.0)              # pin tags; breaking changes bump major
+FetchContent_MakeAvailable(eiffelbs-ui)
+
+target_link_libraries(my_app PRIVATE
+    eiffelbs::ui                        # headers + ABI-critical JUCE defines
+    juce::juce_gui_basics)              # JUCE comes from your own setup
+```
+
+```cpp
+#include <eiffelbs/eiffelbs.h>
+
+ebs::LookAndFeel lnf;                              // one instance per process/editor
+juce::LookAndFeel::setDefaultLookAndFeel (&lnf);
+
+auto button = juce::TextButton ("Generate");
+button.setComponentID ("primary");                 // accent-filled key action
+
+ebs::currentTheme() = ebs::Theme::Light;           // live palette switch...
+lnf.refreshThemeColours();                         // ...then re-apply to the L&F
+```
+
+The INTERFACE target exports the ABI-critical globals
+(`JUCE_STRING_UTF_TYPE=8`, `JUCE_WEB_BROWSER=0`, `JUCE_USE_CURL=0`). Every
+binary in the process must agree on these or `juce::String` becomes an ODR
+violation — keep your own JUCE definitions consistent with them.
+
+## Smoke test
+
+Standalone offscreen proof: constructs the real widgets, paints through the
+real LookAndFeel into software images, asserts pixel-level outcomes and writes
+a PNG receipt to `%TEMP%\eiffelbs-ui-smoke.png`. Exit code 0 = PASS.
+
+```sh
+cmake -S . -B build -DEIFFELBS_UI_BUILD_SMOKE_TEST=ON ^
+      -DEIFFELBS_UI_JUCE_DIR="C:/path/to/JUCE"   # optional: reuse a local checkout
+cmake --build build --config Release
+build\Release\eiffelbs-ui-smoke.exe
+```
+
+Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
+
+## Versioning contract
+
+- Public tokens (`ebs::*` names, colour function names, font names, widget
+  behaviour) are stable within a major version.
+- Breaking change = major bump (`v1.0.0` → `v2.0.0`).
+- Additions (new widgets, ColourIds hooks) = minor bump.
+
+## Roadmap
+
+- **v0.x** — extraction (this release): palette + fonts + LookAndFeel +
+  generic widgets, consumed side-by-side with the apps' local copies.
+- **ColourIds milestone** — move the remaining hard decisions (`vizBg`,
+  `outputColour`, favourite gold, ...) behind overridable `ColourIds` so
+  third-party components theme themselves with zero code.
+- Consumer cutover: OpenTimbre first (delete local `OTTheme.h` /
+  `OTLookAndFeel.h`, FetchContent pin), then OpenVoxTuner, then OpenVisuAI.
+
+## License
+
+AGPLv3 — see [LICENSE](LICENSE). Extracted from OpenVoxTuner / OpenTimbre
+(original copyright (C) 2026 EiffelBS).
