@@ -54,6 +54,27 @@ struct MyLnf : ebs::LookAndFeel
 };
 ```
 
+## Theme switching (v0.4)
+
+Beyond assigning `ebs::currentTheme()` directly, apps get a broadcast
+mechanism so per-instance colours re-apply themselves:
+
+```cpp
+struct MyPanel : juce::Component, ebs::ThemeSubscriber
+{
+    MyPanel()     { ebs::subscribeTheme (this); }
+    ~MyPanel() override { ebs::unsubscribeTheme (this); }
+    void themeChanged() override { reapplyMyColours(); repaint(); }
+};
+
+ebs::setTheme (ebs::Theme::Light);   // palette swap + notify all subscribers
+```
+
+`ebs::LookAndFeel` subscribes itself: one `setTheme` call refreshes the
+shared LookAndFeel AND every subscribed component - no centralised
+re-apply walker needed. Dispatch is UI-thread only (same contract as
+`currentTheme()`).
+
 ## Requirements
 
 - JUCE 8 (developed against **8.0.8**)
@@ -67,7 +88,7 @@ struct MyLnf : ebs::LookAndFeel
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.3.0)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.4.0)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -133,6 +154,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   First consumers of the tag: OpenVoxTuner and its OpenVoxKey companion
   (FetchContent pin, local LookAndFeel deleted), while OpenTimbre stays on
   the stable v0.2.x line.
+- **v0.4** — theme-switch broadcast: `setTheme()` + `ThemeSubscriber`
+  (subscribe/unsubscribe), LookAndFeel self-subscribed and auto-refreshed on
+  switch. First consumer: OpenVoxTuner light-theme completion series.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
   LogWindow chrome); OpenVisuAI adoption of the widget set when its editor
   grows one.

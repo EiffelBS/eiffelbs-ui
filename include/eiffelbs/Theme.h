@@ -14,6 +14,8 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <algorithm>
+#include <vector>
 
 namespace ebs
 {
@@ -29,6 +31,60 @@ namespace ebs
 
     /** Check if the current theme is dark. */
     inline bool isDark() { return currentTheme() == Theme::Dark; }
+
+    // === Centralised theme switch + subscriber broadcast (v0.4) ==========
+
+    /** A widget or component that wants to re-apply its OWN instance
+        colours when the application switches theme derives from this,
+        implements themeChanged() (re-set the per-instance colours, then
+        repaint()), and subscribes itself. Dispatch happens on the message
+        thread only - same contract as currentTheme(). */
+    struct ThemeSubscriber
+    {
+        virtual ~ThemeSubscriber() = default;
+        virtual void themeChanged() = 0;
+    };
+
+    namespace detail
+    {
+        inline std::vector<ThemeSubscriber*>& themeSubscribers()
+        {
+            static std::vector<ThemeSubscriber*> subs;
+            return subs;
+        }
+    }
+
+    /** Register a subscriber. No-op for null pointers and double
+        registrations; safe to call from a component's constructor. */
+    inline void subscribeTheme (ThemeSubscriber* s)
+    {
+        if (s == nullptr) return;
+        auto& subs = detail::themeSubscribers();
+        if (std::find (subs.begin(), subs.end(), s) == subs.end())
+            subs.push_back (s);
+    }
+
+    /** Remove a subscriber. Safe to call from a destructor; unknown
+        pointers are ignored. Subscribing DURING dispatch is honoured for
+        future switches only (the dispatcher iterates over a snapshot). */
+    inline void unsubscribeTheme (ThemeSubscriber* s)
+    {
+        auto& subs = detail::themeSubscribers();
+        subs.erase (std::remove (subs.begin(), subs.end(), s), subs.end());
+    }
+
+    /** Set the active palette and notify every subscriber so components
+        re-apply their instance colours without any centralised colour
+        table. Apps that previously walked all components by hand just
+        switch to this single call. */
+    inline void setTheme (Theme t)
+    {
+        currentTheme() = t;
+        const auto snapshot = detail::themeSubscribers();   // callbacks may (un)subscribe
+        for (auto* s : snapshot)
+            if (s != nullptr)
+                s->themeChanged();
+    }
 
     // === Theme colour palette ===
     // Index 0 = Dark, Index 1 = Light.

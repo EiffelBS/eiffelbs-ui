@@ -440,6 +440,34 @@ int main()
             juce::LookAndFeel::setDefaultLookAndFeel (&lnf);   // restore
         }
 
+        // === Theme broadcast (v0.4) ==========================================
+        {
+            struct Probe : ebs::ThemeSubscriber
+            {
+                int hits = 0;
+                void themeChanged() override { ++hits; }
+            };
+            Probe probe;
+            ebs::subscribeTheme (&probe);
+            ebs::subscribeTheme (&probe);   // idempotent registration
+
+            const auto popupBgBefore = lnf.findColour (
+                juce::PopupMenu::backgroundColourId);
+            check (probe.hits == 0, "subscriber silent before any switch");
+
+            ebs::setTheme (ebs::Theme::Light);
+            check (probe.hits == 1, "setTheme notifies a subscriber exactly once");
+            check (! ebs::isDark(), "setTheme flips the shared palette state");
+            check (lnf.findColour (juce::PopupMenu::backgroundColourId)
+                       != popupBgBefore,
+                   "LookAndFeel auto-refreshes on setTheme (no manual call)");
+
+            ebs::unsubscribeTheme (&probe);
+            ebs::setTheme (ebs::Theme::Dark);
+            check (probe.hits == 1 && ebs::isDark(),
+                   "unsubscribed listener stops receiving; palette restored");
+        }
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the

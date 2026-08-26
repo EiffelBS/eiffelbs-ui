@@ -75,13 +75,17 @@ namespace ebs
     /** Rounded framed panel component used by apps as a drop-in group
      *  body (see FramedBody.h). Declared after the class below. */
 
-    class LookAndFeel : public juce::LookAndFeel_V4
+    class LookAndFeel : public juce::LookAndFeel_V4, public ThemeSubscriber
     {
     public:
-        LookAndFeel() { refreshThemeColours(); }
+        LookAndFeel() { subscribeTheme (this); refreshThemeColours(); }
+        ~LookAndFeel() override { unsubscribeTheme (this); }
+
+        void themeChanged() override { refreshThemeColours(); }
 
         /** Refresh all LookAndFeel colours to match the current theme.
-            Call whenever ebs::currentTheme() changes. */
+            Called automatically on ebs::setTheme(); manual calls remain
+            valid for legacy currentTheme() assignments. */
         void refreshThemeColours()
         {
             // --- Buttons -------------------------------------------------
