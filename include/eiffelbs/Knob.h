@@ -37,9 +37,17 @@ namespace ebs
     class Knob : public juce::Slider
     {
     public:
-        /** No layout/style side effects: configure the knob exactly like
-            any plain juce::Slider (range, text box, size...). */
-        Knob() : juce::Slider() {}
+        /** Defaults to a rotary drag style with NO text box - REQUIRED so
+            painting routes through drawRotarySlider()/ebs::drawKnob across
+            the FULL bounds (a default JUCE text box would reserve room
+            below and offset/shrink the dial). This system places labels
+            BESIDE knobs at editor level; sites wanting an integrated value
+            box may still setTextBoxStyle() afterwards. */
+        Knob()
+        {
+            setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        }
 
         /** Fill-from-centre mode: the value arc grows symmetrically from
             the range midpoint towards the thumb instead of from the range

@@ -28,8 +28,9 @@
 
 namespace ebs
 {
-    class PowerToggle : public juce::ToggleButton,
-                        public juce::SettableTooltipClient
+    // NB: juce::ToggleButton already carries SettableTooltipClient - adding
+    // it here would trip MSVC C4584 (duplicate indirect base).
+    class PowerToggle : public juce::ToggleButton
     {
     public:
         enum ColourIds
@@ -52,15 +53,18 @@ namespace ebs
             const float radius    = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.3f;
             const float iconWidth = radius * 2.0f;
 
-            const auto text = getButtonText();
-            const bool hasText = text.isNotEmpty();
+            // NB: qualified ebs::text() below - NEVER name a local
+            // "text" here, it would shadow the free colour function
+            // (paid-for MSVC lesson from the v0.1.0 extraction).
+            const auto label = getButtonText();
+            const bool hasText = label.isNotEmpty();
 
             float textWidth = 0.0f;
             if (hasText)
             {
                 g.setFont (fontComboBox());
                 textWidth = juce::GlyphArrangement::getStringWidth (
-                                g.getCurrentFont(), text) + 8.0f;
+                                g.getCurrentFont(), label) + 8.0f;
             }
 
             const float totalWidth = iconWidth + textWidth;
@@ -68,9 +72,9 @@ namespace ebs
             juce::Point<float> center (startX + radius, bounds.getHeight() * 0.5f);
 
             // Colours based on state.
-            juce::Colour glowColor  = resolvedGlow();
+            juce::Colour glowColor   = resolvedGlow();
             juce::Colour activeColor = isOn ? glowColor
-                                            : text().withAlpha (0.3f);
+                                            : ebs::text().withAlpha (0.3f);
 
             if (! isEnabled())
             {
@@ -111,9 +115,9 @@ namespace ebs
 
             if (hasText)
             {
-                g.setColour (isOn ? text().withAlpha (isEnabled() ? 1.0f : 0.25f)
-                                  : text().withAlpha (0.5f * (isEnabled() ? 1.0f : 0.5f)));
-                g.drawText (text, startX + iconWidth + 8.0f, 0.0f, textWidth,
+                g.setColour (isOn ? ebs::text().withAlpha (isEnabled() ? 1.0f : 0.25f)
+                                  : ebs::text().withAlpha (0.5f * (isEnabled() ? 1.0f : 0.5f)));
+                g.drawText (label, startX + iconWidth + 8.0f, 0.0f, textWidth,
                             bounds.getHeight(),
                             juce::Justification::centredLeft, true);
             }

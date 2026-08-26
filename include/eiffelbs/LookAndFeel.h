@@ -160,6 +160,38 @@ namespace ebs
             return {};
         }
 
+        /** Shared chrome colour hooks (three-level contract, THEME level).
+
+            These ids restyle LookAndFeel-painted surfaces shared across
+            many components (tab bars, checkbox wells). Per-instance
+            setColour() is deliberately NOT part of chrome lookups: those
+            surfaces have no single owner component; override
+            widgetThemeColour() in an app-side LookAndFeel subclass to
+            restyle them app-wide (see the OpenVoxTuner cutover note).
+
+            Built-ins below return the exact pre-v0.3 colours, so existing
+            consumers keep identical pixels unless they opt in. */
+        enum ThemeChromeIds
+        {
+            tabActiveFillColourId   = 0x3a5c9101,  ///< active tab pill fill
+            tabActiveTextColourId   = 0x3a5c9102,  ///< active tab label text
+            tabBarLineColourId      = 0x3a5c9103,  ///< bar bottom accent rule
+            checkboxFillColourId    = 0x3a5c9104,  ///< checkbox well fill
+            checkboxOutlineColourId = 0x3a5c9105   ///< checkbox well border
+        };
+
+        /** Chrome lookup: theme hook first, built-in default otherwise.
+            NB: intentionally NON-const - it invokes the non-const virtual
+            widgetThemeColour() hook, matching its v0.2.0 signature so
+            existing subclasses stay source-compatible. */
+        juce::Colour chromeColour (int id, juce::Colour builtin)
+        {
+            if (juce::Colour themed = widgetThemeColour (id);
+                ! themed.isTransparent())
+                return themed;
+            return builtin;
+        }
+
         // === Buttons ===============================================
 
         /** Rounded theme buttons: panel fill at rest, accent when pressed,
@@ -274,9 +306,12 @@ namespace ebs
             auto rect = juce::Rectangle<float> (0.0f, (bounds.getHeight() - size) * 0.5f,
                                                 size, size);
 
-            g.setColour (vizBg());
+            g.setColour (chromeColour (checkboxFillColourId, vizBg()));
             g.fillRoundedRectangle (rect, 3.0f);
-            g.setColour (isOn ? accent() : panelBorder());
+            // Chrome hook applies to the well border UNIFORMLY over both
+            // states (default keeps the state-dependent pair unchanged).
+            g.setColour (chromeColour (checkboxOutlineColourId,
+                                       isOn ? accent() : panelBorder()));
             g.drawRoundedRectangle (rect, 3.0f, 1.0f);
 
             if (isOn)
@@ -470,8 +505,8 @@ namespace ebs
             g.setColour (bgDark());
             g.fillRect (barBounds);
 
-            // Subtle bottom line in the header accent tint.
-            g.setColour (headerAccent());
+            // Subtle bottom line in the header accent tint (chrome hookable).
+            g.setColour (chromeColour (tabBarLineColourId, headerAccent()));
             g.drawHorizontalLine ((int) barBounds.getBottom() - 1, 0.0f,
                                   barBounds.getWidth());
         }
@@ -486,8 +521,8 @@ namespace ebs
 
             if (isFrontTab)
             {
-                // Active tab: soft accent fill, rounded top.
-                g.setColour (accentSoft());
+                // Active tab pill fill (chrome-hookable, built-in unchanged).
+                g.setColour (chromeColour (tabActiveFillColourId, accentSoft()));
                 auto activeTab = tabBounds.reduced (indent, 0.0f)
                                      .removeFromTop (tabHeight - 1.0f);
                 g.fillRoundedRectangle (activeTab, 4.0f);
@@ -512,7 +547,8 @@ namespace ebs
             const bool isFrontTab = (button.getToggleState());
 
             g.setFont (fontComboBox());
-            g.setColour (isFrontTab ? accent() : textDim());
+            g.setColour (isFrontTab ? chromeColour (tabActiveTextColourId, accent())
+                                    : textDim());
             g.drawText (button.getButtonText(), tabBounds,
                         juce::Justification::centred, false);
         }
@@ -552,7 +588,9 @@ namespace ebs
     {
         if (origin.isColourSpecified (colourId))
             return origin.findColour (colourId);
-        if (auto* l = dynamic_cast<const LookAndFeel*> (&origin.getLookAndFeel()))
+        // Same call shape as StatusBar::resolved(): Component::getLookAndFeel()
+        // hands back a non-const reference even from read-only contexts.
+        if (auto* l = dynamic_cast<LookAndFeel*> (&origin.getLookAndFeel()))
             if (juce::Colour themed = l->widgetThemeColour (colourId);
                 ! themed.isTransparent())
                 return themed;

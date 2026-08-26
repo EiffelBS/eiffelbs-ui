@@ -10,11 +10,14 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 
 | Header | Provides |
 |---|---|
-| `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger` |
+| `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger`; always-dark viz-chrome tokens (`grid`, `scaleLine`, `rulerBg`, `curveGrid`, `vizHeaderBg`, `vizHeaderAccent`, `vizLegendBg`, `cpuBg`, `cpuText`) |
 | `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
-| `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` |
+| `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, rotary knobs, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` + shared `widgetColour()` three-level resolver + chrome `ThemeChromeIds` |
 | `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs), framed chrome mode, play/stop toggle state, `ColourIds` overrides |
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
+| `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
+| `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
+| `PowerToggle.h` | `ebs::PowerToggle`: power-glyph toggle with warm glow when engaged, disabled dimming; `glowColourId` override |
 | `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`), `ColourIds` overrides |
 
 ## Colour overrides (v0.2.0)
@@ -115,8 +118,13 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.2.1** — `IconButton::Shape::lock` padlock glyph (stroke-style SVG,
   default tooltip "Link"); semantics are app-defined (e.g. host-transport
   link in OpenTimbre).
+- **v0.3** — rotary `Knob` + painter, `MorphSlider`, `PowerToggle`
+  (carried over from the OpenVoxTuner origin UI), always-dark viz-chrome
+  palette tokens and chrome `ThemeChromeIds` (tab pill fill/text, bar rule,
+  checkbox well) with built-ins frozen at their pre-v0.3 values.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
-  LogWindow chrome), then OpenVoxTuner and OpenVisuAI cutovers.
+  LogWindow chrome), then OpenVoxTuner cutover; OpenVisuAI adoption of the
+  widget set when its editor grows one.
 
 ## License
 

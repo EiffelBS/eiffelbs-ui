@@ -269,12 +269,153 @@ int main()
         checkPixel (ffImg, { 6, 14 }, juce::Colour (0xff402060),
                     "framed icon button honours frameFillColourId");
 
+        // === v0.3 widgets & palette =========================================
+        // 1) New always-dark viz-chrome palette tokens (hex-frozen contract).
+        check (ebs::grid()        == juce::Colour (0x20ffffff), "viz-chrome grid hex");
+        check (ebs::scaleLine()   == juce::Colour (0x10ffffff), "viz-chrome scale-line hex");
+        check (ebs::rulerBg()     == juce::Colour (0xff1a1a1a), "viz-chrome ruler background hex");
+        check (ebs::curveGrid()   == juce::Colour (0x40ffffff), "viz-chrome curve-grid hex");
+        check (ebs::vizHeaderBg() == juce::Colour (0xff191b1e), "viz-chrome header background hex");
+        check (ebs::vizLegendBg() == juce::Colour (0xff191b1e), "viz-chrome legend background hex");
+        check (ebs::cpuBg()       == juce::Colour (0xff222230), "viz-chrome cpu well hex");
+
+        // 2) ebs::Knob routes through the shared LookAndFeel painter.
+        ebs::Knob knob;
+        knob.setSize (48, 48);
+        knob.setRange (0.0, 1.0);
+        knob.setRotaryParameters ({ juce::MathConstants<float>::pi * 1.25f,
+                                    juce::MathConstants<float>::pi * 2.75f, true });
+        knob.setValue (1.0, juce::dontSendNotification);
+        const auto knobImg = renderToImage (48, 48, [&] (juce::Graphics& g)
+            { knob.paint (g); });
+        check (inkPixels (knobImg) > 300, "knob paints substantial ink");
+        {
+            // Point ON the value-arc stroke centreline at the end angle.
+            // The EiffelBS/OVT arc convention is CLOCKWISE FROM 12 OCLOCK
+            // (matches the rotated line pointer built from (0,-r)):
+            // x = cx + r*sin(a), y = cy - r*cos(a). The opaque accent arc
+            // covers the already-painted track band -> exact accent.
+            const float endA = juce::MathConstants<float>::pi * 2.75f;
+            const int px = (int) std::lround (24.0f + 20.0f * std::sin (endA));
+            const int py = (int) std::lround (24.0f - 20.0f * std::cos (endA));
+            checkPixel (knobImg, { px, py }, ebs::accent(),
+                        "knob value arc reaches the end-angle centreline");
+        }
+        // Pivot-centred mode still yields a substantial accent arc at
+        // minimum value (short arc towards the range midpoint).
+        knob.setCentredFill (true);
+        knob.setValue (0.0, juce::dontSendNotification);
+        {
+            constexpr auto accentish = [] (juce::Colour c)
+            {
+                const auto a = ebs::accent();
+                return c.getAlpha() == 255
+                    && std::abs (c.getRed()   - a.getRed())   <= 12
+                    && std::abs (c.getGreen() - a.getGreen()) <= 12
+                    && std::abs (c.getBlue()  - a.getBlue())  <= 12;
+            };
+            int accentHits = 0;
+            const auto centredImg = renderToImage (48, 48, [&] (juce::Graphics& g)
+                { knob.paint (g); });
+            for (int y = 0; y < 48; ++y)
+                for (int x = 0; x < 48; ++x)
+                    if (accentish (centredImg.getPixelAt (x, y)))
+                        ++accentHits;
+            check (accentHits >= 30, "centred-fill knob draws its pivot arc at minimum");
+        }
+
+        // 3) ebs::MorphSlider: pivot-centred track, exact-composited fill.
+        ebs::MorphSlider morph;
+        morph.setSize (120, 16);
+        morph.setRange (0.0, 1.0);
+        morph.setValue (0.25, juce::dontSendNotification);
+        const auto morphImg = renderToImage (120, 16, [&] (juce::Graphics& g)
+            { morph.paint (g); });
+        {
+            // Geometry: thumbWidth 12 -> trackLeft 6, span 108; norm .25 ->
+            // thumb centre x = 33; pivot centre x = 60; fill = [33..60].
+            const auto bed = ebs::bgPanel().brighter (0.15f);
+            checkPixel (morphImg, { 12, 8 }, bed,
+                        "morph track bed outside the fill zone");
+            // Exact sOVER composition: translucent accent fill over bed.
+            const auto fg  = ebs::accent().withAlpha (0.7f);
+            const uint8_t fa = fg.getAlpha();
+            const auto over = [&] (const juce::Colour& bg)
+            {
+                return juce::Colour::fromRGBA (
+                    (uint8_t) ((fa * fg.getRed()   + (255 - fa) * bg.getRed())   / 255),
+                    (uint8_t) ((fa * fg.getGreen() + (255 - fa) * bg.getGreen()) / 255),
+                    (uint8_t) ((fa * fg.getBlue()  + (255 - fa) * bg.getBlue())  / 255),
+                    255);
+            };
+            checkPixel (morphImg, { 45, 8 }, over (bed),
+                        "morph pivot-centred fill composes accent over bed");
+            checkPixel (morphImg, { 33, 8 }, ebs::accent(),
+                        "morph thumb rides the proportional position");
+        }
+
+        // 4) ebs::PowerToggle: engaged glow gold / idle grey / dimmed when off.
+        constexpr auto countGold = [] (const juce::Image& img)
+        {
+            int n = 0;
+            for (int y = 0; y < img.getHeight(); ++y)
+                for (int x = 0; x < img.getWidth(); ++x)
+                {
+                    const auto c = img.getPixelAt (x, y);
+                    if (c.getAlpha() > 60 && c.getRed() > 190
+                        && c.getGreen() > 170 && c.getBlue() < 130)
+                        ++n;
+                }
+            return n;
+        };
+        ebs::PowerToggle powerOn;
+        powerOn.setSize (28, 28);
+        powerOn.setToggleState (true, juce::dontSendNotification);
+        const auto pOnImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { powerOn.paint (g); });
+        check (countGold (pOnImg) >= 8, "power toggle ON glows warm gold");
+
+        ebs::PowerToggle powerOff;
+        powerOff.setSize (28, 28);
+        const auto pOffImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { powerOff.paint (g); });
+        check (countGold (pOffImg) == 0 && inkPixels (pOffImg) > 10,
+               "power toggle OFF shows grey glyph without gold");
+
+        powerOn.setEnabled (false);
+        const auto pDisImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { powerOn.paint (g); });
+        check (countGold (pDisImg) == 0, "disabled power toggle drops the glow");
+
+        // 5) Chrome hook: theme-level restyle of the checkbox well, built-ins
+        //    untouched otherwise (the earlier toggle interior check above ran
+        //    under the plain L&F and asserts the vizBg built-in).
+        struct ChromeLnf : ebs::LookAndFeel
+        {
+            using ebs::LookAndFeel::LookAndFeel;
+            juce::Colour widgetThemeColour (int colourId) override
+            {
+                if (colourId == ebs::LookAndFeel::checkboxFillColourId)
+                    return juce::Colours::red;
+                return {};
+            }
+        } chromeLnf;
+        {
+            juce::LookAndFeel::setDefaultLookAndFeel (&chromeLnf);
+            tog.repaint();
+            const auto chkImg = renderToImage (260, 60, [&] (juce::Graphics& g)
+                { tog.setBounds (0, 0, 220, 24); tog.paint (g); });
+            checkPixel (chkImg, { 12, 6 }, juce::Colours::red,
+                        "chrome hook restyles the checkbox well app-wide");
+            juce::LookAndFeel::setDefaultLookAndFeel (&lnf);   // restore
+        }
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
         // parenting (clip + per-child translation) exactly like on screen.
         juce::Component canvas;
-        canvas.setSize (260, 160);
+        canvas.setSize (260, 210);
 
         canvas.addAndMakeVisible (primary);
         primary.setBounds (20, 18, 70, 28);
@@ -300,11 +441,26 @@ int main()
             x += 36;
         }
 
+        // v0.3 row: morph slider + power toggles + knob (fresh look state).
+        powerOn.setEnabled (true);
+        knob.setCentredFill (false);
+        knob.setValue (0.65, juce::dontSendNotification);
+
+        canvas.addAndMakeVisible (morph);
+        morph.setBounds (20, 96, 220, 16);
+
+        canvas.addAndMakeVisible (powerOn);
+        powerOn.setBounds (24, 118, 28, 28);
+        canvas.addAndMakeVisible (powerOff);
+        powerOff.setBounds (60, 118, 28, 28);
+        canvas.addAndMakeVisible (knob);
+        knob.setBounds (100, 112, 40, 40);
+
         canvas.addAndMakeVisible (bar);
         bar.setSize (220, 24);
-        bar.setTopLeftPosition (20, 116);
+        bar.setTopLeftPosition (20, 170);
 
-        juce::Image receipt (juce::Image::ARGB, 260, 160, true);
+        juce::Image receipt (juce::Image::ARGB, 260, 210, true);
         {
             juce::Graphics g (receipt);
             g.fillAll (ebs::bgDark());
