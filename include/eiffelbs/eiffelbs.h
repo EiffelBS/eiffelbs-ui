@@ -10,4 +10,5 @@
 #include "eiffelbs/LookAndFeel.h"
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/FramedBody.h"
+#include "eiffelbs/Knob.h"
 #include "eiffelbs/StatusBar.h"

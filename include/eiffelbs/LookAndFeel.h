@@ -9,13 +9,14 @@
 // Source/ui/OVTFonts.h (original copyright (C) 2026 EiffelBS).
 //
 // Painting coverage: global colour table, buttons (incl. the "primary"
-// ComponentID contract), toggle checkbox, combo box + text positioning,
-// popup menu background/font, tooltip rendering/bounds, tab bar painting,
-// slim scrollbars, TextEditor fill/outline and Label font fallback.
+// ComponentID contract), rotary knobs (pivot-centred fill support),
+// toggle checkbox, combo box + text positioning, popup menu background/
+// font, tooltip rendering/bounds, tab bar painting, slim scrollbars,
+// TextEditor fill/outline and Label font fallback.
 //
-// Not included on purpose (no cross-app counterpart): rotary knobs,
-// OVT's Morph linear slider, power-style toggles. They stay in the apps
-// until a second consumer needs them.
+// Colour resolution for eiffelbs widgets follows the three-level contract:
+// per-instance setColour() > widgetThemeColour() hook > built-in palette
+// default (documented on the widgets; see Knob.h for an example).
 
 #pragma once
 
@@ -27,6 +28,14 @@
 
 namespace ebs
 {
+    // Free functions shared with the widget headers; defined at the bottom
+    // of this file, AFTER the LookAndFeel class they depend on.
+    juce::Colour widgetColour (const juce::Component& origin, int colourId,
+                               juce::Colour builtin);
+    void drawKnob (juce::Graphics& g, int x, int y, int width, int height,
+                   float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
+                   juce::Slider& slider);
+
     // === Shared group-box frame ==========================================
     //
     // Visual language from OpenVoxTuner's bottom blocks (bgPanel fill +
@@ -234,6 +243,22 @@ namespace ebs
         juce::Font getTextButtonFont (juce::TextButton&, int /*buttonHeight*/) override
         {
             return fontComboBox();
+        }
+
+        // === Rotary knob (ported from OpenVoxTuner) ==================
+
+        /** EiffelBS knob: dark arc track, accent value arc with optional
+            pivot-centred fill ("centred" property / Knob::setCentredFill),
+            gradient cap and thin pointer. Colour resolution for the arcs:
+            instance setColour > widgetThemeColour() hook > live palette
+            (accent()/accentSoft()). Applies to every rotary Slider drawn
+            through this LookAndFeel - ebs::Knob is the typed flavour. */
+        void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
+                               float sliderPos, float rotaryStartAngle,
+                               float rotaryEndAngle, juce::Slider& slider) override
+        {
+            ebs::drawKnob (g, x, y, width, height, sliderPos,
+                           rotaryStartAngle, rotaryEndAngle, slider);
         }
 
         // === ToggleButton (checkbox branch from OpenVoxTuner) ========
@@ -515,4 +540,108 @@ namespace ebs
             g.fillRoundedRectangle (thumb.reduced (2.0f), 3.0f);
         }
     };
+
+    // === Free helper implementations =====================================
+
+    /** Shared three-level colour resolution for eiffelbs widgets:
+        per-instance setColour() > ebs::LookAndFeel::widgetThemeColour()
+        hook > built-in default. Every new widget routes through this so
+        the contract stays single-sourced. */
+    inline juce::Colour widgetColour (const juce::Component& origin, int colourId,
+                                      juce::Colour builtin)
+    {
+        if (origin.isColourSpecified (colourId))
+            return origin.findColour (colourId);
+        if (auto* l = dynamic_cast<const LookAndFeel*> (&origin.getLookAndFeel()))
+            if (juce::Colour themed = l->widgetThemeColour (colourId);
+                ! themed.isTransparent())
+                return themed;
+        return builtin;
+    }
+
+    inline void drawKnob (juce::Graphics& g, int x, int y, int width, int height,
+                          float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
+                          juce::Slider& slider)
+    {
+        auto bounds  = juce::Rectangle<int> (x, y, width, height).toFloat();
+        auto radius  = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f - 4.0f;
+        auto centreX = bounds.getCentreX();
+        auto centreY = bounds.getCentreY();
+        auto rx      = centreX - radius;
+        auto ry      = centreY - radius;
+        auto rw      = radius * 2.0f;
+        auto angle   = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
+
+        // Arc track background.
+        g.setColour (bgPanel().darker (0.5f));
+        juce::Path backgroundArc;
+        backgroundArc.addCentredArc (centreX, centreY, radius, radius, 0.0f,
+                                     rotaryStartAngle, rotaryEndAngle, true);
+        g.strokePath (backgroundArc, juce::PathStrokeType (6.0f,
+                          juce::PathStrokeType::curved,
+                          juce::PathStrokeType::rounded));
+
+        if (slider.isEnabled())
+        {
+            // Pivot-aware fill: knobs flagged "centred" grow their filled
+            // arc symmetrically from the central range value instead of
+            // starting at the minimum.
+            const bool centred = slider.getProperties().contains ("centred")
+                                 && (bool) slider.getProperties()["centred"];
+            g.setColour (widgetColour (slider, juce::Slider::rotarySliderFillColourId,
+                                       accent()));
+            juce::Path valueArc;
+            if (centred)
+            {
+                const auto range = slider.getNormalisableRange();
+                const double pivotValue = (range.start + range.end) * 0.5;
+                const double pivotPos  = range.convertTo0to1 (pivotValue);
+                const float pivotAngle = rotaryStartAngle
+                                       + (float) pivotPos * (rotaryEndAngle - rotaryStartAngle);
+                // Always draw the SHORT arc between pivot and current value,
+                // using clockwise=true with ordered angles. Passing
+                // clockwise=false with start>end makes addCentredArc go the
+                // long way around, drawing a spurious arc on the other side.
+                const float arcStart = juce::jmin (angle, pivotAngle);
+                const float arcEnd   = juce::jmax (angle, pivotAngle);
+                valueArc.addCentredArc (centreX, centreY, radius, radius, 0.0f,
+                                        arcStart, arcEnd, true);
+            }
+            else
+            {
+                valueArc.addCentredArc (centreX, centreY, radius, radius, 0.0f,
+                                        rotaryStartAngle, angle, true);
+            }
+            g.strokePath (valueArc, juce::PathStrokeType (6.0f,
+                              juce::PathStrokeType::curved,
+                              juce::PathStrokeType::rounded));
+        }
+
+        // Knob cap: dark vertical gradient + soft black outline.
+        const auto capLight = isDark() ? juce::Colour::fromString ("#FF303030")
+                                       : juce::Colour::fromString ("#FF505050");
+        const auto capDark  = isDark() ? juce::Colour::fromString ("#FF151515")
+                                       : juce::Colour::fromString ("#FF383838");
+        juce::ColourGradient grad (capLight, centreX, centreY - radius,
+                                   capDark, centreX, centreY + radius, false);
+        g.setGradientFill (grad);
+        g.fillEllipse (rx + 4.0f, ry + 4.0f, rw - 8.0f, rw - 8.0f);
+
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.drawEllipse (rx + 4.0f, ry + 4.0f, rw - 8.0f, rw - 8.0f, 2.0f);
+
+        // Thin pointer line (modern look).
+        juce::Path p;
+        const float pointerLength    = radius - 6.0f;
+        const float pointerThickness = 2.5f;
+        p.startNewSubPath (0.0f, -radius + 8.0f);
+        p.lineTo (0.0f, -radius + 8.0f + pointerLength * 0.4f);
+        p.applyTransform (juce::AffineTransform::rotation (angle)
+                              .translated (centreX, centreY));
+        g.setColour (slider.isEnabled() ? juce::Colours::white
+                                        : juce::Colours::grey.withAlpha (0.5f));
+        g.strokePath (p, juce::PathStrokeType (pointerThickness,
+                          juce::PathStrokeType::curved,
+                          juce::PathStrokeType::rounded));
+    }
 }
