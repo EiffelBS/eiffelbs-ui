@@ -111,4 +111,68 @@ namespace ebs
     {
         return juce::Colour (0xffe5484d);
     }
+
+    // === Viz chrome ======================================================
+    //
+    // Fixed (theme-independent) accents for always-dark visualization
+    // surfaces: waveform displays, pitch curve editor, CPU meter. Like
+    // vizBg()/outputColour()/danger() above they do not follow Dark/Light -
+    // these surfaces keep their dark look under either app theme so traces
+    // read identically everywhere. Values carried over verbatim from the
+    // OpenVoxTuner palette (original copyright (C) 2026 EiffelBS).
+
+    /** Grid lines drawn over a dark viz background (waveform mirrors). */
+    inline juce::Colour grid()
+    {
+        return juce::Colour (0x20ffffff);
+    }
+
+    /** Fainter horizontal lines marking scale notes / lanes. */
+    inline juce::Colour scaleLine()
+    {
+        return juce::Colour (0x10ffffff);
+    }
+
+    /** Ruler strip background of the pitch curve editor. */
+    inline juce::Colour rulerBg()
+    {
+        return juce::Colour (0xff1a1a1a);
+    }
+
+    /** Brighter grid lines of the curve editor plotting area. */
+    inline juce::Colour curveGrid()
+    {
+        return juce::Colour (0x40ffffff);
+    }
+
+    /** Header band behind a visualizer title row. */
+    inline juce::Colour vizHeaderBg()
+    {
+        return juce::Colour (0xff191b1e);
+    }
+
+    /** Accent line under a visualizer header (same tint as headerAccent
+        at full strength, without the Dark/Light switch). */
+    inline juce::Colour vizHeaderAccent()
+    {
+        return juce::Colour (0x331A9AF0);
+    }
+
+    /** Legend block background overlaying a visualizer. */
+    inline juce::Colour vizLegendBg()
+    {
+        return juce::Colour (0xff191b1e);
+    }
+
+    /** CPU/performance meter well (visible on any app theme). */
+    inline juce::Colour cpuBg()
+    {
+        return juce::Colour (0xff222230);
+    }
+
+    /** CPU/performance meter text and scale ticks. */
+    inline juce::Colour cpuText()
+    {
+        return juce::Colours::white.withAlpha (0.9f);
+    }
 }
