@@ -19,6 +19,7 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 | `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
 | `PowerToggle.h` | `ebs::PowerToggle`: power-glyph toggle with warm glow when engaged, disabled dimming; `glowColourId` override |
 | `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`), `ColourIds` overrides |
+| `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
 ## Colour overrides (v0.2.0)
 
@@ -52,7 +53,6 @@ struct MyLnf : ebs::LookAndFeel
     }
 };
 ```
-| `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
 ## Requirements
 
@@ -67,7 +67,7 @@ struct MyLnf : ebs::LookAndFeel
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.2.1)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.3.0)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -128,10 +128,14 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.3** — rotary `Knob` + painter, `MorphSlider`, `PowerToggle`
   (carried over from the OpenVoxTuner origin UI), always-dark viz-chrome
   palette tokens and chrome `ThemeChromeIds` (tab pill fill/text, bar rule,
-  checkbox well) with built-ins frozen at their pre-v0.3 values.
+  checkbox well) with built-ins frozen at their pre-v0.3 values; per-instance
+  `TextButton::buttonColourId` chip fills under the shared hover rule.
+  First consumers of the tag: OpenVoxTuner and its OpenVoxKey companion
+  (FetchContent pin, local LookAndFeel deleted), while OpenTimbre stays on
+  the stable v0.2.x line.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
-  LogWindow chrome), then OpenVoxTuner cutover; OpenVisuAI adoption of the
-  widget set when its editor grows one.
+  LogWindow chrome); OpenVisuAI adoption of the widget set when its editor
+  grows one.
 
 ## License
 
