@@ -81,7 +81,7 @@ public:
         }
         else if (s == Shape::grip)
         {
-            setTooltip ("Drag");
+            setTooltip ("Drag to DAW or Desktop");
             icon = textDim();
         }
         else if (s == Shape::undo)
@@ -118,7 +118,7 @@ public:
         }
         else if (s == Shape::search)
         {
-            setTooltip ("Reveal folder");
+            setTooltip ("Reveal folder in Explorer");
             icon = textDim();
         }
         else

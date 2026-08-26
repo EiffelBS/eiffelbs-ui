@@ -31,7 +31,7 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.1.0)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.1.1)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
