@@ -57,7 +57,7 @@ struct MyLnf : ebs::LookAndFeel
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.2.0)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.2.1)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -112,6 +112,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.2** — `ColourIds` on `IconButton` / `StatusBar` with the three-level
   resolution contract (instance > theme hook > built-in); consumer cutover
   done in OpenTimbre (local copies deleted, FetchContent pin).
+- **v0.2.1** — `IconButton::Shape::lock` padlock glyph (stroke-style SVG,
+  default tooltip "Link"); semantics are app-defined (e.g. host-transport
+  link in OpenTimbre).
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
   LogWindow chrome), then OpenVoxTuner and OpenVisuAI cutovers.
 

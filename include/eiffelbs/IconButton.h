@@ -42,6 +42,8 @@ static const char* const kSvgGear = R"(<svg viewBox="0 0 24 24" fill="none" stro
 static const char* const kSvgTool = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>)";
 // Feather "search" (magnifier) - reveal-a-folder rows.
 static const char* const kSvgSearch = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>)";
+// Feather-style padlock: body rectangle + shackle arc, stroked outline.
+static const char* const kSvgLock   = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>)";
 static const char* const kSvgRefresh = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>)";
 
 static const char* const kSvgWand = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>)";
@@ -58,9 +60,11 @@ public:
      *  toggled), stop = forced square, cross = delete cross, refresh =
      *  circular re-roll arrow, folder = folder silhouette, grip = drag
      *  handle, undo/redo = circular arrows, settings = gear, star =
-     *  favourite marker (filled or thin outline, see setFilled). */
+     *  favourite marker (filled or thin outline, see setFilled), lock =
+     *  padlock (host-transport link semantics are app-defined). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
-                       undo, redo, settings, star, wand, tool, search };
+                       undo, redo, settings, star, wand, tool, search,
+                       lock };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -133,6 +137,11 @@ public:
         {
             setTooltip ("Reveal folder in Explorer");
             icon = textDim();
+        }
+        else if (s == Shape::lock)
+        {
+            setTooltip ("Link");
+            icon = textDim();   // quiet grey; ON state is app-driven (alpha/colourId)
         }
         else
         {
@@ -324,6 +333,7 @@ private:
             case Shape::grip:     return kSvgHand;
             case Shape::tool:     return kSvgTool;
             case Shape::search:   return kSvgSearch;
+            case Shape::lock:     return kSvgLock;
             default:              return nullptr;
         }
     }

@@ -182,7 +182,7 @@ int main()
             ebs::IconButton::Shape::undo,    ebs::IconButton::Shape::redo,
             ebs::IconButton::Shape::settings, ebs::IconButton::Shape::star,
             ebs::IconButton::Shape::wand,    ebs::IconButton::Shape::tool,
-            ebs::IconButton::Shape::search
+            ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
