@@ -30,6 +30,13 @@ Widgets expose JUCE-standard `ColourIds`. Resolution order:
    every instance at once; default overrides nothing),
 3. built-in shape-aware palette default (unchanged since v0.1).
 
+Text buttons: setting `juce::TextButton::buttonColourId` **per instance**
+turns that colour into the body tint across rest / hover / down / toggled
+states, so translucent "chip" buttons keep their tinted look while sharing
+the common accent hover outline (the 1 px liseret). Without an explicit
+colour, buttons use the built-in form-style fills (`bgDark` body,
+`panelBorder` edge).
+
 ```cpp
 // one-off:
 delBtn.setColour (ebs::IconButton::iconColourId, juce::Colours::red);

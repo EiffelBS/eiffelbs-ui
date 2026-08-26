@@ -198,7 +198,16 @@ namespace ebs
             accentSoft when toggled on. PRIMARY actions: a button whose
             ComponentID is "primary" is filled with the accent colour at
             rest (white text, hover brighter, down darker) so key actions
-            read at a glance. */
+            read at a glance.
+
+            Per-instance fills: a button with an EXPLICITLY SET
+            TextButton::buttonColourId keeps that colour as its body tint
+            across rest / hover / down / toggled states (brighter/darker
+            variations on hover/down) while inheriting the shared accent
+            hover rule (the 1 px "liseret"). Buttons without an explicit
+            colour get the built-in form-style treatment. This is how apps
+            carry translucent "chip" buttons into this theme without losing
+            their tinted look. */
         void drawButtonBackground (juce::Graphics& g, juce::Button& button,
                                    const juce::Colour& /*backgroundColour*/,
                                    bool shouldDrawButtonAsHighlighted,
@@ -206,6 +215,12 @@ namespace ebs
         {
             auto bounds = button.getLocalBounds().toFloat().reduced (0.5f);
             const float corner = 4.0f;
+
+            const bool explicitFill =
+                button.isColourSpecified (juce::TextButton::buttonColourId);
+            const auto instFill = explicitFill
+                ? button.findColour (juce::TextButton::buttonColourId)
+                : juce::Colours::black;
 
             juce::Colour fill, outline;
             if (button.getComponentID() == "primary")
@@ -219,7 +234,7 @@ namespace ebs
             }
             else if (shouldDrawButtonAsDown)
             {
-                fill = accent();
+                fill = explicitFill ? instFill.darker (0.12f) : accent();
                 // GENERAL hover accent rule, pressed variant: stronger.
                 if (shouldDrawButtonAsHighlighted)
                     outline = accent().withAlpha (0.55f);
@@ -228,12 +243,13 @@ namespace ebs
             }
             else if (button.getToggleState())
             {
-                fill = accentSoft();
+                fill = explicitFill ? instFill : accentSoft();
                 outline = accent().withAlpha (0.55f);   // active: unchanged
             }
             else if (shouldDrawButtonAsHighlighted)
             {
-                fill = bgDark().brighter (0.07f);
+                fill = explicitFill ? instFill.brighter (0.07f)
+                                    : bgDark().brighter (0.07f);
                 // GENERAL hover accent rule (every non-primary button):
                 // accent-tinted 1 px outline over the standard hover fill.
                 outline = accent().withAlpha (0.45f);
@@ -243,7 +259,7 @@ namespace ebs
                 // Text buttons rest on the SAME fill as the input fields
                 // (TextEditors/ComboBoxes), so they read as part of the
                 // form instead of floating light blocks.
-                fill = bgDark();
+                fill = explicitFill ? instFill : bgDark();
                 outline = panelBorder();
             }
 

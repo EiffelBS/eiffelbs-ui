@@ -150,6 +150,36 @@ int main()
         checkPixel (plainImg, { 6, 14 }, ebs::bgDark(),
                     "plain button rests on the shared form fill");
 
+        // "Chip" contract: a TextButton with an EXPLICIT buttonColourId
+        // keeps that translucent tint at rest AND when toggled, instead of
+        // falling back to the built-in form/accentSoft fills. (The accent
+        // hover rule itself stays shared and is not sampled here - hover
+        // is mouse-driven.)
+        PaintableTextButton chip ("");
+        chip.setSize (60, 24);
+        const auto chipTint = juce::Colour (0x331A9AF0);
+        chip.setColour (juce::TextButton::buttonColourId, chipTint);
+        {
+            const uint8_t fa = chipTint.getAlpha();
+            // Translucent tint composed over this canvas's black base
+            // (round-to-nearest like JUCE's software blender).
+            const auto composeCh = [fa] (uint8_t ch)
+                { return (uint8_t) ((ch * fa + 127) / 255); };
+            const auto composed = juce::Colour::fromRGBA (
+                composeCh (chipTint.getRed()),
+                composeCh (chipTint.getGreen()),
+                composeCh (chipTint.getBlue()), 255);
+            const auto restImg = renderToImage (60, 24, [&] (juce::Graphics& g)
+                { chip.setBounds (0, 0, 60, 24); chip.paint (g); });
+            checkPixel (restImg, { 4, 12 }, composed,
+                        "explicit TextButton fill carries the instance tint at rest");
+            chip.setToggleState (true, juce::dontSendNotification);
+            const auto onImg = renderToImage (60, 24, [&] (juce::Graphics& g)
+                { chip.paint (g); });
+            checkPixel (onImg, { 4, 12 }, composed,
+                        "explicit TextButton fill survives the toggled state");
+        }
+
         // ToggleButton (checked): checkbox interior uses the visualizer bg.
         PaintableToggleButton tog ("Option");
         tog.setToggleState (true, juce::dontSendNotification);
