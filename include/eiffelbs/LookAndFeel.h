@@ -140,6 +140,17 @@ namespace ebs
             setColour (juce::ResizableWindow::backgroundColourId, bgDark());
         }
 
+        /** Theme-level restyling hook for eiffelbs widget ColourIds
+            (IconButton / StatusBar). Return a NON-transparent colour to
+            override a widget's built-in default; per-instance
+            Component::setColour() calls still win over this hook.
+            Default implementation overrides nothing, so widgets keep their
+            exact pre-v0.2 palette behaviour unless a host opts in. */
+        virtual juce::Colour widgetThemeColour ([[maybe_unused]] int colourId)
+        {
+            return {};
+        }
+
         // === Buttons ===============================================
 
         /** Rounded theme buttons: panel fill at rest, accent when pressed,

@@ -22,6 +22,7 @@
 #include <map>
 
 #include "eiffelbs/Theme.h"
+#include "eiffelbs/LookAndFeel.h"   // resolved(): theme-level colour hook
 
 namespace ebs
 {
@@ -60,6 +61,18 @@ public:
      *  favourite marker (filled or thin outline, see setFilled). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search };
+
+    /** JUCE-standard per-instance / theme-level colour hooks. Resolution
+     *  order: Component::setColour() override > LookAndFeel::
+     *  widgetThemeColour() hook > built-in shape-aware palette default.
+     *  iconColourId maps to transparent at theme level by default so each
+     *  shape keeps its semantic default (red cross, blue wand, ...). */
+    enum ColourIds
+    {
+        iconColourId          = 0x1e4b0101,  ///< glyph colour
+        frameFillColourId     = 0x1e4b0102,  ///< framed-mode background
+        frameOutlineColourId  = 0x1e4b0103   ///< framed-mode outline
+    };
 
     explicit IconButton (Shape s = Shape::play)
         : juce::Button ("IconButton"), shape (s)
@@ -103,7 +116,7 @@ public:
         {
             setTooltip ("Favorite");
             // Favourite gold: app-flavoured constant kept for visual parity;
-            // overridable hook planned at the ColourIds milestone.
+            // per-instance or theme overrides go through iconColourId.
             icon = juce::Colour (0xffe8c34a);
         }
         else if (s == Shape::wand)
@@ -176,8 +189,8 @@ public:
         if (framed)                          // real button affordance
         {
             auto frame   = getLocalBounds().toFloat().reduced (1.0f);
-            auto base    = bgDark();
-            auto outline = panelBorder();
+            auto base    = resolved (frameFillColourId,    bgDark());
+            auto outline = resolved (frameOutlineColourId, panelBorder());
             if (down)
             {
                 base    = base.darker (0.08f);
@@ -199,7 +212,7 @@ public:
             g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
         }
 
-        auto colour = icon;
+        auto colour = resolved (iconColourId, icon);
         if (down)
             colour = colour.brighter (0.30f);
         else if (over)
@@ -282,6 +295,21 @@ public:
     }
 
 private:
+    /** Colour resolution order for every widget ColourId:
+        1. per-instance setColour() override (standard JUCE),
+        2. theme-level hook ebs::LookAndFeel::widgetThemeColour(),
+        3. built-in default (shape-aware palette constant). */
+    juce::Colour resolved (int id, juce::Colour builtin) const
+    {
+        if (isColourSpecified (id))
+            return findColour (id);
+        if (auto* l = dynamic_cast<LookAndFeel*> (&getLookAndFeel()))
+            if (juce::Colour themed = l->widgetThemeColour (id);
+                ! themed.isTransparent())
+                return themed;
+        return builtin;
+    }
+
     /** SVG source string for a shape, or nullptr when the shape is still
      *  drawn procedurally (play/stop/cross/folder/star). */
     static const char* svgFor (Shape s)

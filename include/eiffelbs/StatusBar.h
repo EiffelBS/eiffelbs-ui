@@ -22,6 +22,7 @@
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
+#include "eiffelbs/LookAndFeel.h"   // resolved(): theme-level colour hook
 
 namespace ebs
 {
@@ -67,6 +68,17 @@ class StatusBar : public juce::Component,
                   public juce::SettableTooltipClient
 {
 public:
+    /** JUCE-standard colour hooks. Resolution order: Component::setColour()
+     *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
+     *  palette default. See IconButton::ColourIds for the full contract. */
+    enum ColourIds
+    {
+        backgroundColourId = 0x1e4b0111,  ///< bar surface fill
+        dividerColourId    = 0x1e4b0112,  ///< 1 px top separator line
+        textColourId       = 0x1e4b0113,  ///< last-log-line text
+        counterColourId    = 0x1e4b0114   ///< right-hand "N lines" text
+    };
+
     StatusBar()
     {
         setOpaque (true);
@@ -133,13 +145,14 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        g.fillAll (bgPanel());
-        g.setColour (panelBorder().withAlpha (0.6f));
+        g.fillAll (resolved (backgroundColourId, bgPanel()));
+        g.setColour (resolved (dividerColourId,
+                               panelBorder().withAlpha (0.6f)));
         g.drawLine (0.0f, 0.5f, (float) getWidth(), 0.5f, 1.0f);
 
         // Last line, LEFT-TRUNCATED (the tail is what matters).
         g.setFont (createFont (13.0f, false));
-        g.setColour (textDim());
+        g.setColour (resolved (textColourId, textDim()));
         const auto avail = (float) getWidth() - counterW - 16.0f;
         auto text   = lastLine;
         const float w = juce::GlyphArrangement::getStringWidth (
@@ -156,7 +169,7 @@ public:
                     juce::Justification::centredLeft, true);
 
         // Discreet counter on the right.
-        g.setColour (panelBorder());
+        g.setColour (resolved (counterColourId, panelBorder()));
         g.drawText (juce::String (history.size()) + " lines",
                     getWidth() - counterW, 0, counterW, getHeight(),
                     juce::Justification::centredRight, true);
@@ -165,6 +178,21 @@ public:
     void mouseDown (const juce::MouseEvent&) override { showLogWindow(); }
 
 private:
+    /** Colour resolution order for every widget ColourId:
+        1. per-instance setColour() override (standard JUCE),
+        2. theme-level hook ebs::LookAndFeel::widgetThemeColour(),
+        3. built-in default (palette constant). */
+    juce::Colour resolved (int id, juce::Colour builtin) const
+    {
+        if (isColourSpecified (id))
+            return findColour (id);
+        if (auto* l = dynamic_cast<LookAndFeel*> (&getLookAndFeel()))
+            if (juce::Colour themed = l->widgetThemeColour (id);
+                ! themed.isTransparent())
+                return themed;
+        return builtin;
+    }
+
     void showLogWindow()
     {
         if (LogWindow::liveWindow != nullptr)

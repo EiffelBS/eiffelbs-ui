@@ -13,9 +13,35 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 | `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger` |
 | `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
 | `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` |
-| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs), framed chrome mode, play/stop toggle state |
+| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs), framed chrome mode, play/stop toggle state, `ColourIds` overrides |
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
-| `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`) |
+| `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`), `ColourIds` overrides |
+
+## Colour overrides (v0.2.0)
+
+Widgets expose JUCE-standard `ColourIds`. Resolution order:
+
+1. per-instance `setColour (id, colour)` (standard JUCE),
+2. theme-level hook — subclass `ebs::LookAndFeel` and override
+   `widgetThemeColour (int colourId)` (return non-transparent to restyle
+   every instance at once; default overrides nothing),
+3. built-in shape-aware palette default (unchanged since v0.1).
+
+```cpp
+// one-off:
+delBtn.setColour (ebs::IconButton::iconColourId, juce::Colours::red);
+
+// whole-app theme tweak:
+struct MyLnf : ebs::LookAndFeel
+{
+    juce::Colour widgetThemeColour (int id) override
+    {
+        if (id == ebs::StatusBar::backgroundColourId)
+            return juce::Colour (0xff101216);
+        return {};
+    }
+};
+```
 | `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
 ## Requirements
@@ -31,7 +57,7 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.1.1)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.2.0)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -81,13 +107,13 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 
 ## Roadmap
 
-- **v0.x** — extraction (this release): palette + fonts + LookAndFeel +
-  generic widgets, consumed side-by-side with the apps' local copies.
-- **ColourIds milestone** — move the remaining hard decisions (`vizBg`,
-  `outputColour`, favourite gold, ...) behind overridable `ColourIds` so
-  third-party components theme themselves with zero code.
-- Consumer cutover: OpenTimbre first (delete local `OTTheme.h` /
-  `OTLookAndFeel.h`, FetchContent pin), then OpenVoxTuner, then OpenVisuAI.
+- **v0.1** — extraction: palette + fonts + LookAndFeel + generic widgets,
+  consumed side-by-side with the apps' local copies.
+- **v0.2** — `ColourIds` on `IconButton` / `StatusBar` with the three-level
+  resolution contract (instance > theme hook > built-in); consumer cutover
+  done in OpenTimbre (local copies deleted, FetchContent pin).
+- **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
+  LogWindow chrome), then OpenVoxTuner and OpenVisuAI cutovers.
 
 ## License
 

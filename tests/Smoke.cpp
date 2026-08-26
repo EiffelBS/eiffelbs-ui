@@ -213,6 +213,62 @@ int main()
         check (barImg.getPixelAt (150, 12) == ebs::bgPanel(),
                "status bar paints the panel surface");
 
+        // === v0.2.0 ColourIds ===============================================
+        // 1) Per-instance override wins over everything.
+        ebs::StatusBar redBar;
+        redBar.logLine ("override");
+        redBar.setColour (ebs::StatusBar::backgroundColourId,
+                          juce::Colours::red);
+        const auto redImg = renderToImage (300, 24, [&] (juce::Graphics& g)
+            { redBar.setSize (300, 24); redBar.paint (g); });
+        checkPixel (redImg, { 150, 12 }, juce::Colours::red,
+                    "status bar honours a per-instance backgroundColourId");
+
+        // 2) Theme-level hook: a subclassed L&F restyles WITHOUT touching
+        //    instances. Swap the global default, render, restore.
+        struct ThemedLnf : ebs::LookAndFeel
+        {
+            using ebs::LookAndFeel::LookAndFeel;
+            juce::Colour widgetThemeColour (int colourId) override
+            {
+                if (colourId == ebs::StatusBar::backgroundColourId)
+                    return juce::Colour (0xff003300);
+                return {};
+            }
+        } themedLnf;
+        {
+            juce::LookAndFeel::setDefaultLookAndFeel (&themedLnf);
+            ebs::StatusBar themedBar;
+            themedBar.logLine ("themed");
+            const auto tImg = renderToImage (300, 24, [&] (juce::Graphics& g)
+                { themedBar.setSize (300, 24); themedBar.paint (g); });
+            checkPixel (tImg, { 150, 12 }, juce::Colour (0xff003300),
+                        "widgetThemeColour hook restyles at theme level");
+            juce::LookAndFeel::setDefaultLookAndFeel (&lnf);   // restore
+        }
+
+        // 3) IconButton glyph: per-instance iconColourId.
+        PaintableIconButton greenPlay (ebs::IconButton::Shape::play);
+        greenPlay.setSize (28, 28);
+        greenPlay.setColour (ebs::IconButton::iconColourId,
+                             juce::Colours::green);
+        const auto gpImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { greenPlay.paint (g); });
+        // Play triangle spans the full mid-height scanline x=9..19.
+        checkPixel (gpImg, { 12, 14 }, juce::Colours::green,
+                    "icon button honours a per-instance iconColourId");
+
+        // 4) Framed mode: frameFillColourId drives the chrome background.
+        PaintableIconButton framedFill (ebs::IconButton::Shape::play);
+        framedFill.setSize (28, 28);
+        framedFill.setFramed (true);
+        framedFill.setColour (ebs::IconButton::frameFillColourId,
+                              juce::Colour (0xff402060));
+        const auto ffImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { framedFill.paint (g); });
+        checkPixel (ffImg, { 6, 14 }, juce::Colour (0xff402060),
+                    "framed icon button honours frameFillColourId");
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
