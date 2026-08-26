@@ -12,4 +12,5 @@
 #include "eiffelbs/FramedBody.h"
 #include "eiffelbs/Knob.h"
 #include "eiffelbs/MorphSlider.h"
+#include "eiffelbs/PowerToggle.h"
 #include "eiffelbs/StatusBar.h"
