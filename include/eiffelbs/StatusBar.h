@@ -14,10 +14,19 @@
 //
 // Thread safety: logLine() can be called from ANY thread - it hops to the
 // message thread through MessageManager::callAsync before touching state.
+//
+// ACTIVITY SLOTS (v0.5.0 concept, consumer request 2026-08-27): textual
+// progress ("Generating... 12 s elapsed") relied on a fragile replace-
+// by-prefix heuristic. Structured signals replace it: beginActivity()
+// claims a slot rendered as [spinner + label + elapsed s][determinate
+// ratio bar when the task can measure itself], and setQueue() renders the
+// processing-queue position as a small "done/total" bar. Log lines then
+// carry EVENTS only; progress lives in the slots.
 
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <atomic>
 #include <deque>
 
 #include "eiffelbs/Theme.h"
@@ -65,9 +74,64 @@ public:
 inline LogWindow* LogWindow::liveWindow = nullptr;
 
 class StatusBar : public juce::Component,
-                  public juce::SettableTooltipClient
+                  public juce::SettableTooltipClient,
+                  private juce::Timer
 {
 public:
+    /** Opaque RAII claim on the ACTIVITY slots. Move-only; destruction
+        releases. Any thread (hops to the message thread). A newer
+        beginActivity() SUPERSEDES the previous claim: stale handles
+        become silent no-ops, so a late finish() can never clear another
+        task's slots. */
+    class ProgressActivity
+    {
+    public:
+        ProgressActivity() = default;
+        ProgressActivity (ProgressActivity&& o) noexcept
+            : bar (std::move (o.bar)), token (o.token) { o.token = 0; }
+        ProgressActivity& operator= (ProgressActivity&& o) noexcept
+        {
+            if (this != &o)
+            {
+                release();
+                bar   = std::move (o.bar);
+                token = o.token;
+                o.token = 0;
+            }
+            return *this;
+        }
+        ~ProgressActivity() { release(); }
+
+        /** Update the label shown next to the spinner ("chunk 2/8"...). */
+        void stage (const juce::String& text);
+
+        /** Determinate ratio 0..1; a negative value returns the slot to
+            indeterminate. Call only when the task can MEASURE itself -
+            the slot stays hidden while nobody feeds it. */
+        void progress (float ratio01);
+
+        /** Release the slots now (the destructor calls this too). */
+        void finish();
+
+        explicit operator bool() const noexcept { return token != 0; }
+
+    private:
+        friend class StatusBar;
+        ProgressActivity (StatusBar* b, juce::uint32 t) : bar (b), token (t) {}
+        void release();
+        juce::Component::SafePointer<StatusBar> bar;
+        juce::uint32 token = 0;
+        JUCE_DECLARE_NON_COPYABLE (ProgressActivity)
+    };
+
+    /** Claim the activity slots (ANY thread): spinner + label + elapsed
+        seconds, plus a determinate bar as soon as progress() feeds a
+        ratio >= 0. Supersedes the previous claim. */
+    ProgressActivity beginActivity (const juce::String& label);
+
+    /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
+        Intended for processing-queue visibility ("1/3, 2/3, 3/3..."). */
+    void setQueue (int done, int total);
     /** JUCE-standard colour hooks. Resolution order: Component::setColour()
      *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
      *  palette default. See IconButton::ColourIds for the full contract. */
@@ -160,10 +224,60 @@ public:
                                panelBorder().withAlpha (0.6f)));
         g.drawLine (0.0f, 0.5f, (float) getWidth(), 0.5f, 1.0f);
 
-        // Last line, LEFT-TRUNCATED (the tail is what matters).
         g.setFont (createFont (13.0f, false));
+        const float cy = getHeight() * 0.5f;
+        auto x = 8.0f;
+
+        // ACTIVITY slot: spinner + label + elapsed (+ determinate bar).
+        if (activityToken != 0)
+        {
+            const float r = 5.0f;
+            juce::Path arc;
+            arc.addCentredArc (x + r, cy, r, r, 0.0f,
+                               spinnerPhase, spinnerPhase + 3.8f, true);
+            g.setColour (resolved (textColourId, textDim()));
+            g.strokePath (arc, juce::PathStrokeType (1.6f));
+            x += 2.0f * r + 6.0f;
+
+            g.setColour (resolved (textColourId, textDim()));
+            if (activityLabel.isNotEmpty())
+            {
+                g.drawText (activityLabel, (int) x, 0, 150, getHeight(),
+                            juce::Justification::centredLeft, true);
+                x += 154.0f;
+            }
+            const auto secs = (int) ((juce::Time::getCurrentTime()
+                                      - activityStart).inSeconds());
+            g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
+                        getHeight(), juce::Justification::centredLeft, true);
+            x += 44.0f;
+
+            if (activityRatio >= 0.0f)
+            {
+                drawMiniBar (g, x, cy, 90.0f,
+                             juce::jlimit (0.0f, 1.0f, activityRatio));
+                x += 98.0f;
+            }
+        }
+
+        // QUEUE slot: "done/total" mini-bar (stays at N/N after a burst).
+        if (queueTotal > 0)
+        {
+            drawMiniBar (g, x, cy, 80.0f,
+                         juce::jlimit (0.0f, 1.0f,
+                                       (float) queueDone / (float) queueTotal));
+            x += 84.0f;
+            g.setColour (resolved (counterColourId, panelBorder()));
+            g.drawText (juce::String (queueDone) + "/" + juce::String (queueTotal),
+                        (int) x, 0, 38, getHeight(),
+                        juce::Justification::centredLeft, true);
+            x += 42.0f;
+        }
+
+        // Last line, LEFT-TRUNCATED (the tail is what matters), in the
+        // space the slots left over.
         g.setColour (resolved (textColourId, textDim()));
-        const auto avail = (float) getWidth() - counterW - 16.0f;
+        const auto avail = (float) getWidth() - x - counterW - 8.0f;
         auto text   = lastLine;
         const float w = juce::GlyphArrangement::getStringWidth (
                             g.getCurrentFont(), text);
@@ -175,7 +289,7 @@ public:
                 text = text.substring (1);
             text = "... " + text;
         }
-        g.drawText (text, 8, 0, (int) avail, getHeight(),
+        g.drawText (text, (int) x, 0, (int) avail, getHeight(),
                     juce::Justification::centredLeft, true);
 
         // Discreet counter on the right.
@@ -188,6 +302,36 @@ public:
     void mouseDown (const juce::MouseEvent&) override { showLogWindow(); }
 
 private:
+    /** Shared mini progress-bar renderer for the activity/queue slots. */
+    void drawMiniBar (juce::Graphics& g, float x, float cy, float width,
+                      float ratio)
+    {
+        const juce::Rectangle<float> r { x, cy - 4.0f, width, 8.0f };
+        g.setColour (resolved (dividerColourId, panelBorder()));
+        g.drawRoundedRectangle (r, 4.0f, 1.0f);
+        g.setColour (accent().withAlpha (0.85f));
+        auto fill = r;                    // removeFromLeft mutates: work on a copy
+        g.fillRoundedRectangle (fill.removeFromLeft (juce::jmax (2.0f,
+                                    width * ratio)), 4.0f);
+    }
+
+    void timerCallback() override
+    {
+        spinnerPhase += 0.4f;
+        repaint();
+    }
+
+    /** Message-thread hop shared by every mutating entry point. */
+    void hop (std::function<void (StatusBar&)>&& fn)
+    {
+        if (juce::MessageManager::existsAndIsCurrentThread())
+            fn (*this);
+        else
+            juce::MessageManager::callAsync (
+                [safe = juce::Component::SafePointer<StatusBar> (this),
+                 f = std::move (fn)] () mutable
+                { if (safe != nullptr) f (*safe); });
+    }
     /** Colour resolution order for every widget ColourId:
         1. per-instance setColour() override (standard JUCE),
         2. theme-level hook ebs::LookAndFeel::widgetThemeColour(),
@@ -254,6 +398,83 @@ private:
     std::deque<juce::String> history;
     juce::String lastLine;
     int totalLogged = 0;
+
+    // Activity + queue slots (message thread only; entries hop).
+    std::atomic<juce::uint32> nextToken { 0 };
+    juce::uint32 activityToken = 0;       // 0 = no active claim
+    juce::String activityLabel;
+    juce::Time   activityStart;
+    float        activityRatio = -1.0f;   // < 0 = indeterminate
+    float        spinnerPhase  = 0.0f;
+    int          queueDone = 0, queueTotal = 0;
 };
+
+inline StatusBar::ProgressActivity StatusBar::beginActivity (
+    const juce::String& label)
+{
+    const auto t = nextToken.fetch_add (1, std::memory_order_relaxed) + 1;
+    hop ([t, label] (StatusBar& s)
+    {
+        s.activityToken = t;             // supersedes any older claim
+        s.activityLabel  = label;
+        s.activityStart  = juce::Time::getCurrentTime();
+        s.activityRatio  = -1.0f;
+        s.startTimerHz (10);             // spinner + elapsed repaint
+        s.repaint();
+    });
+    return ProgressActivity (this, t);
+}
+
+inline void StatusBar::setQueue (int done, int total)
+{
+    hop ([done, total] (StatusBar& s)
+    {
+        s.queueDone  = done;
+        s.queueTotal = total;
+        s.repaint();
+    });
+}
+
+inline void StatusBar::ProgressActivity::stage (const juce::String& text)
+{
+    if (bar == nullptr || token == 0) return;
+    const auto t = token;
+    bar->hop ([t, text] (StatusBar& s)
+    {
+        if (s.activityToken == t) { s.activityLabel = text; s.repaint(); }
+    });
+}
+
+inline void StatusBar::ProgressActivity::progress (float ratio01)
+{
+    if (bar == nullptr || token == 0) return;
+    const auto t = token;
+    bar->hop ([t, ratio01] (StatusBar& s)
+    {
+        if (s.activityToken == t) { s.activityRatio = ratio01; s.repaint(); }
+    });
+}
+
+inline void StatusBar::ProgressActivity::finish()
+{
+    if (bar == nullptr || token == 0) return;
+    const auto t = token;
+    token = 0;
+    bar->hop ([t] (StatusBar& s)
+    {
+        if (s.activityToken == t)
+        {
+            s.activityToken = 0;
+            s.activityRatio = -1.0f;
+            s.stopTimer();
+            s.repaint();
+        }
+    });
+}
+
+inline void StatusBar::ProgressActivity::release()
+{
+    finish();   // token guard makes double release harmless
+}
 
 } // namespace ebs
