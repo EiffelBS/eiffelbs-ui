@@ -140,8 +140,8 @@ public:
     {
         backgroundColourId = 0x1e4b0111,  ///< bar surface fill
         dividerColourId    = 0x1e4b0112,  ///< 1 px top separator line
-        textColourId       = 0x1e4b0113,  ///< last-log-line text
-        counterColourId    = 0x1e4b0114   ///< right-hand "N lines" text
+        textColourId       = 0x1e4b0113,  ///< last-log-line + slot text
+        counterColourId    = 0x1e4b0114   ///< reserved (counter removed)
     };
 
     StatusBar()
@@ -250,20 +250,22 @@ public:
 
             if (activityRatio >= 0.0f)
             {
-                drawMiniBar (g, x, cy, 90.0f,
+                drawMiniBar (g, x, cy, 45.0f,
                              juce::jlimit (0.0f, 1.0f, activityRatio));
-                x += 98.0f;
+                x += 53.0f;
             }
         }
 
-        // QUEUE slot: "done/total" mini-bar (stays at N/N after a burst).
+        // QUEUE slot: "done/total" mini-bar; visible only while the
+        // caller feeds it (the queue posts (0, 0) the moment the burst
+        // drains, which hides the slot immediately).
         if (queueTotal > 0)
         {
-            drawMiniBar (g, x, cy, 80.0f,
+            drawMiniBar (g, x, cy, 40.0f,
                          juce::jlimit (0.0f, 1.0f,
                                        (float) queueDone / (float) queueTotal));
-            x += 84.0f;
-            g.setColour (resolved (counterColourId, panelBorder()));
+            x += 44.0f;
+            g.setColour (resolved (textColourId, textDim()));
             g.drawText (juce::String (queueDone) + "/" + juce::String (queueTotal),
                         (int) x, 0, 38, getHeight(),
                         juce::Justification::centredLeft, true);
@@ -273,7 +275,7 @@ public:
         // Last line, LEFT-TRUNCATED (the tail is what matters), in the
         // space the slots left over.
         g.setColour (resolved (textColourId, textDim()));
-        const auto avail = (float) getWidth() - x - counterW - 8.0f;
+        const auto avail = (float) getWidth() - x - 8.0f;
         auto text   = lastLine;
         const float w = juce::GlyphArrangement::getStringWidth (
                             g.getCurrentFont(), text);
@@ -287,23 +289,19 @@ public:
         }
         g.drawText (text, (int) x, 0, (int) avail, getHeight(),
                     juce::Justification::centredLeft, true);
-
-        // Discreet counter on the right.
-        g.setColour (resolved (counterColourId, panelBorder()));
-        g.drawText (juce::String (history.size()) + " lines",
-                    getWidth() - counterW, 0, counterW, getHeight(),
-                    juce::Justification::centredRight, true);
     }
 
     void mouseDown (const juce::MouseEvent&) override { showLogWindow(); }
 
 private:
-    /** Shared mini progress-bar renderer for the activity/queue slots. */
+    /** Shared mini progress-bar renderer for the activity/queue slots.
+        Border + outline use the TEXT colour (user feedback 2026-08-28:
+        the dim divider made the slot hard to read). */
     void drawMiniBar (juce::Graphics& g, float x, float cy, float width,
                       float ratio)
     {
         const juce::Rectangle<float> r { x, cy - 4.0f, width, 8.0f };
-        g.setColour (resolved (dividerColourId, panelBorder()));
+        g.setColour (resolved (textColourId, textDim()));
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
         g.setColour (accent().withAlpha (0.85f));
         auto fill = r;                    // removeFromLeft mutates: work on a copy
@@ -390,7 +388,6 @@ private:
     }
 
     static constexpr int kMaxLines = 500;
-    static constexpr int counterW  = 70;
     std::deque<juce::String> history;
     juce::String lastLine;
     int totalLogged = 0;
