@@ -247,8 +247,26 @@ namespace ebs
             }
             else if (button.getToggleState())
             {
-                fill = explicitFill ? instFill : accentSoft();
-                outline = accent().withAlpha (0.55f);   // active: unchanged
+                // Toggle state must be unmistakable. An instance
+                // buttonOnColourId wins outright; otherwise a chip that
+                // only set buttonColourId gets its fill visibly lifted
+                // from the rest state, and bare buttons switch to the
+                // solid accent. Explicit ON fills carry no outline - the
+                // fill itself is the active-state signal.
+                const bool explicitOn =
+                    button.isColourSpecified (juce::TextButton::buttonOnColourId);
+                if (explicitOn)
+                {
+                    fill    = button.findColour (juce::TextButton::buttonOnColourId);
+                    outline = juce::Colours::transparentBlack;
+                }
+                else
+                {
+                    fill    = explicitFill ? instFill.brighter (0.35f) : accent();
+                    outline = accent().withAlpha (0.55f);
+                }
+                if (shouldDrawButtonAsHighlighted)
+                    fill = fill.brighter (0.08f);
             }
             else if (shouldDrawButtonAsHighlighted)
             {
