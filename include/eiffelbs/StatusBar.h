@@ -102,12 +102,11 @@ public:
         }
         ~ProgressActivity() { release(); }
 
-        /** Update the label shown next to the spinner ("chunk 2/8"...). */
-        void stage (const juce::String& text);
-
         /** Determinate ratio 0..1; a negative value returns the slot to
             indeterminate. Call only when the task can MEASURE itself -
-            the slot stays hidden while nobody feeds it. */
+            the slot stays hidden while nobody feeds it. No textual label
+            exists in the slot (consumer feedback 2026-08-27: the log
+            line beside it already tells WHAT is running). */
         void progress (float ratio01);
 
         /** Release the slots now (the destructor calls this too). */
@@ -124,13 +123,15 @@ public:
         JUCE_DECLARE_NON_COPYABLE (ProgressActivity)
     };
 
-    /** Claim the activity slots (ANY thread): spinner + label + elapsed
-        seconds, plus a determinate bar as soon as progress() feeds a
-        ratio >= 0. Supersedes the previous claim. */
-    ProgressActivity beginActivity (const juce::String& label);
+    /** Claim the activity slots (ANY thread): spinner + elapsed seconds,
+        plus a determinate bar as soon as progress() feeds a ratio >= 0.
+        Supersedes the previous claim. */
+    ProgressActivity beginActivity();
 
     /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
-        Intended for processing-queue visibility ("1/3, 2/3, 3/3..."). */
+        Intended for processing-queue visibility ("1/3, 2/3, 3/3...").
+        A completion (done >= total > 0) holds for ~3 s, then the slot
+        auto-hides unless a newer value rewrites it meanwhile. */
     void setQueue (int done, int total);
     /** JUCE-standard colour hooks. Resolution order: Component::setColour()
      *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
@@ -228,7 +229,8 @@ public:
         const float cy = getHeight() * 0.5f;
         auto x = 8.0f;
 
-        // ACTIVITY slot: spinner + label + elapsed (+ determinate bar).
+        // ACTIVITY slot: spinner + elapsed (+ determinate bar). No textual
+        // label: the log line beside the slots already tells WHAT runs.
         if (activityToken != 0)
         {
             const float r = 5.0f;
@@ -240,12 +242,6 @@ public:
             x += 2.0f * r + 6.0f;
 
             g.setColour (resolved (textColourId, textDim()));
-            if (activityLabel.isNotEmpty())
-            {
-                g.drawText (activityLabel, (int) x, 0, 150, getHeight(),
-                            juce::Justification::centredLeft, true);
-                x += 154.0f;
-            }
             const auto secs = (int) ((juce::Time::getCurrentTime()
                                       - activityStart).inSeconds());
             g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
@@ -402,21 +398,18 @@ private:
     // Activity + queue slots (message thread only; entries hop).
     std::atomic<juce::uint32> nextToken { 0 };
     juce::uint32 activityToken = 0;       // 0 = no active claim
-    juce::String activityLabel;
     juce::Time   activityStart;
     float        activityRatio = -1.0f;   // < 0 = indeterminate
     float        spinnerPhase  = 0.0f;
     int          queueDone = 0, queueTotal = 0;
 };
 
-inline StatusBar::ProgressActivity StatusBar::beginActivity (
-    const juce::String& label)
+inline StatusBar::ProgressActivity StatusBar::beginActivity()
 {
     const auto t = nextToken.fetch_add (1, std::memory_order_relaxed) + 1;
-    hop ([t, label] (StatusBar& s)
+    hop ([t] (StatusBar& s)
     {
         s.activityToken = t;             // supersedes any older claim
-        s.activityLabel  = label;
         s.activityStart  = juce::Time::getCurrentTime();
         s.activityRatio  = -1.0f;
         s.startTimerHz (10);             // spinner + elapsed repaint
@@ -432,16 +425,23 @@ inline void StatusBar::setQueue (int done, int total)
         s.queueDone  = done;
         s.queueTotal = total;
         s.repaint();
-    });
-}
-
-inline void StatusBar::ProgressActivity::stage (const juce::String& text)
-{
-    if (bar == nullptr || token == 0) return;
-    const auto t = token;
-    bar->hop ([t, text] (StatusBar& s)
-    {
-        if (s.activityToken == t) { s.activityLabel = text; s.repaint(); }
+        if (total > 0 && done >= total)
+        {
+            // Completion beat: hold "N/N" for ~3 s, then auto-hide unless
+            // a newer burst value rewrote the slot in the meantime.
+            juce::Timer::callAfterDelay (3000,
+                [safe = juce::Component::SafePointer<StatusBar> (&s),
+                 done, total]
+                {
+                    if (safe != nullptr && safe->queueDone == done
+                        && safe->queueTotal == total)
+                    {
+                        safe->queueDone  = 0;
+                        safe->queueTotal = 0;
+                        safe->repaint();
+                    }
+                });
+        }
     });
 }
 
