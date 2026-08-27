@@ -241,21 +241,25 @@ public:
         // ACTIVITY block: spinner + per-generation elapsed, and - when a
         // queue burst is live - a small separator + the TOTAL burst
         // elapsed (user request 2026-08-28: both timers side by side).
-        // In a gap between two jobs the spinner/seconds hide and the
-        // total keeps ticking alone at the block's start.
+        // The block is ONE ensemble (user feedback 2026-08-28): the
+        // spinner keeps spinning in the gap between two tasks of a live
+        // burst (a task just ended, the next is about to start) and the
+        // whole block vanishes together when the burst drains. The
+        // per-task seconds only show while a task is actually claimed.
         const bool burstLive = queueTotal > 0 && queueBurstStart != juce::Time();
-        if (activityToken != 0 || burstLive)
+        const bool taskLive  = activityToken != 0;
+        if (taskLive || burstLive)
         {
             const float r = 5.0f;
-            if (activityToken != 0)
-            {
-                juce::Path arc;
-                arc.addCentredArc (x + r, cy, r, r, 0.0f,
-                                   spinnerPhase, spinnerPhase + 3.8f, true);
-                g.setColour (resolved (textColourId, textDim()));
-                g.strokePath (arc, juce::PathStrokeType (1.6f));
-                x += 2.0f * r + 6.0f;
+            juce::Path arc;
+            arc.addCentredArc (x + r, cy, r, r, 0.0f,
+                               spinnerPhase, spinnerPhase + 3.8f, true);
+            g.setColour (resolved (textColourId, textDim()));
+            g.strokePath (arc, juce::PathStrokeType (1.6f));
+            x += 2.0f * r + 6.0f;
 
+            if (taskLive)
+            {
                 const auto secs = (int) ((juce::Time::getCurrentTime()
                                           - activityStart).inSeconds());
                 g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
@@ -264,7 +268,7 @@ public:
             }
             if (burstLive)
             {
-                if (activityToken != 0)
+                if (taskLive)
                 {
                     // Small separator between the two timers.
                     g.setColour (resolved (textColourId, textDim())
@@ -280,7 +284,7 @@ public:
                 x += 60.0f;
             }
 
-            if (activityRatio >= 0.0f)
+            if (taskLive && activityRatio >= 0.0f)
             {
                 drawMiniBar (g, x, cy, 45.0f,
                              juce::jlimit (0.0f, 1.0f, activityRatio));
