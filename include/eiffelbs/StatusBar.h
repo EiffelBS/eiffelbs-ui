@@ -238,24 +238,47 @@ public:
         const float cy = getHeight() * 0.5f;
         auto x = 8.0f;
 
-        // ACTIVITY slot: spinner + elapsed (+ determinate bar). No textual
-        // label: the log line beside the slots already tells WHAT runs.
-        if (activityToken != 0)
+        // ACTIVITY block: spinner + per-generation elapsed, and - when a
+        // queue burst is live - a small separator + the TOTAL burst
+        // elapsed (user request 2026-08-28: both timers side by side).
+        // In a gap between two jobs the spinner/seconds hide and the
+        // total keeps ticking alone at the block's start.
+        const bool burstLive = queueTotal > 0 && queueBurstStart != juce::Time();
+        if (activityToken != 0 || burstLive)
         {
             const float r = 5.0f;
-            juce::Path arc;
-            arc.addCentredArc (x + r, cy, r, r, 0.0f,
-                               spinnerPhase, spinnerPhase + 3.8f, true);
-            g.setColour (resolved (textColourId, textDim()));
-            g.strokePath (arc, juce::PathStrokeType (1.6f));
-            x += 2.0f * r + 6.0f;
+            if (activityToken != 0)
+            {
+                juce::Path arc;
+                arc.addCentredArc (x + r, cy, r, r, 0.0f,
+                                   spinnerPhase, spinnerPhase + 3.8f, true);
+                g.setColour (resolved (textColourId, textDim()));
+                g.strokePath (arc, juce::PathStrokeType (1.6f));
+                x += 2.0f * r + 6.0f;
 
-            g.setColour (resolved (textColourId, textDim()));
-            const auto secs = (int) ((juce::Time::getCurrentTime()
-                                      - activityStart).inSeconds());
-            g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
-                        getHeight(), juce::Justification::centredLeft, true);
-            x += 44.0f;
+                const auto secs = (int) ((juce::Time::getCurrentTime()
+                                          - activityStart).inSeconds());
+                g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
+                            getHeight(), juce::Justification::centredLeft, true);
+                x += 44.0f;
+            }
+            if (burstLive)
+            {
+                if (activityToken != 0)
+                {
+                    // Small separator between the two timers.
+                    g.setColour (resolved (textColourId, textDim())
+                                     .withAlpha (0.35f));
+                    g.fillRect (x, cy - 6.0f, 1.5f, 12.0f);
+                    x += 9.0f;
+                }
+                const auto total = (int) (juce::Time::getCurrentTime()
+                                          - queueBurstStart).inSeconds();
+                g.setColour (resolved (textColourId, textDim()));
+                g.drawText (formatElapsed (total), (int) x, 0, 56,
+                            getHeight(), juce::Justification::centredLeft, true);
+                x += 60.0f;
+            }
 
             if (activityRatio >= 0.0f)
             {
@@ -267,8 +290,8 @@ public:
 
         // QUEUE slot: "done/total" mini-bar; visible only while the
         // caller feeds it (the queue posts (0, 0) the moment the burst
-        // drains, which hides the slot immediately). A valid burstStart
-        // adds the TOTAL elapsed counter (M:SS / H:MM:SS).
+        // drains, which hides the slot immediately). The TOTAL burst
+        // elapsed lives in the activity block beside the spinner.
         queueSlotBounds = {};
         if (queueTotal > 0)
         {
@@ -282,14 +305,6 @@ public:
                         (int) x, 0, 38, getHeight(),
                         juce::Justification::centredLeft, true);
             x += 42.0f;
-            if (queueBurstStart != juce::Time())
-            {
-                const auto secs = (int) (juce::Time::getCurrentTime()
-                                         - queueBurstStart).inSeconds();
-                g.drawText (formatElapsed (secs), (int) x, 0, 56,
-                            getHeight(), juce::Justification::centredLeft, true);
-                x += 60.0f;
-            }
             queueSlotBounds = { slotX, 0.0f, x - slotX, (float) getHeight() };
         }
 
