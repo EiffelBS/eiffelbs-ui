@@ -75,6 +75,12 @@ shared LookAndFeel AND every subscribed component - no centralised
 re-apply walker needed. Dispatch is UI-thread only (same contract as
 `currentTheme()`).
 
+**v0.4.1:** the built-in checkbox well default is theme-aware. Under Dark
+it stays the studio canvas tone; under Light it turns white with the
+theme-aware outline so the accent tick keeps its contrast. Apps that
+override `checkboxFillColourId` per instance (or through
+`widgetThemeColour`) keep priority under the 3-level contract.
+
 ## Requirements
 
 - JUCE 8 (developed against **8.0.8**)
@@ -88,7 +94,7 @@ re-apply walker needed. Dispatch is UI-thread only (same contract as
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.4.0)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.4.1)              # pin tags; breaking changes bump major
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE

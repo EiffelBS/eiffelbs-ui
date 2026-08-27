@@ -326,7 +326,10 @@ namespace ebs
             auto rect = juce::Rectangle<float> (0.0f, (bounds.getHeight() - size) * 0.5f,
                                                 size, size);
 
-            g.setColour (chromeColour (checkboxFillColourId, vizBg()));
+            // Well default is theme-aware (v0.4.1): canvas tone on Dark,
+            // white well under Light so the accent check keeps contrast.
+            g.setColour (chromeColour (checkboxFillColourId,
+                                       isDark() ? vizBg() : juce::Colours::white));
             g.fillRoundedRectangle (rect, 3.0f);
             // Chrome hook applies to the well border UNIFORMLY over both
             // states (default keeps the state-dependent pair unchanged).

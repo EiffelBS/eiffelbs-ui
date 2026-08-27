@@ -180,7 +180,7 @@ int main()
                         "explicit TextButton fill survives the toggled state");
         }
 
-        // ToggleButton (checked): checkbox interior uses the visualizer bg.
+        // ToggleButton (checked): under Dark the interior keeps the visualizer bg.
         PaintableToggleButton tog ("Option");
         tog.setToggleState (true, juce::dontSendNotification);
         const auto togImg = renderToImage (260, 60, [&] (juce::Graphics& g)
@@ -189,6 +189,15 @@ int main()
         // clear of both the 1 px border and the check-mark stroke band.
         checkPixel (togImg, { 12, 6 }, ebs::vizBg(),
                     "toggle checkbox interior uses the visualizer background");
+
+        // v0.4.1: the well default is theme-aware - white under Light so the
+        // accent tick keeps contrast, then restore Dark for the rest of the run.
+        ebs::setTheme (ebs::Theme::Light);
+        const auto togImgLight = renderToImage (260, 60, [&] (juce::Graphics& g)
+            { tog.setBounds (0, 0, 220, 24); tog.paint (g); });
+        checkPixel (togImgLight, { 12, 6 }, juce::Colours::white,
+                    "light theme turns the checkbox well white by default");
+        ebs::setTheme (ebs::Theme::Dark);
 
         // Popup menu background: app background + subtle border.
         const auto popImg = renderToImage (80, 60, [&] (juce::Graphics& g)
