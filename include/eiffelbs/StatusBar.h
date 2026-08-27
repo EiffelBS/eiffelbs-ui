@@ -129,9 +129,9 @@ public:
     ProgressActivity beginActivity();
 
     /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
-        Intended for processing-queue visibility ("1/3, 2/3, 3/3...").
-        A completion (done >= total > 0) holds for ~3 s, then the slot
-        auto-hides unless a newer value rewrites it meanwhile. */
+        The CALLER owns the lifecycle: JobQueue posts the 1-based index of
+        the task that is running and posts (0, 0) the moment the burst
+        drains, which hides the slot immediately. */
     void setQueue (int done, int total);
     /** JUCE-standard colour hooks. Resolution order: Component::setColour()
      *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
@@ -425,23 +425,9 @@ inline void StatusBar::setQueue (int done, int total)
         s.queueDone  = done;
         s.queueTotal = total;
         s.repaint();
-        if (total > 0 && done >= total)
-        {
-            // Completion beat: hold "N/N" for ~3 s, then auto-hide unless
-            // a newer burst value rewrote the slot in the meantime.
-            juce::Timer::callAfterDelay (3000,
-                [safe = juce::Component::SafePointer<StatusBar> (&s),
-                 done, total]
-                {
-                    if (safe != nullptr && safe->queueDone == done
-                        && safe->queueTotal == total)
-                    {
-                        safe->queueDone  = 0;
-                        safe->queueTotal = 0;
-                        safe->repaint();
-                    }
-                });
-        }
+        // Hiding is the CALLER's decision (the queue posts (0, 0) on
+        // drain) - no auto-hide here: a determinate-looking "N/N" may
+        // legitimately mean "last task still running".
     });
 }
 
