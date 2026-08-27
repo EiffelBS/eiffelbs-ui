@@ -133,6 +133,11 @@ public:
         the task that is running and posts (0, 0) the moment the burst
         drains, which hides the slot immediately. */
     void setQueue (int done, int total);
+
+    /** Invoked when the user clicks the visible queue slot (passing the
+        click's SCREEN position). Consumers may show a menu there (e.g.
+        remove a pending job); when unset, every click opens the log. */
+    std::function<void (juce::Point<int> screenPos)> onQueueClicked;
     /** JUCE-standard colour hooks. Resolution order: Component::setColour()
      *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
      *  palette default. See IconButton::ColourIds for the full contract. */
@@ -259,8 +264,10 @@ public:
         // QUEUE slot: "done/total" mini-bar; visible only while the
         // caller feeds it (the queue posts (0, 0) the moment the burst
         // drains, which hides the slot immediately).
+        queueSlotBounds = {};
         if (queueTotal > 0)
         {
+            const float slotX = x;
             drawMiniBar (g, x, cy, 40.0f,
                          juce::jlimit (0.0f, 1.0f,
                                        (float) queueDone / (float) queueTotal));
@@ -270,6 +277,7 @@ public:
                         (int) x, 0, 38, getHeight(),
                         juce::Justification::centredLeft, true);
             x += 42.0f;
+            queueSlotBounds = { slotX, 0.0f, x - slotX, (float) getHeight() };
         }
 
         // Last line, LEFT-TRUNCATED (the tail is what matters), in the
@@ -291,7 +299,16 @@ public:
                     juce::Justification::centredLeft, true);
     }
 
-    void mouseDown (const juce::MouseEvent&) override { showLogWindow(); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        // The queue slot owns its click (removal menu, etc.) when a
+        // consumer wired onQueueClicked; every other click opens the log.
+        if (onQueueClicked != nullptr && queueTotal > 0
+            && queueSlotBounds.contains (e.position))
+            onQueueClicked (e.getScreenPosition());
+        else
+            showLogWindow();
+    }
 
 private:
     /** Shared mini progress-bar renderer for the activity/queue slots.
@@ -399,6 +416,7 @@ private:
     float        activityRatio = -1.0f;   // < 0 = indeterminate
     float        spinnerPhase  = 0.0f;
     int          queueDone = 0, queueTotal = 0;
+    juce::Rectangle<float> queueSlotBounds;   // click target (set in paint)
 };
 
 inline StatusBar::ProgressActivity StatusBar::beginActivity()
