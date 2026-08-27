@@ -131,8 +131,12 @@ public:
     /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
         The CALLER owns the lifecycle: JobQueue posts the 1-based index of
         the task that is running and posts (0, 0) the moment the burst
-        drains, which hides the slot immediately. */
-    void setQueue (int done, int total);
+        drains, which hides the slot immediately.
+        burstStart: when valid, the slot also renders the TOTAL elapsed
+        time since the queue processing began (second counter, user
+        request 2026-08-28) - the per-generation elapsed lives in the
+        activity slot. */
+    void setQueue (int done, int total, juce::Time burstStart = juce::Time());
 
     /** Invoked when the user clicks the visible queue slot (passing the
         click's SCREEN position). Consumers may show a menu there (e.g.
@@ -263,7 +267,8 @@ public:
 
         // QUEUE slot: "done/total" mini-bar; visible only while the
         // caller feeds it (the queue posts (0, 0) the moment the burst
-        // drains, which hides the slot immediately).
+        // drains, which hides the slot immediately). A valid burstStart
+        // adds the TOTAL elapsed counter (M:SS / H:MM:SS).
         queueSlotBounds = {};
         if (queueTotal > 0)
         {
@@ -277,6 +282,14 @@ public:
                         (int) x, 0, 38, getHeight(),
                         juce::Justification::centredLeft, true);
             x += 42.0f;
+            if (queueBurstStart != juce::Time())
+            {
+                const auto secs = (int) (juce::Time::getCurrentTime()
+                                         - queueBurstStart).inSeconds();
+                g.drawText (formatElapsed (secs), (int) x, 0, 56,
+                            getHeight(), juce::Justification::centredLeft, true);
+                x += 60.0f;
+            }
             queueSlotBounds = { slotX, 0.0f, x - slotX, (float) getHeight() };
         }
 
@@ -324,6 +337,18 @@ private:
         auto fill = r;                    // removeFromLeft mutates: work on a copy
         g.fillRoundedRectangle (fill.removeFromLeft (juce::jmax (2.0f,
                                     width * ratio)), 4.0f);
+    }
+
+    /** M:SS under an hour, H:MM:SS beyond (queue/burst elapsed). */
+    static juce::String formatElapsed (int secs)
+    {
+        if (secs < 0) secs = 0;
+        const auto two = [] (int v)
+            { return juce::String (v).paddedLeft ('0', 2); };
+        if (secs < 3600)
+            return juce::String (secs / 60) + ":" + two (secs % 60);
+        return juce::String (secs / 3600) + ":" + two ((secs / 60) % 60)
+               + ":" + two (secs % 60);
     }
 
     void timerCallback() override
@@ -416,6 +441,7 @@ private:
     float        activityRatio = -1.0f;   // < 0 = indeterminate
     float        spinnerPhase  = 0.0f;
     int          queueDone = 0, queueTotal = 0;
+    juce::Time   queueBurstStart;                 // valid -> total elapsed shown
     juce::Rectangle<float> queueSlotBounds;   // click target (set in paint)
 };
 
@@ -433,16 +459,26 @@ inline StatusBar::ProgressActivity StatusBar::beginActivity()
     return ProgressActivity (this, t);
 }
 
-inline void StatusBar::setQueue (int done, int total)
+inline void StatusBar::setQueue (int done, int total, juce::Time burstStart)
 {
-    hop ([done, total] (StatusBar& s)
+    hop ([done, total, burstStart] (StatusBar& s)
     {
         s.queueDone  = done;
         s.queueTotal = total;
+        s.queueBurstStart = burstStart;
         s.repaint();
         // Hiding is the CALLER's decision (the queue posts (0, 0) on
         // drain) - no auto-hide here: a determinate-looking "N/N" may
         // legitimately mean "last task still running".
+        // A visible slot with a burst counter needs the 10 Hz repaint
+        // even without an activity claim (gap between two jobs); a
+        // hidden slot lets the activity slot decide (it stops the timer
+        // when nothing needs it - setQueue must too, else the drain
+        // arriving after the last finish() would leave it running).
+        if (total > 0 && burstStart != juce::Time())
+            s.startTimerHz (10);
+        else if (total <= 0 && s.activityToken == 0)
+            s.stopTimer();
     });
 }
 
@@ -467,7 +503,11 @@ inline void StatusBar::ProgressActivity::finish()
         {
             s.activityToken = 0;
             s.activityRatio = -1.0f;
-            s.stopTimer();
+            // The 10 Hz repaint serves BOTH slots: keep it while the
+            // queue slot is visible (its burst elapsed must tick in the
+            // gap between two generations).
+            if (s.queueTotal <= 0)
+                s.stopTimer();
             s.repaint();
         }
     });
