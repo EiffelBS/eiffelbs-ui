@@ -281,7 +281,13 @@ namespace ebs
                              bool shouldDrawButtonAsDown) override
         {
             g.setFont (getTextButtonFont (button, button.getHeight()));
-            auto colour = text();
+            // Colour contract: instance-level textColourOffId wins; the
+            // palette token is only the LookAndFeel-level default. This
+            // lets canvas-overlay buttons (drawn on theme-invariant dark
+            // islands) opt into a fixed bright label under both themes.
+            auto colour = button.findColour (juce::TextButton::textColourOffId);
+            if (colour.isTransparent())
+                colour = findColour (juce::TextButton::textColourOffId);
             // White stays readable over the pressed/toggled accent fills.
             if (! button.isEnabled())
                 colour = textDim();
