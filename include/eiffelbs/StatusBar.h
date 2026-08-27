@@ -105,9 +105,19 @@ public:
         // elapsed"), it REPLACES that entry instead of stacking - one
         // evolving line even when stage/notice lines interleave between
         // heartbeats (bounded backward scan).
+        //
+        // PATH GUARD: a prefix containing a path separator is a file-path
+        // fragment, NEVER a transient progress signature. Sibling files of
+        // one run ("...\run-5132a8ae\fc9c3307-vocals.wav" vs
+        // "...\bass.wav") share everything before their first digit (the
+        // run directory name) and would otherwise collapse into ONE
+        // history line (consumer report 2026-08-27: "Done: 4 stems"
+        // listed a single path - the four sibling paths replaced each
+        // other in place).
         const auto pfx = transientPrefixOf (line);
         bool replaced = false;
-        if (pfx.isNotEmpty() && ! history.empty())
+        if (pfx.isNotEmpty() && ! pfx.contains ("/") && ! pfx.contains ("\\")
+            && ! history.empty())
         {
             int scanned = 0;
             for (auto it = history.rbegin();
