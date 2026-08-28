@@ -30,6 +30,7 @@
 #include <atomic>
 #include <deque>
 #include <map>
+#include <vector>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
@@ -175,6 +176,17 @@ public:
         hop ([id, r] (StatusBar& s)
         {
             s.meterReadings[(int) id] = r;
+            s.repaint();
+        });
+    }
+
+    /** Compact view (user request 2026-08-28): label + bar only, no
+        value text. The consumer persists the choice. */
+    void setMetersCompact (bool compact)
+    {
+        hop ([compact] (StatusBar& s)
+        {
+            s.metersCompact = compact;
             s.repaint();
         });
     }
@@ -360,32 +372,57 @@ public:
 
         // RESOURCE METERS zone (right-aligned, before the right edge):
         // [label][bar][value] per meter, priority-collapsed on narrow
-        // panels, separated by a thin divider (user feedback 2026-08-28:
-        // labels GLUED to the bar with a small padding, one separator
-        // per block). Drawn BEFORE the log line so the text shrinks.
+        // panels, separated by a thin divider. Widths adapt to CONTENT
+        // (user feedback 2026-08-28: GPU/CPU had lots of dead space);
+        // compact view drops the value text entirely. Drawn BEFORE the
+        // log line so the text shrinks.
         meterZoneBounds = {};
-        float meterZoneW = 0.0f;
-        const float meterCell = 28.0f + 3.0f + 34.0f + 3.0f + 52.0f;
-        const float meterSep  = 12.0f;           // divider line + margins
+        const float meterSep = 12.0f;           // divider line + margins
         int maxMeters = getWidth() >= 700 ? 5 : getWidth() >= 480 ? 2 : 1;
-        int shown = 0;
-        for (size_t i = 0; i < meterVisible.size() && shown < maxMeters; ++i)
-            if (meterVisible[i]) ++shown;
-        if (shown > 0)
-            meterZoneW = shown * meterCell + (shown - 1) * meterSep + 10.0f;
-        if (meterZoneW > 0.0f)
+        // Pass 1 - which meters, and how wide is each (4 px grid keeps
+        // the zone from jittering as the numbers tick).
+        std::vector<int> shownIds;
+        float meterZoneW = 10.0f;               // leading gap
+        for (int mi = 0; mi < 5 && (int) shownIds.size() < maxMeters; ++mi)
+        {
+            if (! meterVisible[(size_t) mi]) continue;
+            const auto label = mi == 0 ? "VRAM"
+                             : mi == 1 ? "GPU-S"
+                             : mi == 2 ? "GPU"
+                             : mi == 3 ? "CPU" : "RAM";
+            float labelW = juce::GlyphArrangement::getStringWidth (
+                g.getCurrentFont(), label);
+            float valueW = 0.0f;
+            if (! metersCompact)
+            {
+                const auto reading = meterReadings.find (mi);
+                const auto value = reading != meterReadings.end()
+                                       ? reading->second.valueText
+                                       : juce::String();
+                valueW = std::max (juce::GlyphArrangement::getStringWidth (
+                                       g.getCurrentFont(), value),
+                                   20.0f);
+            }
+            const auto grid4 = [] (float w)
+            { return ((int) std::ceil (w / 4.0f)) * 4.0f; };
+            const float cell = grid4 (labelW) + 3.0f + 34.0f
+                               + (metersCompact ? 0.0f : 3.0f + grid4 (valueW));
+            shownIds.push_back (mi);
+            meterZoneW += cell + meterSep;
+        }
+        if (! shownIds.empty())
+            meterZoneW -= meterSep;             // no trailing divider
+        if (meterZoneW > 10.0f)
         {
             const float mx = (float) getWidth() - 8.0f - meterZoneW + 10.0f;
             meterZoneBounds = { mx, 0.0f,
                                 (float) getWidth() - 8.0f - mx,
                                 (float) getHeight() };
             float cx = mx;
-            int count = 0;
-            for (int mi = 0; mi < 5 && count < maxMeters; ++mi)
+            for (size_t idx = 0; idx < shownIds.size(); ++idx)
             {
-                const auto id = (MeterId) mi;
-                if (! meterVisible[(size_t) mi]) continue;
-                if (count > 0)
+                const auto mi = shownIds[idx];
+                if (idx > 0)
                 {
                     // Divider between two meter blocks.
                     g.setColour (resolved (textColourId, textDim())
@@ -393,17 +430,21 @@ public:
                     g.fillRect (cx + 5.0f, cy - 6.0f, 1.5f, 12.0f);
                     cx += meterSep;
                 }
-                ++count;
                 const auto reading = meterReadings.find (mi);
                 const auto label = mi == 0 ? "VRAM"
                                  : mi == 1 ? "GPU-S"
                                  : mi == 2 ? "GPU"
                                  : mi == 3 ? "CPU" : "RAM";
-                // Label RIGHT-ALIGNED: its tail sits next to the bar.
+                // Re-measure for the draw pass (pass 1 sized the zone).
+                const float labelW = juce::GlyphArrangement::getStringWidth (
+                    g.getCurrentFont(), label);
+                // Label RIGHT-ALIGNED: its tail sits next to the bar
+                // (small +4 padding keeps the grid from clipping it).
                 g.setColour (resolved (textColourId, textDim()));
-                g.drawText (label, (int) cx, 0, 28, getHeight(),
-                            juce::Justification::centredRight, true);
-                cx += 28.0f + 3.0f;
+                g.drawText (label, (int) cx, 0, (int) labelW + 4,
+                            getHeight(), juce::Justification::centredRight,
+                            true);
+                cx += ((int) std::ceil (labelW / 4.0f)) * 4.0f + 3.0f;
                 // Status fill: green -> amber (>75 %) -> red (>90 %).
                 const float ratio = reading != meterReadings.end()
                                         ? reading->second.ratio01 : -1.0f;
@@ -420,14 +461,23 @@ public:
                     g.fillRoundedRectangle (fr.removeFromLeft (juce::jmax (
                         2.0f, 34.0f * juce::jlimit (0.0f, 1.0f, ratio))), 4.0f);
                 }
-                cx += 34.0f + 3.0f;
-                // Value LEFT-ALIGNED: its head sits next to the bar.
-                g.setColour (resolved (textColourId, textDim()));
-                g.drawText (reading != meterReadings.end()
-                                ? reading->second.valueText : juce::String(),
-                            (int) cx, 0, 52, getHeight(),
-                            juce::Justification::centredLeft, true);
-                cx += 52.0f;
+                cx += 34.0f;
+                if (! metersCompact)
+                {
+                    cx += 3.0f;
+                    const auto value = reading != meterReadings.end()
+                                           ? reading->second.valueText
+                                           : juce::String();
+                    const float valueW = std::max (
+                        juce::GlyphArrangement::getStringWidth (
+                            g.getCurrentFont(), value), 20.0f);
+                    // Value LEFT-ALIGNED: its head sits next to the bar.
+                    g.setColour (resolved (textColourId, textDim()));
+                    g.drawText (value, (int) cx, 0, (int) valueW + 4,
+                                getHeight(), juce::Justification::centredLeft,
+                                true);
+                    cx += ((int) std::ceil (valueW / 4.0f)) * 4.0f;
+                }
             }
         }
 
@@ -593,6 +643,7 @@ private:
     // visible set. Priority/collapse order follows the MeterId order.
     std::array<bool, 5> meterVisible { true, false, false, false, false };
     std::map<int, MeterReading> meterReadings;
+    bool metersCompact = false;              // label + bar, no value text
     juce::Rectangle<float> meterZoneBounds;  // click target (paint)
 };
 
