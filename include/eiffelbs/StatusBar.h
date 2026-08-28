@@ -26,8 +26,10 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <array>
 #include <atomic>
 #include <deque>
+#include <map>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
@@ -137,6 +139,50 @@ public:
         request 2026-08-28) - the per-generation elapsed lives in the
         activity slot. */
     void setQueue (int done, int total, juce::Time burstStart = juce::Time());
+
+    // ------------------------------------------------------------------
+    // RESOURCE METERS (idea #7, right-aligned zone): the CONSUMER owns the
+    // platform probes and pushes readings; the lib renders label + status
+    // fill bar and collapses meters on narrow panels. User decisions
+    // (2026-08-28): right side of the bar, VRAM visible by default, a
+    // RIGHT-CLICK on any meter opens the add/remove menu (consumer-built,
+    // like onQueueClicked - only the consumer knows what its platform can
+    // actually probe).
+    enum class MeterId { vram, sharedGpu, cpu, ram };   // priority order
+
+    struct MeterReading
+    {
+        float ratio01 = -1.0f;   // 0..1 fills the bar; < 0 = no fill
+        juce::String valueText;  // e.g. "3.4/8.0 GB" or "12 %"
+    };
+
+    /** Show/hide one meter (ANY thread). Default set: VRAM only. The
+        consumer persists the choice (ui-state.json) - the lib does not. */
+    void setMeterVisible (MeterId id, bool visible)
+    {
+        hop ([id, visible] (StatusBar& s)
+        {
+            s.meterVisible[(size_t) id] = visible;
+            s.repaint();
+        });
+    }
+
+    /** Push a sample (ANY thread, ~1 Hz from the consumer's probes).
+        Only VISIBLE meters need sampling. Repaints immediately - the
+        meters are the only thing ticking while the bar is idle. */
+    void updateMeter (MeterId id, const MeterReading& r)
+    {
+        hop ([id, r] (StatusBar& s)
+        {
+            s.meterReadings[(int) id] = r;
+            s.repaint();
+        });
+    }
+
+    /** Right-click on the meter zone (screen position). The consumer
+        builds the add/remove menu; unset -> the right-click does
+        nothing (left-click anywhere still opens the log). */
+    std::function<void (juce::Point<int> screenPos)> onMetersMenu;
 
     /** Invoked when the user clicks the visible queue slot (passing the
         click's SCREEN position). Consumers may show a menu there (e.g.
@@ -312,10 +358,75 @@ public:
             queueSlotBounds = { slotX, 0.0f, x - slotX, (float) getHeight() };
         }
 
+        // RESOURCE METERS zone (right-aligned, before the right edge):
+        // [label][bar][value] per meter, priority-collapsed on narrow
+        // panels. Drawn BEFORE the log line so the text width shrinks.
+        meterZoneBounds = {};
+        float meterZoneW = 0.0f;
+        {
+            // Collapse rule (idea #7): VRAM > sharedGpu > CPU > RAM.
+            const int maxMeters = getWidth() >= 700 ? 4
+                                : getWidth() >= 480 ? 2 : 1;
+            // Fixed cell geometry: label 32 | bar 34 | value 56 + gaps.
+            const float cell = 32.0f + 4.0f + 34.0f + 4.0f + 56.0f;
+            int count = 0;
+            for (size_t i = 0; i < meterVisible.size(); ++i)
+                if (meterVisible[i] && count < maxMeters)
+                { meterZoneW += cell; ++count; }
+            if (count > 0) meterZoneW += 10.0f;   // leading gap
+        }
+        if (meterZoneW > 0.0f)
+        {
+            const float mx = (float) getWidth() - 8.0f - meterZoneW + 10.0f;
+            meterZoneBounds = { mx, 0.0f,
+                                (float) getWidth() - 8.0f - mx, (float) getHeight() };
+            const int maxMeters = getWidth() >= 700 ? 4
+                                : getWidth() >= 480 ? 2 : 1;
+            float cx = mx;
+            int count = 0;
+            for (int mi = 0; mi < 4 && count < maxMeters; ++mi)
+            {
+                const auto id = (MeterId) mi;
+                if (! meterVisible[(size_t) mi]) continue;
+                ++count;
+                const auto reading = meterReadings.find (mi);
+                const auto label = mi == 0 ? "VRAM"
+                                 : mi == 1 ? "GPU-S"
+                                 : mi == 2 ? "CPU" : "RAM";
+                g.setColour (resolved (textColourId, textDim()));
+                g.drawText (label, (int) cx, 0, 32, getHeight(),
+                            juce::Justification::centredLeft, true);
+                cx += 36.0f;
+                // Status fill: green -> amber (>75 %) -> red (>90 %).
+                const float ratio = reading != meterReadings.end()
+                                        ? reading->second.ratio01 : -1.0f;
+                juce::Colour fill { 0xff4d9e5f };      // green
+                if (ratio > 0.90f)      fill = juce::Colour (0xffb5433c);
+                else if (ratio > 0.75f) fill = juce::Colour (0xffd19b3c);
+                const juce::Rectangle<float> br { cx, cy - 4.0f, 34.0f, 8.0f };
+                g.setColour (resolved (textColourId, textDim()));
+                g.drawRoundedRectangle (br, 4.0f, 1.0f);
+                if (ratio >= 0.0f)
+                {
+                    g.setColour (fill.withAlpha (0.85f));
+                    auto fr = br;
+                    g.fillRoundedRectangle (fr.removeFromLeft (juce::jmax (
+                        2.0f, 34.0f * juce::jlimit (0.0f, 1.0f, ratio))), 4.0f);
+                }
+                cx += 38.0f;
+                g.setColour (resolved (textColourId, textDim()));
+                g.drawText (reading != meterReadings.end()
+                                ? reading->second.valueText : juce::String(),
+                            (int) cx, 0, 56, getHeight(),
+                            juce::Justification::centredRight, true);
+                cx += 60.0f;
+            }
+        }
+
         // Last line, LEFT-TRUNCATED (the tail is what matters), in the
-        // space the slots left over.
+        // space the slots and the meters left over.
         g.setColour (resolved (textColourId, textDim()));
-        const auto avail = (float) getWidth() - x - 8.0f;
+        const auto avail = (float) getWidth() - x - meterZoneW - 8.0f;
         auto text   = lastLine;
         const float w = juce::GlyphArrangement::getStringWidth (
                             g.getCurrentFont(), text);
@@ -333,8 +444,16 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        // The queue slot owns its click (removal menu, etc.) when a
-        // consumer wired onQueueClicked; every other click opens the log.
+        // RIGHT-click on a meter opens the add/remove menu (consumer
+        // callback; no-op when unwired). LEFT-clicks are never stolen:
+        // the queue slot owns its click (removal menu, etc.), every
+        // other click opens the log.
+        if (e.mods.isRightButtonDown() && onMetersMenu != nullptr
+            && meterZoneBounds.contains (e.position))
+        {
+            onMetersMenu (e.getScreenPosition());
+            return;
+        }
         if (onQueueClicked != nullptr && queueTotal > 0
             && queueSlotBounds.contains (e.position))
             onQueueClicked (e.getScreenPosition());
@@ -462,6 +581,13 @@ private:
     int          queueDone = 0, queueTotal = 0;
     juce::Time   queueBurstStart;                 // valid -> total elapsed shown
     juce::Rectangle<float> queueSlotBounds;   // click target (set in paint)
+
+    // Resource meters (message thread only; entries hop). Default set =
+    // VRAM only (user decision 2026-08-28); the consumer persists the
+    // visible set. Priority/collapse order follows the MeterId order.
+    std::array<bool, 4> meterVisible { true, false, false, false };
+    std::map<int, MeterReading> meterReadings;
+    juce::Rectangle<float> meterZoneBounds;  // right-click target (paint)
 };
 
 inline StatusBar::ProgressActivity StatusBar::beginActivity()
