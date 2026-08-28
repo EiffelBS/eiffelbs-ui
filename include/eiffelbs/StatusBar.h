@@ -391,6 +391,8 @@ public:
                                      g.getCurrentFont(), "100 %"));
             return std::max (w, 20.0f);
         };
+        const auto grid4 = [] (float w)
+        { return ((int) std::ceil (w / 4.0f)) * 4.0f; };
         // Pass 1 - which meters, and how wide is each (4 px grid keeps
         // the zone from jittering as the numbers tick).
         std::vector<int> shownIds;
@@ -413,10 +415,11 @@ public:
                                        : juce::String();
                 valueW = valueWidth (value);
             }
-            const auto grid4 = [] (float w)
-            { return ((int) std::ceil (w / 4.0f)) * 4.0f; };
-            const float cell = grid4 (labelW) + 3.0f + 34.0f
-                               + (metersCompact ? 0.0f : 3.0f + grid4 (valueW));
+            // Exact 5 px gaps on BOTH sides of the bar (the label box
+            // carries the grid slack so rounding cannot eat the gap -
+            // "GPU-S" used to end up glued).
+            const float cell = grid4 (labelW) + 4.0f + 5.0f + 34.0f + 5.0f
+                               + (metersCompact ? 0.0f : grid4 (valueW) + 4.0f);
             shownIds.push_back (mi);
             meterZoneW += cell + meterSep;
         }
@@ -448,13 +451,13 @@ public:
                 // Re-measure for the draw pass (pass 1 sized the zone).
                 const float labelW = juce::GlyphArrangement::getStringWidth (
                     g.getCurrentFont(), label);
-                // Label RIGHT-ALIGNED: its tail sits next to the bar
-                // (small +4 padding keeps the grid from clipping it).
+                // Label RIGHT-ALIGNED inside its box: the tail sits at
+                // the box's right edge, exactly 5 px before the bar.
                 g.setColour (resolved (textColourId, textDim()));
-                g.drawText (label, (int) cx, 0, (int) labelW + 4,
-                            getHeight(), juce::Justification::centredRight,
-                            true);
-                cx += ((int) std::ceil (labelW / 4.0f)) * 4.0f + 3.0f;
+                g.drawText (label, (int) cx, 0,
+                            (int) grid4 (labelW) + 4, getHeight(),
+                            juce::Justification::centredRight, true);
+                cx += grid4 (labelW) + 4.0f + 5.0f;
                 // Status fill: green -> amber (>75 %) -> red (>90 %).
                 const float ratio = reading != meterReadings.end()
                                         ? reading->second.ratio01 : -1.0f;
@@ -474,17 +477,18 @@ public:
                 cx += 34.0f;
                 if (! metersCompact)
                 {
-                    cx += 3.0f;
+                    cx += 5.0f;
                     const auto value = reading != meterReadings.end()
                                            ? reading->second.valueText
                                            : juce::String();
                     const float valueW = valueWidth (value);
-                    // Value LEFT-ALIGNED: its head sits next to the bar.
+                    // Value LEFT-ALIGNED at its box's left edge: exactly
+                    // 5 px after the bar.
                     g.setColour (resolved (textColourId, textDim()));
-                    g.drawText (value, (int) cx, 0, (int) valueW + 4,
+                    g.drawText (value, (int) cx, 0, (int) grid4 (valueW) + 4,
                                 getHeight(), juce::Justification::centredLeft,
                                 true);
-                    cx += ((int) std::ceil (valueW / 4.0f)) * 4.0f;
+                    cx += grid4 (valueW) + 4.0f;
                 }
             }
         }
