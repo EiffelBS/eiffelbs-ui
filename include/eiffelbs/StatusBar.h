@@ -148,7 +148,7 @@ public:
     // RIGHT-CLICK on any meter opens the add/remove menu (consumer-built,
     // like onQueueClicked - only the consumer knows what its platform can
     // actually probe).
-    enum class MeterId { vram, sharedGpu, cpu, ram };   // priority order
+    enum class MeterId { vram, sharedGpu, gpu, cpu, ram };   // priority order
 
     struct MeterReading
     {
@@ -360,43 +360,50 @@ public:
 
         // RESOURCE METERS zone (right-aligned, before the right edge):
         // [label][bar][value] per meter, priority-collapsed on narrow
-        // panels. Drawn BEFORE the log line so the text width shrinks.
+        // panels, separated by a thin divider (user feedback 2026-08-28:
+        // labels GLUED to the bar with a small padding, one separator
+        // per block). Drawn BEFORE the log line so the text shrinks.
         meterZoneBounds = {};
         float meterZoneW = 0.0f;
-        {
-            // Collapse rule (idea #7): VRAM > sharedGpu > CPU > RAM.
-            const int maxMeters = getWidth() >= 700 ? 4
-                                : getWidth() >= 480 ? 2 : 1;
-            // Fixed cell geometry: label 32 | bar 34 | value 56 + gaps.
-            const float cell = 32.0f + 4.0f + 34.0f + 4.0f + 56.0f;
-            int count = 0;
-            for (size_t i = 0; i < meterVisible.size(); ++i)
-                if (meterVisible[i] && count < maxMeters)
-                { meterZoneW += cell; ++count; }
-            if (count > 0) meterZoneW += 10.0f;   // leading gap
-        }
+        const float meterCell = 28.0f + 3.0f + 34.0f + 3.0f + 52.0f;
+        const float meterSep  = 12.0f;           // divider line + margins
+        int maxMeters = getWidth() >= 700 ? 5 : getWidth() >= 480 ? 2 : 1;
+        int shown = 0;
+        for (size_t i = 0; i < meterVisible.size() && shown < maxMeters; ++i)
+            if (meterVisible[i]) ++shown;
+        if (shown > 0)
+            meterZoneW = shown * meterCell + (shown - 1) * meterSep + 10.0f;
         if (meterZoneW > 0.0f)
         {
             const float mx = (float) getWidth() - 8.0f - meterZoneW + 10.0f;
             meterZoneBounds = { mx, 0.0f,
-                                (float) getWidth() - 8.0f - mx, (float) getHeight() };
-            const int maxMeters = getWidth() >= 700 ? 4
-                                : getWidth() >= 480 ? 2 : 1;
+                                (float) getWidth() - 8.0f - mx,
+                                (float) getHeight() };
             float cx = mx;
             int count = 0;
-            for (int mi = 0; mi < 4 && count < maxMeters; ++mi)
+            for (int mi = 0; mi < 5 && count < maxMeters; ++mi)
             {
                 const auto id = (MeterId) mi;
                 if (! meterVisible[(size_t) mi]) continue;
+                if (count > 0)
+                {
+                    // Divider between two meter blocks.
+                    g.setColour (resolved (textColourId, textDim())
+                                     .withAlpha (0.35f));
+                    g.fillRect (cx + 5.0f, cy - 6.0f, 1.5f, 12.0f);
+                    cx += meterSep;
+                }
                 ++count;
                 const auto reading = meterReadings.find (mi);
                 const auto label = mi == 0 ? "VRAM"
                                  : mi == 1 ? "GPU-S"
-                                 : mi == 2 ? "CPU" : "RAM";
+                                 : mi == 2 ? "GPU"
+                                 : mi == 3 ? "CPU" : "RAM";
+                // Label RIGHT-ALIGNED: its tail sits next to the bar.
                 g.setColour (resolved (textColourId, textDim()));
-                g.drawText (label, (int) cx, 0, 32, getHeight(),
-                            juce::Justification::centredLeft, true);
-                cx += 36.0f;
+                g.drawText (label, (int) cx, 0, 28, getHeight(),
+                            juce::Justification::centredRight, true);
+                cx += 28.0f + 3.0f;
                 // Status fill: green -> amber (>75 %) -> red (>90 %).
                 const float ratio = reading != meterReadings.end()
                                         ? reading->second.ratio01 : -1.0f;
@@ -413,13 +420,14 @@ public:
                     g.fillRoundedRectangle (fr.removeFromLeft (juce::jmax (
                         2.0f, 34.0f * juce::jlimit (0.0f, 1.0f, ratio))), 4.0f);
                 }
-                cx += 38.0f;
+                cx += 34.0f + 3.0f;
+                // Value LEFT-ALIGNED: its head sits next to the bar.
                 g.setColour (resolved (textColourId, textDim()));
                 g.drawText (reading != meterReadings.end()
                                 ? reading->second.valueText : juce::String(),
-                            (int) cx, 0, 56, getHeight(),
-                            juce::Justification::centredRight, true);
-                cx += 60.0f;
+                            (int) cx, 0, 52, getHeight(),
+                            juce::Justification::centredLeft, true);
+                cx += 52.0f;
             }
         }
 
@@ -444,12 +452,10 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        // RIGHT-click on a meter opens the add/remove menu (consumer
-        // callback; no-op when unwired). LEFT-clicks are never stolen:
-        // the queue slot owns its click (removal menu, etc.), every
-        // other click opens the log.
-        if (e.mods.isRightButtonDown() && onMetersMenu != nullptr
-            && meterZoneBounds.contains (e.position))
+        // The meter zone owns ANY click (user feedback 2026-08-28: the
+        // add/remove menu opens on a PLAIN click too - a left click on
+        // a meter must never fall through to the log window).
+        if (onMetersMenu != nullptr && meterZoneBounds.contains (e.position))
         {
             onMetersMenu (e.getScreenPosition());
             return;
@@ -585,9 +591,9 @@ private:
     // Resource meters (message thread only; entries hop). Default set =
     // VRAM only (user decision 2026-08-28); the consumer persists the
     // visible set. Priority/collapse order follows the MeterId order.
-    std::array<bool, 4> meterVisible { true, false, false, false };
+    std::array<bool, 5> meterVisible { true, false, false, false, false };
     std::map<int, MeterReading> meterReadings;
-    juce::Rectangle<float> meterZoneBounds;  // right-click target (paint)
+    juce::Rectangle<float> meterZoneBounds;  // click target (paint)
 };
 
 inline StatusBar::ProgressActivity StatusBar::beginActivity()
