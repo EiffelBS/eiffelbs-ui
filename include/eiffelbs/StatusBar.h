@@ -379,6 +379,18 @@ public:
         meterZoneBounds = {};
         const float meterSep = 12.0f;           // divider line + margins
         int maxMeters = getWidth() >= 700 ? 5 : getWidth() >= 480 ? 2 : 1;
+        // Percentages flip between 1 and 3 digits ("5 %" / "100 %") -
+        // reserve the wide form so the cell does not jitter every tick
+        // (user feedback 2026-08-28).
+        auto valueWidth = [this, &g] (const juce::String& value)
+        {
+            float w = juce::GlyphArrangement::getStringWidth (
+                g.getCurrentFont(), value);
+            if (value.endsWith ("%"))
+                w = std::max (w, juce::GlyphArrangement::getStringWidth (
+                                     g.getCurrentFont(), "100 %"));
+            return std::max (w, 20.0f);
+        };
         // Pass 1 - which meters, and how wide is each (4 px grid keeps
         // the zone from jittering as the numbers tick).
         std::vector<int> shownIds;
@@ -399,9 +411,7 @@ public:
                 const auto value = reading != meterReadings.end()
                                        ? reading->second.valueText
                                        : juce::String();
-                valueW = std::max (juce::GlyphArrangement::getStringWidth (
-                                       g.getCurrentFont(), value),
-                                   20.0f);
+                valueW = valueWidth (value);
             }
             const auto grid4 = [] (float w)
             { return ((int) std::ceil (w / 4.0f)) * 4.0f; };
@@ -468,9 +478,7 @@ public:
                     const auto value = reading != meterReadings.end()
                                            ? reading->second.valueText
                                            : juce::String();
-                    const float valueW = std::max (
-                        juce::GlyphArrangement::getStringWidth (
-                            g.getCurrentFont(), value), 20.0f);
+                    const float valueW = valueWidth (value);
                     // Value LEFT-ALIGNED: its head sits next to the bar.
                     g.setColour (resolved (textColourId, textDim()));
                     g.drawText (value, (int) cx, 0, (int) valueW + 4,
