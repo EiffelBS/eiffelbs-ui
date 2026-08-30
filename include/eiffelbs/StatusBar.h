@@ -22,6 +22,16 @@
 // ratio bar when the task can measure itself], and setQueue() renders the
 // processing-queue position as a small "done/total" bar. Log lines then
 // carry EVENTS only; progress lives in the slots.
+//
+// MULTIPLE CONCURRENT CLAIMS (v0.7.0, consumer report 2026-08-30): a long
+// task (TTS generation) used to lose its indication the moment another
+// task claimed the single slot - the new claim SUPERSEDED the old one and
+// its finish() cleared the bar while the first task was still running.
+// Claims are now independent: each beginActivity() adds a segment
+// ([Ns][ratio bar?]), the spinner ensemble stays up while ANY claim is
+// live, and a finish()/destruction removes ONLY its own segment. There is
+// deliberately NO supersede anymore: ownership is plain RAII per token,
+// same doctrine as the queue slot.
 
 #pragma once
 
@@ -81,11 +91,12 @@ class StatusBar : public juce::Component,
                   private juce::Timer
 {
 public:
-    /** Opaque RAII claim on the ACTIVITY slots. Move-only; destruction
-        releases. Any thread (hops to the message thread). A newer
-        beginActivity() SUPERSEDES the previous claim: stale handles
-        become silent no-ops, so a late finish() can never clear another
-        task's slots. */
+    /** Opaque RAII claim on ONE activity segment. Move-only; destruction
+        releases. Any thread (hops to the message thread). Claims are
+        INDEPENDENT (v0.7.0): a newer beginActivity() never supersedes an
+        older one - each finish() removes only its own segment, so a late
+        finish() can never clear another task's slot and two concurrent
+        tasks both stay visible. */
     class ProgressActivity
     {
     public:
@@ -105,11 +116,11 @@ public:
         }
         ~ProgressActivity() { release(); }
 
-        /** Determinate ratio 0..1; a negative value returns the slot to
+        /** Determinate ratio 0..1; a negative value returns the segment to
             indeterminate. Call only when the task can MEASURE itself -
-            the slot stays hidden while nobody feeds it. No textual label
-            exists in the slot (consumer feedback 2026-08-27: the log
-            line beside it already tells WHAT is running). */
+            the segment stays hidden while nobody feeds it. No textual
+            label exists in the segment (consumer feedback 2026-08-27:
+            the log line beside it already tells WHAT is running). */
         void progress (float ratio01);
 
         /** Release the slots now (the destructor calls this too). */
@@ -126,9 +137,9 @@ public:
         JUCE_DECLARE_NON_COPYABLE (ProgressActivity)
     };
 
-    /** Claim the activity slots (ANY thread): spinner + elapsed seconds,
-        plus a determinate bar as soon as progress() feeds a ratio >= 0.
-        Supersedes the previous claim. */
+    /** Claim an activity segment (ANY thread): spinner + per-claim elapsed
+        seconds, plus a determinate bar as soon as progress() feeds a
+        ratio >= 0. Concurrent claims stack as independent segments. */
     ProgressActivity beginActivity();
 
     /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
@@ -305,7 +316,7 @@ public:
         // whole block vanishes together when the burst drains. The
         // per-task seconds only show while a task is actually claimed.
         const bool burstLive = queueTotal > 0 && queueBurstStart != juce::Time();
-        const bool taskLive  = activityToken != 0;
+        const bool taskLive  = ! claims.empty();
         if (taskLive || burstLive)
         {
             const float r = 5.0f;
@@ -316,37 +327,47 @@ public:
             g.strokePath (arc, juce::PathStrokeType (1.6f));
             x += 2.0f * r + 6.0f;
 
-            if (taskLive)
+            // ONE SEGMENT PER LIVE CLAIM (v0.7.0): [Ns][ratio bar?], with
+            // a thin divider between segments. The spinner ensemble keeps
+            // ticking while ANY claim is live; each segment vanishes when
+            // its own task finishes.
+            for (size_t ci = 0; ci < claims.size(); ++ci)
             {
-                const auto secs = (int) ((juce::Time::getCurrentTime()
-                                          - activityStart).inSeconds());
-                g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
-                            getHeight(), juce::Justification::centredLeft, true);
-                x += 44.0f;
-            }
-            if (burstLive)
-            {
-                if (taskLive)
+                const auto& claim = claims[ci];
+                if (ci > 0)
                 {
-                    // Small separator between the two timers.
                     g.setColour (resolved (textColourId, textDim())
                                      .withAlpha (0.35f));
                     g.fillRect (x, cy - 6.0f, 1.5f, 12.0f);
                     x += 9.0f;
                 }
+                const auto secs = (int) ((juce::Time::getCurrentTime()
+                                          - claim.start).inSeconds());
+                g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
+                            getHeight(), juce::Justification::centredLeft, true);
+                x += 44.0f;
+                if (claim.ratio >= 0.0f)
+                {
+                    drawMiniBar (g, x, cy, 45.0f,
+                                 juce::jlimit (0.0f, 1.0f, claim.ratio));
+                    x += 53.0f;
+                }
+            }
+
+            if (burstLive)
+            {
+                // Small separator between the task segments and the
+                // burst-total timer.
+                g.setColour (resolved (textColourId, textDim())
+                                 .withAlpha (0.35f));
+                g.fillRect (x, cy - 6.0f, 1.5f, 12.0f);
+                x += 9.0f;
                 const auto total = (int) (juce::Time::getCurrentTime()
                                           - queueBurstStart).inSeconds();
                 g.setColour (resolved (textColourId, textDim()));
                 g.drawText (formatElapsed (total), (int) x, 0, 56,
                             getHeight(), juce::Justification::centredLeft, true);
                 x += 60.0f;
-            }
-
-            if (taskLive && activityRatio >= 0.0f)
-            {
-                drawMiniBar (g, x, cy, 45.0f,
-                             juce::jlimit (0.0f, 1.0f, activityRatio));
-                x += 53.0f;
             }
         }
 
@@ -640,11 +661,15 @@ private:
     juce::String lastLine;
     int totalLogged = 0;
 
-    // Activity + queue slots (message thread only; entries hop).
+    // Activity segments + queue slot (message thread only; entries hop).
     std::atomic<juce::uint32> nextToken { 0 };
-    juce::uint32 activityToken = 0;       // 0 = no active claim
-    juce::Time   activityStart;
-    float        activityRatio = -1.0f;   // < 0 = indeterminate
+    struct ActivityClaim
+    {
+        juce::uint32 token = 0;
+        juce::Time   start;
+        float        ratio = -1.0f;       // < 0 = indeterminate
+    };
+    std::vector<ActivityClaim> claims;     // independent, RAII per token
     float        spinnerPhase  = 0.0f;
     int          queueDone = 0, queueTotal = 0;
     juce::Time   queueBurstStart;                 // valid -> total elapsed shown
@@ -664,9 +689,7 @@ inline StatusBar::ProgressActivity StatusBar::beginActivity()
     const auto t = nextToken.fetch_add (1, std::memory_order_relaxed) + 1;
     hop ([t] (StatusBar& s)
     {
-        s.activityToken = t;             // supersedes any older claim
-        s.activityStart  = juce::Time::getCurrentTime();
-        s.activityRatio  = -1.0f;
+        s.claims.push_back ({ t, juce::Time::getCurrentTime(), -1.0f });
         s.startTimerHz (10);             // spinner + elapsed repaint
         s.repaint();
     });
@@ -686,12 +709,12 @@ inline void StatusBar::setQueue (int done, int total, juce::Time burstStart)
         // legitimately mean "last task still running".
         // A visible slot with a burst counter needs the 10 Hz repaint
         // even without an activity claim (gap between two jobs); a
-        // hidden slot lets the activity slot decide (it stops the timer
+        // hidden slot lets the activity segments decide (the timer stops
         // when nothing needs it - setQueue must too, else the drain
         // arriving after the last finish() would leave it running).
         if (total > 0 && burstStart != juce::Time())
             s.startTimerHz (10);
-        else if (total <= 0 && s.activityToken == 0)
+        else if (total <= 0 && s.claims.empty())
             s.stopTimer();
     });
 }
@@ -702,7 +725,8 @@ inline void StatusBar::ProgressActivity::progress (float ratio01)
     const auto t = token;
     bar->hop ([t, ratio01] (StatusBar& s)
     {
-        if (s.activityToken == t) { s.activityRatio = ratio01; s.repaint(); }
+        for (auto& c : s.claims)
+            if (c.token == t) { c.ratio = ratio01; s.repaint(); }
     });
 }
 
@@ -713,17 +737,19 @@ inline void StatusBar::ProgressActivity::finish()
     token = 0;
     bar->hop ([t] (StatusBar& s)
     {
-        if (s.activityToken == t)
-        {
-            s.activityToken = 0;
-            s.activityRatio = -1.0f;
-            // The 10 Hz repaint serves BOTH slots: keep it while the
-            // queue slot is visible (its burst elapsed must tick in the
-            // gap between two generations).
-            if (s.queueTotal <= 0)
-                s.stopTimer();
-            s.repaint();
-        }
+        // Remove ONLY this claim's segment (v0.7.0: independent claims).
+        for (size_t i = 0; i < s.claims.size(); ++i)
+            if (s.claims[i].token == t)
+            {
+                s.claims.erase (s.claims.begin() + (long) i);
+                break;
+            }
+        // The 10 Hz repaint serves BOTH slots: keep it while the queue
+        // slot is visible (its burst elapsed must tick in the gap between
+        // two generations) or while other claims are still live.
+        if (s.claims.empty() && s.queueTotal <= 0)
+            s.stopTimer();
+        s.repaint();
     });
 }
 
