@@ -244,13 +244,21 @@ int main()
 
         // StatusBar: thread-safe logLine (we ARE the message thread here)
         // followed by a real paint pass.
-        ebs::StatusBar bar;
-        bar.logLine ("smoke test line");
+        ebs::StatusBar bar;        bar.logLine ("smoke test line");
         bar.logLine ("Generating... 42 s elapsed");
         const auto barImg = renderToImage (300, 24, [&] (juce::Graphics& g)
             { bar.setSize (300, 24); bar.paint (g); });
         check (barImg.getPixelAt (150, 12) == ebs::bgPanel(),
                "status bar paints the panel surface");
+
+        // v0.7.1 HelpBubble: accent ring + "?" glyph actually paint, and the
+        // tooltip plumbing (SettableTooltipClient) is present.
+        ebs::HelpBubble bubble;
+        bubble.setTooltip ("help bubble smoke tooltip");
+        const auto bubbleImg = renderToImage (14, 14, [&] (juce::Graphics& g)
+            { bubble.paint (g); });
+        check (inkPixels (bubbleImg) > 10,
+               "help bubble paints its accent ring + glyph");
 
         // === v0.2.0 ColourIds ===============================================
         // 1) Per-instance override wins over everything.
@@ -526,6 +534,10 @@ int main()
         canvas.addAndMakeVisible (bar);
         bar.setSize (220, 24);
         bar.setTopLeftPosition (20, 170);
+
+        // v0.7.1: help bubble on the canvas (top-right of the button row).
+        canvas.addAndMakeVisible (bubble);
+        bubble.setBounds (236, 20, 14, 14);
 
         juce::Image receipt (juce::Image::ARGB, 260, 210, true);
         {

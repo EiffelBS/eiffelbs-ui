@@ -14,3 +14,4 @@
 #include "eiffelbs/MorphSlider.h"
 #include "eiffelbs/PowerToggle.h"
 #include "eiffelbs/StatusBar.h"
+#include "eiffelbs/HelpBubble.h"
