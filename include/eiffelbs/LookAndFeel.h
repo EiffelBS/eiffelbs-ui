@@ -248,11 +248,12 @@ namespace ebs
             else if (button.getToggleState())
             {
                 // Toggle state must be unmistakable. An instance
-                // buttonOnColourId wins outright; otherwise a chip that
-                // only set buttonColourId gets its fill visibly lifted
-                // from the rest state, and bare buttons switch to the
-                // solid accent. Explicit ON fills carry no outline - the
-                // fill itself is the active-state signal.
+                // buttonOnColourId wins outright; a chip that only set
+                // buttonColourId KEEPS ITS EXACT FILL (translucent chips
+                // must not change alpha/brightness when toggled - the
+                // accent outline is the active-state signal), and bare
+                // buttons switch to the solid accent. Explicit ON fills
+                // carry no outline - the fill itself is the signal.
                 const bool explicitOn =
                     button.isColourSpecified (juce::TextButton::buttonOnColourId);
                 if (explicitOn)
@@ -262,7 +263,7 @@ namespace ebs
                 }
                 else
                 {
-                    fill    = explicitFill ? instFill.brighter (0.35f) : accent();
+                    fill    = explicitFill ? instFill : accent();
                     outline = accent().withAlpha (0.55f);
                 }
                 if (shouldDrawButtonAsHighlighted)
