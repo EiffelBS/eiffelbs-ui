@@ -15,3 +15,4 @@
 #include "eiffelbs/PowerToggle.h"
 #include "eiffelbs/StatusBar.h"
 #include "eiffelbs/HelpBubble.h"
+#include "eiffelbs/PathRow.h"

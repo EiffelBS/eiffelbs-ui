@@ -260,6 +260,15 @@ int main()
         check (inkPixels (bubbleImg) > 10,
                "help bubble paints its accent ring + glyph");
 
+        // v0.7.3 PathRow: editor + reveal + browse all paint visible ink.
+        ebs::PathRow pathRow (ebs::PathRow::Mode::File, "path placeholder");
+        pathRow.setText ("C:/some/path.wav");
+        const auto pathImg = renderToImage (300, 26, [&] (juce::Graphics& g)
+            { pathRow.setBounds (0, 0, 300, 26); pathRow.paint (g);
+              pathRow.resized(); });
+        check (inkPixels (pathImg) > 40,
+               "path row paints editor + buttons");
+
         // === v0.2.0 ColourIds ===============================================
         // 1) Per-instance override wins over everything.
         ebs::StatusBar redBar;
