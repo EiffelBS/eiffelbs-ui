@@ -340,7 +340,7 @@ int main()
             dl.setShowSearch (false);
             dl.setShowViews (false);
             dl.setColumns ({ { 1, "Name", 140 }, { 2, "Dur", 60 },
-                             { 3, "Origin", 90 } });
+                             { 3, "Origin", 90 }, { 4, "Progress", 110 } });
             dl.setViews ({ { "All", {} },
                             { "Music", [] (const ebs::DataList::Row& r)
                                { auto it = r.cells.find (3);
@@ -351,8 +351,14 @@ int main()
             r2.id = "t-2"; r2.cells = { { 1, "beta" }, { 2, "8" }, { 3, "TTS" } };
             r2.progress = 0.5; r2.progressColumnId = 1;
             r3.id = "t-3"; r3.cells = { { 1, "gamma" }, { 2, "120" }, { 3, "Music" } };
-            dl.setRows ({ r1, r2, r3 });
-            check (dl.visibleRowCount() == 3, "datalist shows all rows by default");
+            // Dedicated bar look for a Progress column: must leave ink too
+            // (track + fill + percent).
+            ebs::DataList::Row r4;
+            r4.id = "t-4";
+            r4.cells = { { 1, "delta" }, { 2, "50" }, { 3, "TTS" } };
+            r4.progress = 0.25; r4.progressColumnId = 4;
+            r4.progressIsBar = true;
+            dl.setRows ({ r1, r2, r3, r4 });
             dl.selectView (1);
             check (dl.visibleRowCount() == 2
                        && dl.visibleRowId (0) == "t-1"
@@ -364,19 +370,21 @@ int main()
                        && dl.visibleRowId (0) == "t-2",
                    "datalist search filters rows by text");
             dl.setSearchText ("");
-            dl.sortBy (2, true);   // numeric-aware: 8 < 30 < 120
-            check (dl.visibleRowCount() == 3
+            dl.sortBy (2, true);   // numeric-aware: 8 < 30 < 50 < 120
+            check (dl.visibleRowCount() == 4
                        && dl.visibleRowId (0) == "t-2"
                        && dl.visibleRowId (1) == "t-1"
-                       && dl.visibleRowId (2) == "t-3",
+                       && dl.visibleRowId (2) == "t-4"
+                       && dl.visibleRowId (3) == "t-3",
                    "datalist sorts numeric columns numerically");
-            dl.sortBy (1, false);  // gamma > beta > alpha
+            dl.sortBy (1, false);  // gamma > delta > beta > alpha
             check (dl.visibleRowId (0) == "t-3"
-                       && dl.visibleRowId (2) == "t-1",
+                       && dl.visibleRowId (3) == "t-1",
                    "datalist sorts text columns backwards");
-            dl.setSize (320, 120);
+            dl.setSize (480, 160);
             dl.resized();
-            const auto dlImg = renderToImage (320, 120, [&] (juce::Graphics& g)
+            const auto dlImg = renderToImage (480, 160,
+                [&] (juce::Graphics& g)
                 { dl.paintEntireComponent (g, false); });
             check (inkPixels (dlImg) > 200, "datalist paints rows + header");
         }

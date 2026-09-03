@@ -12,7 +12,9 @@
 // owns the proxy pipeline view -> search -> sort and drives the table.
 // Selection follows the stable row id, never the visible index.
 //
-// Cells are painted by the library (text + optional progress bar). The host
+// Cells are painted by the library (text + optional progress bar: an
+// accent wash behind a text cell, or a dedicated Progress column with
+// track + fill + percent when Row::progressIsBar is set). The host
 // may supply per-cell COMPONENTS for special columns (e.g. a drag handle or
 // an install button) through cellComponentProvider; action clicks on the
 // leading action column route to onAction without any row component.
@@ -34,6 +36,14 @@
 namespace ebs
 {
 
+// Theme helpers live in ebs::Theme (Theme.h); the bare names below are
+// used unqualified inside DataList (a member of namespace ebs).
+using ebs::accent;
+using ebs::bgDark;
+using ebs::danger;
+using ebs::panelBorder;
+using ebs::textDim;
+
 class DataList : public juce::Component,
                  private juce::TableListBoxModel
 {
@@ -54,8 +64,11 @@ public:
     {
         juce::String id;            // stable identity (selection follows this)
         std::map<int, juce::String> cells;  // columnId -> text
-        double progress = -1.0;     // >= 0: accent bar behind progressColumnId
+        double progress = -1.0;     // >= 0: shown in progressColumnId
         int progressColumnId = 0;   // 0 = no progress cell
+        // true = dedicated Progress-column look (track + fill + percent);
+        // false = legacy accent wash behind the cell text.
+        bool progressIsBar = false;
         juce::String tooltip;
     };
 
@@ -527,6 +540,34 @@ private:
                                                       : juce::String();
         if (r.progress >= 0.0 && columnId == r.progressColumnId)
         {
+            // Dedicated Progress-column look: an inset track with a filled
+            // portion + the percent text on top (reads as a progress bar,
+            // not as a tinted text cell).
+            if (r.progressIsBar)
+            {
+                const float frac = juce::jlimit (0.0f, 1.0f,
+                                                 (float) r.progress);
+                const auto track = juce::Rectangle<float> (
+                    6.0f, (float) h * 0.5f - 5.0f,
+                    (float) w - 12.0f, 10.0f);
+                g.setColour (bgDark());
+                g.fillRoundedRectangle (track, 5.0f);
+                g.setColour (panelBorder());
+                g.drawRoundedRectangle (track, 5.0f, 1.0f);
+                if (frac > 0.0f)
+                {
+                    g.setColour (accent());
+                    g.fillRoundedRectangle (
+                        track.withWidth (track.getWidth() * frac), 5.0f);
+                }
+                g.setColour (ebs::text());
+                g.setFont (ebs::fontHint());
+                g.drawText (juce::String (juce::roundToInt (frac * 100.0f))
+                                + "%",
+                            6, 0, w - 12, h,
+                            juce::Justification::centred, true);
+                return;
+            }
             const float frac = juce::jlimit (0.0f, 1.0f, (float) r.progress);
             g.setColour (accent().withAlpha (0.30f));
             g.fillRect (0, 0, (int) (w * frac), h);

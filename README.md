@@ -170,6 +170,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.8.1** — `IconButton` shapes `download` (Material arrow-into-tray),
   `eye` / `eyeOff` (Feather visibility pair) for model install + show/hide
   row actions.
+- **v0.9** — `DataList` dedicated Progress-column look (`Row::progressIsBar`:
+  inset track + accent fill + percent text, for model-download lists where
+  the user watches the Settings window, not the status bar).
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
   LogWindow chrome); OpenVisuAI adoption of the widget set when its editor
   grows one.
