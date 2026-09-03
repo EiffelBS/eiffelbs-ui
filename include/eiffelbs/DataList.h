@@ -1,0 +1,514 @@
+// DataList.h
+// eiffelbs-ui - generic filterable/sortable table list (EiffelBS design system).
+//
+// Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
+//
+// A thin reusable shell over juce::TableListBox for homogeneous item lists
+// that need named views, text search, sortable columns and per-row actions:
+// take lists (multiple origins), model download lists (install button +
+// progress + size + location), etc.
+//
+// Model: the host pushes plain Row values (id + per-column text); DataList
+// owns the proxy pipeline view -> search -> sort and drives the table.
+// Selection follows the stable row id, never the visible index.
+//
+// Cells are painted by the library (text + optional progress bar). The host
+// may supply per-cell COMPONENTS for special columns (e.g. a drag handle or
+// an install button) through cellComponentProvider; action clicks on the
+// leading action column route to onAction without any row component.
+
+#pragma once
+
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <eiffelbs/Theme.h>
+#include <eiffelbs/Fonts.h>
+#include <eiffelbs/IconButton.h>
+
+#include <functional>
+#include <algorithm>
+#include <cstdlib>
+#include <map>
+#include <vector>
+
+namespace ebs
+{
+
+class DataList : public juce::Component,
+                 private juce::TableListBoxModel
+{
+public:
+    // === Data =============================================================
+
+    struct Column
+    {
+        int id = 0;                 // unique, != 0
+        juce::String title;
+        int defaultWidth = 120;
+        int minWidth = 40;
+        int maxWidth = -1;          // -1 = unlimited
+        bool sortable = true;
+    };
+
+    struct Row
+    {
+        juce::String id;            // stable identity (selection follows this)
+        std::map<int, juce::String> cells;  // columnId -> text
+        double progress = -1.0;     // >= 0: accent bar behind progressColumnId
+        int progressColumnId = 0;   // 0 = no progress cell
+        juce::String tooltip;
+    };
+
+    struct View
+    {
+        juce::String name;
+        // Empty match = accept all rows.
+        std::function<bool (const Row&)> match;
+    };
+
+    struct Action
+    {
+        int actionId = 0;
+        IconButton::Shape shape = IconButton::Shape::play;
+        juce::String tooltip;
+    };
+
+    // === Setup ============================================================
+
+    DataList()
+    {
+        addAndMakeVisible (searchBox);
+        searchBox.setTextToShowWhenEmpty ("Search...", textDim());
+        searchBox.setColour (juce::TextEditor::textColourId, text());
+        searchBox.setColour (juce::TextEditor::backgroundColourId, bgDark());
+        searchBox.setColour (juce::TextEditor::outlineColourId, panelBorder());
+        searchBox.onTextChange = [this] { applyProxy(); };
+
+        addAndMakeVisible (viewBox);
+        viewBox.onChange = [this]
+        {
+            activeView = viewBox.getSelectedItemIndex();
+            applyProxy();
+        };
+
+        addAndMakeVisible (table);
+        table.setModel (this);
+        table.setColour (juce::ListBox::backgroundColourId, bgPanel());
+        table.setColour (juce::ListBox::outlineColourId, panelBorder());
+        table.getHeader().setColour (
+            juce::TableHeaderComponent::backgroundColourId, bgDark());
+        table.getHeader().setColour (
+            juce::TableHeaderComponent::textColourId, text());
+    }
+
+    void setColumns (const std::vector<Column>& cols)
+    {
+        columns = cols;
+        auto& header = table.getHeader();
+        header.removeAllColumns();
+        if (! actions.empty())
+            header.addColumn ("", actionColumnId, actionWidth(),
+                              actionWidth(), actionWidth(),
+                              juce::TableHeaderComponent::notResizableOrSortable);
+        for (const auto& c : columns)
+            header.addColumn (c.title, c.id, c.defaultWidth,
+                              c.minWidth, c.maxWidth,
+                              c.sortable ? juce::TableHeaderComponent::defaultFlags
+                                         : juce::TableHeaderComponent::notSortable);
+        applyProxy();
+    }
+
+    void setViews (const std::vector<View>& v, int defaultIndex = 0)
+    {
+        views = v;
+        viewBox.clear();
+        for (int i = 0; i < (int) views.size(); ++i)
+            viewBox.addItem (views[(size_t) i].name, i + 1);
+        activeView = juce::jlimit (0, (int) views.size() - 1, defaultIndex);
+        viewBox.setSelectedId (activeView + 1, juce::dontSendNotification);
+        applyProxy();
+    }
+
+    void setRowActions (const std::vector<Action>& a)
+    {
+        actions = a;
+        // Rebuild the header so the action column appears/disappears.
+        setColumns (columns);
+    }
+
+    void setRows (const std::vector<Row>& r)
+    {
+        rows = r;
+        applyProxy();
+    }
+
+    /** Custom per-cell components for special columns (drag handles,
+        install buttons, ...). Return nullptr for library-painted cells.
+        The returned component is owned by the table (JUCE recycling). */
+    std::function<juce::Component* (int columnId, const juce::String& rowId,
+                                    juce::Component* existing)> cellComponentProvider;
+
+    /** Numeric-aware default: tries double comparison, falls back to
+        case-insensitive text. Override for domain ordering. */
+    std::function<int (const Row& a, const Row& b, int columnId)> comparer;
+
+    // === Toolbar visibility ===============================================
+
+    void setShowSearch (bool on) { showSearch = on; resized(); }
+    void setShowViews (bool on)  { showViews = on; resized(); }
+
+    // === Selection ==========================================================
+
+    void setMultipleSelectionEnabled (bool on)
+    {
+        table.setMultipleSelectionEnabled (on);
+    }
+
+    /** Select by stable id (silent). No-op when the id is not visible. */
+    void selectRowById (const juce::String& id, bool ensureVisible = false)
+    {
+        for (int i = 0; i < (int) visible.size(); ++i)
+            if (visible[(size_t) i]->id == id)
+            {
+                table.selectRow (i, false, ensureVisible);
+                return;
+            }
+        table.deselectAllRows();
+    }
+
+    juce::String selectedId() const
+    {
+        const int r = table.getSelectedRow();
+        return (r >= 0 && r < (int) visible.size()) ? visible[(size_t) r]->id
+                                                    : juce::String();
+    }
+
+    // === Host callbacks =======================================================
+
+    std::function<void (const juce::String& rowId)> onSelection;
+    std::function<void (const juce::String& rowId)> onDoubleClick;
+    std::function<void (const juce::String& rowId, int actionId)> onAction;
+    std::function<void (int columnId, bool forwards)> onSortChanged;
+
+    /** Full refresh (e.g. progress ticks): re-runs the proxy + repaints. */
+    void refresh() { applyProxy(); }
+
+    void resized() override
+    {
+        auto b = getLocalBounds();
+        if (showSearch || showViews)
+        {
+            auto bar = b.removeFromTop (30);
+            bar.removeFromBottom (4);
+            if (showViews)
+                viewBox.setBounds (bar.removeFromLeft (170).reduced (0, 2));
+            if (showSearch)
+            {
+                bar.removeFromLeft (6);
+                searchBox.setBounds (bar.reduced (0, 2));
+            }
+        }
+        else
+        {
+            searchBox.setBounds ({});
+            viewBox.setBounds ({});
+        }
+        table.setBounds (b);
+    }
+
+    // === Test hooks (also used by the smoke test) =============================
+
+    int visibleRowCount() const noexcept { return (int) visible.size(); }
+    juce::String visibleRowId (int index) const
+    {
+        return (index >= 0 && index < (int) visible.size())
+            ? visible[(size_t) index]->id : juce::String();
+    }
+    void setSearchText (const juce::String& t)
+    {
+        searchBox.setText (t, juce::dontSendNotification);
+        applyProxy();
+    }
+    void selectView (int index)
+    {
+        activeView = juce::jlimit (0, (int) views.size() - 1, index);
+        viewBox.setSelectedId (activeView + 1, juce::dontSendNotification);
+        applyProxy();
+    }
+    void sortBy (int columnId, bool forwards)
+    {
+        pendingSelectedId = selectedId();
+        table.getHeader().setSortColumnId (columnId, forwards);
+        // setSortColumnId notifies asynchronously (tableSortOrderChanged ->
+        // sortOrderChanged -> applyProxy); mirror it NOW so headless and
+        // synchronous callers observe the new order immediately.
+        applyProxy();
+    }
+
+private:
+    static constexpr int actionColumnId = 0x5da7; // "data" leet; id 0 forbidden
+    static constexpr int actionSlotPx = 24;
+
+    int actionWidth() const noexcept { return (int) actions.size() * actionSlotPx; }
+
+    void applyProxy()
+    {
+        visible.clear();
+        const juce::String query = searchBox.getText().trim().toLowerCase();
+        for (auto& r : rows)
+        {
+            if (activeView >= 0 && activeView < (int) views.size()
+                && views[(size_t) activeView].match
+                && ! views[(size_t) activeView].match (r))
+                continue;
+            if (query.isNotEmpty())
+            {
+                bool hit = false;
+                for (const auto& [col, text] : r.cells)
+                    if (text.toLowerCase().contains (query)) { hit = true; break; }
+                if (! hit && ! r.id.toLowerCase().contains (query))
+                    continue;
+            }
+            visible.push_back (&r);
+        }
+        const int sortCol = table.getHeader().getSortColumnId();
+        if (sortCol != 0 && sortCol != actionColumnId)
+        {
+            const bool fwd = table.getHeader().isSortedForwards();
+            std::sort (visible.begin(), visible.end(),
+                [&] (const Row* a, const Row* b)
+                {
+                    int cmp = 0;
+                    if (comparer != nullptr)
+                        cmp = comparer (*a, *b, sortCol);
+                    else
+                        cmp = compareDefault (*a, *b, sortCol);
+                    return fwd ? (cmp < 0) : (cmp > 0);
+                });
+        }
+        // Restore the selection on the same id when it is still visible.
+        const juce::String keep = pendingSelectedId.isNotEmpty()
+            ? pendingSelectedId : selectedId();
+        table.updateContent();
+        pendingSelectedId.clear();
+        if (keep.isNotEmpty())
+            selectRowByIdSilent (keep);
+    }
+
+    static int compareDefault (const Row& a, const Row& b, int columnId)
+    {
+        const auto textFor = [columnId] (const Row& r)
+        {
+            auto it = r.cells.find (columnId);
+            return it != r.cells.end() ? it->second : juce::String();
+        };
+        const juce::String ta = textFor (a), tb = textFor (b);
+        // Numeric-aware: full-string doubles compare numerically, anything
+        // else falls back to case-insensitive text.
+        char* endA = nullptr; char* endB = nullptr;
+        const double va = std::strtod (ta.toRawUTF8(), &endA);
+        const double vb = std::strtod (tb.toRawUTF8(), &endB);
+        if (ta.isNotEmpty() && endA != nullptr && *endA == '\0'
+            && tb.isNotEmpty() && endB != nullptr && *endB == '\0')
+        {
+            if (va < vb) return -1;
+            if (va > vb) return 1;
+            return 0;
+        }
+        return ta.compareIgnoreCase (tb);
+    }
+
+    void selectRowByIdSilent (const juce::String& id)
+    {
+        for (int i = 0; i < (int) visible.size(); ++i)
+            if (visible[(size_t) i]->id == id)
+            {
+                table.selectRow (i, false, false);
+                return;
+            }
+    }
+
+    // --- TableListBoxModel ---
+
+    int getNumRows() override { return (int) visible.size(); }
+
+    void paintRowBackground (juce::Graphics& g, int rowNumber, int w, int h,
+                             bool rowIsSelected) override
+    {
+        g.fillAll (rowIsSelected ? accentSoft() : bgPanel());
+        juce::ignoreUnused (rowNumber, w, h);
+    }
+
+    void paintCell (juce::Graphics& g, int rowNumber, int columnId,
+                    int w, int h, bool /*selected*/) override
+    {
+        if (rowNumber < 0 || rowNumber >= (int) visible.size())
+            return;
+        const Row& r = *visible[(size_t) rowNumber];
+
+        if (columnId == actionColumnId)
+        {
+            // Per-row action buttons (hit-tested in cellClicked).
+            int x = 2;
+            for (const auto& a : actions)
+            {
+                juce::Rectangle<float> box ((float) x + 2.0f, 2.0f, 20.0f,
+                                            (float) h - 4.0f);
+                paintActionGlyph (g, a.shape, box);
+                if (! a.tooltip.isEmpty()) {} // tooltips via getCellTooltip
+                x += actionSlotPx;
+            }
+            juce::ignoreUnused (w);
+            return;
+        }
+
+        auto it = r.cells.find (columnId);
+        const juce::String text = it != r.cells.end() ? it->second
+                                                      : juce::String();
+        if (r.progress >= 0.0 && columnId == r.progressColumnId)
+        {
+            const float frac = juce::jlimit (0.0f, 1.0f, (float) r.progress);
+            g.setColour (accent().withAlpha (0.30f));
+            g.fillRect (0, 0, (int) (w * frac), h);
+        }
+        g.setColour (ebs::text());
+        g.setFont (ebs::fontBody());
+        g.drawText (text, 6, 0, w - 12, h,
+                    juce::Justification::centredLeft, true);
+    }
+
+    void paintActionGlyph (juce::Graphics& g, IconButton::Shape shape,
+                           juce::Rectangle<float> box)
+    {
+        // Minimal glyph renderer mirroring IconButton semantics for the
+        // shapes used as row actions (play/stop handled by the host via
+        // two different actionIds; here: triangle / square / cross / star).
+        g.setColour (textDim());
+        const auto c = box.getCentre();
+        juce::Path p;
+        switch (shape)
+        {
+            case IconButton::Shape::stop:
+                p.addRectangle (box.withSizeKeepingCentre (9.0f, 9.0f));
+                break;
+            case IconButton::Shape::cross:
+            {
+                const float r = 4.5f;
+                juce::Path x;
+                x.startNewSubPath (c.x - r, c.y - r);
+                x.lineTo (c.x + r, c.y + r);
+                x.startNewSubPath (c.x + r, c.y - r);
+                x.lineTo (c.x - r, c.y + r);
+                juce::PathStrokeType (2.0f).createStrokedPath (p, x);
+                break;
+            }
+            case IconButton::Shape::star:
+            {
+                constexpr float pi = juce::MathConstants<float>::pi;
+                for (int k = 0; k < 10; ++k)
+                {
+                    const float ang = pi * -0.5f + k * pi / 5.0f;
+                    const float rad = (k % 2 == 0) ? 5.0f : 5.0f * 0.382f;
+                    const float px = c.x + rad * std::cos (ang);
+                    const float py = c.y + rad * std::sin (ang);
+                    if (k == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
+                }
+                p.closeSubPath();
+                break;
+            }
+            default: // play + anything else: right-pointing triangle
+                p.addTriangle (box.getX() + 2.0f, box.getY() + 1.0f,
+                               box.getX() + 2.0f, box.getBottom() - 1.0f,
+                               box.getRight() - 2.0f, c.y);
+                break;
+        }
+        g.fillPath (p);
+    }
+
+    juce::Component* refreshComponentForCell (int rowNumber, int columnId,
+        bool /*isRowSelected*/, juce::Component* existing) override
+    {
+        if (cellComponentProvider == nullptr
+            || rowNumber < 0 || rowNumber >= (int) visible.size())
+        {
+            delete existing;
+            return nullptr;
+        }
+        return cellComponentProvider (columnId, visible[(size_t) rowNumber]->id,
+                                      existing);
+    }
+
+    void cellClicked (int rowNumber, int columnId,
+                      const juce::MouseEvent& e) override
+    {
+        if (rowNumber < 0 || rowNumber >= (int) visible.size())
+            return;
+        const juce::String rowId = visible[(size_t) rowNumber]->id;
+        if (columnId == actionColumnId && onAction != nullptr)
+        {
+            // Which action slot? Coordinates are relative to the row.
+            const auto cellRect = table.getCellPosition (columnId, rowNumber,
+                                                         false);
+            const int slot = (e.x - cellRect.getX()) / actionSlotPx;
+            if (slot >= 0 && slot < (int) actions.size())
+                onAction (rowId, actions[(size_t) slot].actionId);
+            return;
+        }
+        table.selectRowsBasedOnModifierKeys (rowNumber, e.mods, false);
+    }
+
+    void cellDoubleClicked (int rowNumber, int /*columnId*/,
+                            const juce::MouseEvent&) override
+    {
+        if (rowNumber >= 0 && rowNumber < (int) visible.size()
+            && onDoubleClick != nullptr)
+            onDoubleClick (visible[(size_t) rowNumber]->id);
+    }
+
+    void selectedRowsChanged (int lastRowSelected) override
+    {
+        pendingSelectedId.clear();
+        if (onSelection != nullptr && lastRowSelected >= 0
+            && lastRowSelected < (int) visible.size())
+            onSelection (visible[(size_t) lastRowSelected]->id);
+    }
+
+    void sortOrderChanged (int newSortColumnId, bool isForwards) override
+    {
+        pendingSelectedId = selectedId();
+        applyProxy();
+        if (onSortChanged != nullptr)
+            onSortChanged (newSortColumnId, isForwards);
+    }
+
+    juce::String getCellTooltip (int rowNumber, int columnId) override
+    {
+        if (rowNumber < 0 || rowNumber >= (int) visible.size())
+            return {};
+        const Row& r = *visible[(size_t) rowNumber];
+        if (columnId == actionColumnId)
+            return {};
+        if (r.tooltip.isNotEmpty())
+            return r.tooltip;
+        auto it = r.cells.find (columnId);
+        return it != r.cells.end() ? it->second : juce::String();
+    }
+
+    // === Members ===
+
+    std::vector<Column> columns;
+    std::vector<View> views;
+    std::vector<Action> actions;
+    std::vector<Row> rows;
+    std::vector<const Row*> visible;
+    int activeView = 0;
+    bool showSearch = true, showViews = true;
+    juce::String pendingSelectedId; // selection kept across re-sorts
+
+    juce::TextEditor searchBox;
+    juce::ComboBox viewBox;
+    juce::TableListBox table { "DataList", this };
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (DataList)
+};
+
+} // namespace ebs

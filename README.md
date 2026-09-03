@@ -18,6 +18,7 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 | `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
 | `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
 | `PowerToggle.h` | `ebs::PowerToggle`: power-glyph toggle with warm glow when engaged, disabled dimming; `glowColourId` override |
+| `DataList.h` | `ebs::DataList`: filterable/sortable table list over `juce::TableListBox` — `Row`/`Column`/`View` model, view+search+sort proxy, stable-id selection, per-row action column, progress cells, optional host cell components |
 | `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`), `ColourIds` overrides |
 | `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
@@ -163,6 +164,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.4** — theme-switch broadcast: `setTheme()` + `ThemeSubscriber`
   (subscribe/unsubscribe), LookAndFeel self-subscribed and auto-refreshed on
   switch. First consumer: OpenVoxTuner light-theme completion series.
+- **v0.8** — `DataList`: generic take/model-style lists (views, search,
+  sortable columns, row actions, progress cells) over `juce::TableListBox`.
+  First consumer: OpenTimbre takes + Settings model lists.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
   LogWindow chrome); OpenVisuAI adoption of the widget set when its editor
   grows one.

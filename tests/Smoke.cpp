@@ -269,6 +269,54 @@ int main()
         check (inkPixels (pathImg) > 40,
                "path row paints editor + buttons");
 
+        // v0.8.0 DataList: proxy pipeline (views + search + sort) over
+        // painted cells with a progress bar and an action column.
+        {
+            ebs::DataList dl;
+            dl.setShowSearch (false);
+            dl.setShowViews (false);
+            dl.setColumns ({ { 1, "Name", 140 }, { 2, "Dur", 60 },
+                             { 3, "Origin", 90 } });
+            dl.setViews ({ { "All", {} },
+                            { "Music", [] (const ebs::DataList::Row& r)
+                               { auto it = r.cells.find (3);
+                                 return it != r.cells.end()
+                                     && it->second == "Music"; } } });
+            ebs::DataList::Row r1, r2, r3;
+            r1.id = "t-1"; r1.cells = { { 1, "alpha" }, { 2, "30" }, { 3, "Music" } };
+            r2.id = "t-2"; r2.cells = { { 1, "beta" }, { 2, "8" }, { 3, "TTS" } };
+            r2.progress = 0.5; r2.progressColumnId = 1;
+            r3.id = "t-3"; r3.cells = { { 1, "gamma" }, { 2, "120" }, { 3, "Music" } };
+            dl.setRows ({ r1, r2, r3 });
+            check (dl.visibleRowCount() == 3, "datalist shows all rows by default");
+            dl.selectView (1);
+            check (dl.visibleRowCount() == 2
+                       && dl.visibleRowId (0) == "t-1"
+                       && dl.visibleRowId (1) == "t-3",
+                   "datalist view filters rows by predicate");
+            dl.selectView (0);
+            dl.setSearchText ("beta");
+            check (dl.visibleRowCount() == 1
+                       && dl.visibleRowId (0) == "t-2",
+                   "datalist search filters rows by text");
+            dl.setSearchText ("");
+            dl.sortBy (2, true);   // numeric-aware: 8 < 30 < 120
+            check (dl.visibleRowCount() == 3
+                       && dl.visibleRowId (0) == "t-2"
+                       && dl.visibleRowId (1) == "t-1"
+                       && dl.visibleRowId (2) == "t-3",
+                   "datalist sorts numeric columns numerically");
+            dl.sortBy (1, false);  // gamma > beta > alpha
+            check (dl.visibleRowId (0) == "t-3"
+                       && dl.visibleRowId (2) == "t-1",
+                   "datalist sorts text columns backwards");
+            dl.setSize (320, 120);
+            dl.resized();
+            const auto dlImg = renderToImage (320, 120, [&] (juce::Graphics& g)
+                { dl.paintEntireComponent (g, false); });
+            check (inkPixels (dlImg) > 200, "datalist paints rows + header");
+        }
+
         // === v0.2.0 ColourIds ===============================================
         // 1) Per-instance override wins over everything.
         ebs::StatusBar redBar;
