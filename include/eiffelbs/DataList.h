@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <map>
+#include <optional>
 #include <vector>
 
 namespace ebs
@@ -98,7 +99,20 @@ public:
             juce::TableHeaderComponent::backgroundColourId, bgDark());
         table.getHeader().setColour (
             juce::TableHeaderComponent::textColourId, text());
+        // Mouse listener on the table viewport: grip-slot drags + hand
+        // cursor. The rows paint the grip glyph but own no component, so
+        // the drag must start here: mouse-down on a grip slot arms it,
+        // mouse-move past the dead zone fires onGripDrag (native OS file
+        // drag, resolved AT DRAG TIME from the row id), which also
+        // suppresses the pending action click (see cellClicked).
+        table.getViewport()->addMouseListener (this, true);
     }
+
+    /** Native file drag starting on a grip action slot: the host resolves
+        the file list AT DRAG TIME from the row id (never captured), so
+        recycled rows cannot drag a stale file. Return {} for no drag. */
+    std::function<juce::StringArray (const juce::String& rowId)>
+        gripFilesForRow;
 
     void setColumns (const std::vector<Column>& cols)
     {
@@ -236,12 +250,6 @@ public:
     std::function<void (const juce::String& rowId)> onSelection;
     std::function<void (const juce::String& rowId)> onDoubleClick;
     std::function<void (const juce::String& rowId, int actionId)> onAction;
-    /** Drag gesture starting on an action slot (e.g. the grip handle for
-        native file drag): the action click is skipped and this fires
-        instead, once the mouse moved past the dead zone. Coordinates are
-        local to the DataList. */
-    std::function<void (const juce::String& rowId, int actionId,
-                        const juce::MouseEvent& e)> onActionDrag;
     std::function<void (int columnId, bool forwards)> onSortChanged;
     /** Right-click on a row (e.g. context menu). Coordinates are local
         to the DataList. */
@@ -271,6 +279,55 @@ public:
             viewBox.setBounds ({});
         }
         table.setBounds (b);
+    }
+
+    // === Grip drag (mouse listener on the table viewport) ===================
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        updateGripCursor (e);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        gripDragArmed = false;
+        if (const auto slot = actionSlotAt (e.getEventRelativeTo (&table)
+                                                .getPosition()))
+        {
+            if (actions[(size_t) slot->slot].shape
+                    == IconButton::Shape::grip)
+            {
+                gripDragArmed = true;
+                gripDragArmedRow = slot->row;
+                gripDragArmedSlot = slot->slot;
+            }
+        }
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! gripDragArmed || gripFilesForRow == nullptr)
+            return;
+        if (e.getDistanceFromDragStart() < 8)
+            return;                            // dead zone before the drag
+        gripDragArmed = false;
+        // Resolve AT DRAG TIME from the CURRENT row id (never captured).
+        const int row = gripDragArmedRow;
+        if (row < 0 || row >= (int) visible.size())
+            return;
+        const auto files = gripFilesForRow (visible[(size_t) row]->id);
+        if (files.isEmpty())
+            return;
+        // allowMove = true: the DAW may import/move the file natively.
+        // NOTE: blocks until the native OLE drag loop ends on Windows.
+        juce::DragAndDropContainer::performExternalDragDropOfFiles (
+            files, true, this);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        // Keep the armed state until cellClicked (mouse-up) consumed it:
+        // clearing here would re-enable the click after a real drag.
     }
 
     // === Test hooks (also used by the smoke test) =============================
@@ -307,6 +364,42 @@ private:
     static constexpr int actionSlotPx = 24;
 
     int actionWidth() const noexcept { return (int) actions.size() * actionSlotPx; }
+
+    struct ActionSlot { int row = -1; int slot = -1; };
+
+    /** Viewport position -> action slot, or nullopt when not on one.
+        Rows painted by the library own no component, so geometry comes
+        from the header layout + the row height. */
+    std::optional<ActionSlot> actionSlotAt (juce::Point<int> tablePos) const
+    {
+        if (actions.empty())
+            return std::nullopt;
+        const int rowH = table.getRowHeight();
+        if (rowH <= 0)
+            return std::nullopt;
+        const int firstVisible = table.getRowContainingPosition (0, tablePos.y);
+        if (firstVisible < 0 || firstVisible >= (int) visible.size())
+            return std::nullopt;
+        const auto cellRect = table.getCellPosition (actionColumnId,
+                                                     firstVisible, true);
+        if (cellRect.isEmpty() || ! cellRect.contains (tablePos))
+            return std::nullopt;
+        const int slot = (tablePos.x - cellRect.getX()) / actionSlotPx;
+        if (slot < 0 || slot >= (int) actions.size())
+            return std::nullopt;
+        return ActionSlot { firstVisible, slot };
+    }
+
+    void updateGripCursor (const juce::MouseEvent& e)
+    {
+        auto pos = e.getEventRelativeTo (&table).getPosition();
+        bool overGrip = false;
+        if (const auto slot = actionSlotAt (pos))
+            overGrip = actions[(size_t) slot->slot].shape
+                       == IconButton::Shape::grip;
+        table.setMouseCursor (overGrip ? juce::MouseCursor::DraggingHandCursor
+                                       : juce::MouseCursor::NormalCursor);
+    }
 
     void applyProxy()
     {
@@ -484,20 +577,24 @@ private:
         if (columnId == actionColumnId)
         {
             // Which action slot? Coordinates are relative to the row.
+            // cellClicked fires on mouse-down AND mouse-up: only the UP
+            // (a real click) triggers the action. A drag that STARTED on a
+            // grip slot suppresses the click: the drag was already handed
+            // to the OS on mouse-move (see the table mouse listener).
             const auto cellRect = table.getCellPosition (columnId, rowNumber,
                                                          false);
             const int slot = (e.x - cellRect.getX()) / actionSlotPx;
             if (slot < 0 || slot >= (int) actions.size())
                 return;
-            // A drag that STARTED on an action slot (grip handle) routes
-            // to onActionDrag instead of a click: the click fires on
-            // mouse-up, so a real drag must suppress it.
-            if (e.mouseWasDraggedSinceMouseDown() && onActionDrag != nullptr
-                && e.getDistanceFromDragStart() >= 8)
-            {
-                onActionDrag (rowId, actions[(size_t) slot].actionId, e);
-                return;
-            }
+            if (e.getDistanceFromDragStart() == 0
+                && ! e.mouseWasDraggedSinceMouseDown())
+                return;                        // mouse-down: select only
+            if (gripDragArmed && gripDragArmedRow == rowNumber
+                && gripDragArmedSlot == slot
+                && onAction != nullptr
+                && actions[(size_t) slot].shape
+                       == IconButton::Shape::grip)
+                return;                        // was a grip drag: no click
             if (onAction != nullptr)
                 onAction (rowId, actions[(size_t) slot].actionId);
             return;
@@ -565,6 +662,9 @@ private:
     int activeView = 0;
     bool showSearch = true, showViews = true;
     juce::String pendingSelectedId; // selection kept across re-sorts
+    // Grip-drag arming (mouse-down slot -> mouse-move past dead zone).
+    bool gripDragArmed = false;
+    int gripDragArmedRow = -1, gripDragArmedSlot = -1;
 
     juce::TextEditor searchBox;
     juce::ComboBox viewBox;
