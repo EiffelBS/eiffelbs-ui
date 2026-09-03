@@ -151,6 +151,21 @@ public:
         case-insensitive text. Override for domain ordering. */
     std::function<int (const Row& a, const Row& b, int columnId)> comparer;
 
+    /** Optional host-supplied glyph tint per action slot (e.g. red delete,
+        gold favorite, green playing). Return transparent for the default. */
+    std::function<juce::Colour (const juce::String& rowId, int actionId)>
+        actionColour;
+
+    /** Optional host-supplied filled/outline flag per action slot (star
+        shape: filled = favourite). Default filled. */
+    std::function<bool (const juce::String& rowId, int actionId)> actionFilled;
+
+    /** Optional host-supplied SHAPE override per row+action (e.g. play
+        becomes stop on the sounding row). Default = the declared shape. */
+    std::function<IconButton::Shape (const juce::String& rowId, int actionId,
+                                     IconButton::Shape declared)>
+        actionShapeOverride;
+
     // === Toolbar visibility ===============================================
 
     void setShowSearch (bool on) { showSearch = on; resized(); }
@@ -163,7 +178,8 @@ public:
         table.setMultipleSelectionEnabled (on);
     }
 
-    /** Select by stable id (silent). No-op when the id is not visible. */
+    /** Select by stable id. Stays silent (same as programmatic
+        ListBox selection with dontSendNotification). */
     void selectRowById (const juce::String& id, bool ensureVisible = false)
     {
         for (int i = 0; i < (int) visible.size(); ++i)
@@ -173,6 +189,39 @@ public:
                 return;
             }
         table.deselectAllRows();
+    }
+
+    /** Stable id of the row at a SOURCE index (pre-proxy position in the
+        last setRows() vector), or "" when out of range. Lets hosts map a
+        legacy absolute index (e.g. a playing-take scan) onto the proxy. */
+    juce::String rowIdAtSourceIndex (int sourceIndex) const
+    {
+        return (sourceIndex >= 0 && sourceIndex < (int) rows.size())
+            ? rows[(size_t) sourceIndex].id : juce::String();
+    }
+
+    /** Source index (last setRows() position) of a stable id, or -1. */
+    int sourceIndexOf (const juce::String& id) const
+    {
+        for (int i = 0; i < (int) rows.size(); ++i)
+            if (rows[(size_t) i].id == id)
+                return i;
+        return -1;
+    }
+
+    /** Row count of the underlying ListBox (visible rows scroll the same). */
+    void setRowHeight (int h) { table.setRowHeight (h); }
+
+    /** Force the table to rebuild visible components (state icons...). */
+    void updateRows() { table.updateContent(); }
+
+    /** Repaint one visible row without rebuilding components. */
+    void repaintRow (int visibleIndex) { table.repaintRow (visibleIndex); }
+
+    /** Visible index -> stable id ("" when out of range). */
+    juce::String rowIdAt (int visibleIndex) const
+    {
+        return visibleRowId (visibleIndex);
     }
 
     juce::String selectedId() const
@@ -188,6 +237,9 @@ public:
     std::function<void (const juce::String& rowId)> onDoubleClick;
     std::function<void (const juce::String& rowId, int actionId)> onAction;
     std::function<void (int columnId, bool forwards)> onSortChanged;
+    /** Right-click on a row (e.g. context menu). Coordinates are local
+        to the DataList. */
+    std::function<void (const juce::String& rowId, juce::Point<int> pos)> onRightClick;
 
     /** Full refresh (e.g. progress ticks): re-runs the proxy + repaints. */
     void refresh() { applyProxy(); }
@@ -348,13 +400,23 @@ private:
         if (columnId == actionColumnId)
         {
             // Per-row action buttons (hit-tested in cellClicked).
+            const juce::String rowId = r.id;
             int x = 2;
             for (const auto& a : actions)
             {
                 juce::Rectangle<float> box ((float) x + 2.0f, 2.0f, 20.0f,
                                             (float) h - 4.0f);
-                paintActionGlyph (g, a.shape, box);
-                if (! a.tooltip.isEmpty()) {} // tooltips via getCellTooltip
+                juce::Colour tint;
+                if (actionColour != nullptr)
+                    tint = actionColour (rowId, a.actionId);
+                auto shape = a.shape;
+                if (actionShapeOverride != nullptr)
+                    shape = actionShapeOverride (rowId, a.actionId, shape);
+                const bool filled = actionFilled != nullptr
+                    ? actionFilled (rowId, a.actionId) : true;
+                paintActionGlyph (g, shape, box,
+                                  tint.isTransparent() ? textDim() : tint,
+                                  filled);
                 x += actionSlotPx;
             }
             juce::ignoreUnused (w);
@@ -377,12 +439,13 @@ private:
     }
 
     void paintActionGlyph (juce::Graphics& g, IconButton::Shape shape,
-                           juce::Rectangle<float> box)
+                           juce::Rectangle<float> box, juce::Colour colour,
+                           bool filledStar = true)
     {
         // Minimal glyph renderer mirroring IconButton semantics for the
         // shapes used as row actions (play/stop handled by the host via
         // two different actionIds; here: triangle / square / cross / star).
-        g.setColour (textDim());
+        g.setColour (colour);
         const auto c = box.getCentre();
         juce::Path p;
         switch (shape)
@@ -404,15 +467,24 @@ private:
             case IconButton::Shape::star:
             {
                 constexpr float pi = juce::MathConstants<float>::pi;
+                // Favourites draw LARGER + filled (legacy row semantics);
+                // non-favourites the thin 1.2 px outline variant.
+                const float outer = filledStar ? 5.9f : 5.0f;
                 for (int k = 0; k < 10; ++k)
                 {
                     const float ang = pi * -0.5f + k * pi / 5.0f;
-                    const float rad = (k % 2 == 0) ? 5.0f : 5.0f * 0.382f;
+                    const float rad = (k % 2 == 0) ? outer : outer * 0.382f;
                     const float px = c.x + rad * std::cos (ang);
                     const float py = c.y + rad * std::sin (ang);
                     if (k == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
                 }
                 p.closeSubPath();
+                if (! filledStar)
+                {
+                    juce::Path stroked;
+                    juce::PathStrokeType (1.2f).createStrokedPath (stroked, p);
+                    p = stroked;
+                }
                 break;
             }
             default: // play + anything else: right-pointing triangle
@@ -443,6 +515,12 @@ private:
         if (rowNumber < 0 || rowNumber >= (int) visible.size())
             return;
         const juce::String rowId = visible[(size_t) rowNumber]->id;
+        if (e.mods.isRightButtonDown() && onRightClick != nullptr)
+        {
+            table.selectRow (rowNumber, false, false);
+            onRightClick (rowId, e.getEventRelativeTo (this).getPosition());
+            return;
+        }
         if (columnId == actionColumnId && onAction != nullptr)
         {
             // Which action slot? Coordinates are relative to the row.
@@ -486,7 +564,20 @@ private:
             return {};
         const Row& r = *visible[(size_t) rowNumber];
         if (columnId == actionColumnId)
-            return {};
+        {
+            // Action slot under the cursor? Coordinates unknown here, so
+            // report all slot tooltips joined (JUCE has no per-pixel hook).
+            juce::String t;
+            for (const auto& a : actions)
+            {
+                if (a.tooltip.isNotEmpty())
+                {
+                    if (t.isNotEmpty()) t << " | ";
+                    t << a.tooltip;
+                }
+            }
+            return t.isNotEmpty() ? t : r.tooltip;
+        }
         if (r.tooltip.isNotEmpty())
             return r.tooltip;
         auto it = r.cells.find (columnId);
