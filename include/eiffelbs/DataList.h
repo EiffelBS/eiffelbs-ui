@@ -166,6 +166,13 @@ public:
     {
         rows = r;
         applyProxy();
+        // Painted rows cache their cell content: a full content update
+        // plus an eager repaint so state changes (action glyphs, progress
+        // bars) show WITHOUT waiting for the next unrelated repaint.
+        // (Hosts that poll progress call this at several Hz; the cost is
+        // one lightweight table repaint.)
+        table.updateContent();
+        table.repaint();
     }
 
     /** Custom per-cell components for special columns (drag handles,

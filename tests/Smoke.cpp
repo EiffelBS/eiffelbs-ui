@@ -399,6 +399,17 @@ int main()
                 [&] (juce::Graphics& g)
                 { dl.paintEntireComponent (g, false); });
             check (inkPixels (dlImg) > 200, "datalist paints rows + header");
+            // setRows must repaint eagerly: paint the component straight
+            // into an image AFTER a row-state change, with NO external
+            // repaint in between - the progress glyph must already show.
+            ebs::DataList::Row r4b = r4;
+            r4b.progress = 0.9;
+            dl.setRows ({ r1, r2, r3, r4b });
+            const auto dlImg2 = renderToImage (480, 160,
+                [&] (juce::Graphics& g)
+                { dl.paintEntireComponent (g, false); });
+            check (inkPixels (dlImg2) > 200,
+                   "datalist setRows updates painted rows eagerly");
             // cellClicked on the action column with a real-click event
             // (down pos == event pos, not dragged) routes to onAction once.
             const int vis0 = dl.visibleRowCount() > 0 ? 0 : -1;
