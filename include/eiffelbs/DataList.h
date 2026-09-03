@@ -619,23 +619,23 @@ private:
         {
             // Which action slot? Coordinates are relative to the row.
             // cellClicked fires on mouse-down AND mouse-up: only the UP
-            // (a real click) triggers the action. A drag that STARTED on a
-            // grip slot suppresses the click: the drag was already handed
-            // to the OS on mouse-move (see the table mouse listener).
+            // (a real click, or a down+up coalesced into one with a zero
+            // drag distance) triggers the action. A drag that STARTED on
+            // a grip slot suppresses the click: the drag was already
+            // handed to the OS on mouse-move (see the table listener).
             const auto cellRect = table.getCellPosition (columnId, rowNumber,
                                                          false);
             const int slot = (e.x - cellRect.getX()) / actionSlotPx;
             if (slot < 0 || slot >= (int) actions.size())
                 return;
-            if (e.getDistanceFromDragStart() == 0
-                && ! e.mouseWasDraggedSinceMouseDown())
-                return;                        // mouse-down: select only
             if (gripDragArmed && gripDragArmedRow == rowNumber
                 && gripDragArmedSlot == slot
-                && onAction != nullptr
                 && actions[(size_t) slot].shape
                        == IconButton::Shape::grip)
                 return;                        // was a grip drag: no click
+            if (e.getDistanceFromDragStart() != 0
+                || e.mouseWasDraggedSinceMouseDown())
+                return;                        // dragged elsewhere: no click
             if (onAction != nullptr)
                 onAction (rowId, actions[(size_t) slot].actionId);
             return;
@@ -693,6 +693,17 @@ private:
         return it != r.cells.end() ? it->second : juce::String();
     }
 
+    // === Test hooks (smoke test only) ===================================
+
+public:
+    int actionColumnIdForTest() const noexcept { return actionColumnId; }
+    juce::TableListBoxModel* modelForTest() noexcept { return this; }
+    juce::Rectangle<int> actionCellBoundsForTest (int visibleRow) const
+    {
+        return table.getCellPosition (actionColumnId, visibleRow, false);
+    }
+
+private:
     // === Members ===
 
     std::vector<Column> columns;

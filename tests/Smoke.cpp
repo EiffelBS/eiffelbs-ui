@@ -381,12 +381,49 @@ int main()
             check (dl.visibleRowId (0) == "t-3"
                        && dl.visibleRowId (3) == "t-1",
                    "datalist sorts text columns backwards");
+            // Selection + proxy + action-click behaviour slot.
+            // A real UP click (zero drag distance) on the action column
+            // must route to onAction with the slot's action id.
+            dl.setRowActions ({ { 42, ebs::IconButton::Shape::download,
+                                  "Install" } });
+            juce::String clickedId;
+            int clickedAction = 0;
+            dl.onAction = [&] (const juce::String& id, int actionId)
+            {
+                clickedId = id;
+                clickedAction = actionId;
+            };
             dl.setSize (480, 160);
             dl.resized();
             const auto dlImg = renderToImage (480, 160,
                 [&] (juce::Graphics& g)
                 { dl.paintEntireComponent (g, false); });
             check (inkPixels (dlImg) > 200, "datalist paints rows + header");
+            // cellClicked on the action column with a real-click event
+            // (down pos == event pos, not dragged) routes to onAction once.
+            const int vis0 = dl.visibleRowCount() > 0 ? 0 : -1;
+            if (vis0 >= 0)
+            {
+                const auto cellRect = dl.actionCellBoundsForTest (vis0);
+                const auto centre = cellRect.getCentre().toFloat();
+                juce::MouseEvent click (
+                    juce::Desktop::getInstance().getMainMouseSource(),
+                    centre,
+                    juce::ModifierKeys::leftButtonModifier,
+                    0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    dl.modelForTest() != nullptr ? &dl : nullptr,
+                    &dl,
+                    juce::Time::getCurrentTime(),
+                    centre,
+                    juce::Time::getCurrentTime(), 1, false);
+                dl.modelForTest()->cellClicked (vis0,
+                                                dl.actionColumnIdForTest(),
+                                                click);
+                check (clickedAction == 42 && clickedId.isNotEmpty(),
+                       "datalist action click routes to onAction");
+            }
+            else
+                check (false, "datalist action click routes to onAction");
         }
 
         // === v0.2.0 ColourIds ===============================================
