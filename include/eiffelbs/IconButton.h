@@ -47,6 +47,12 @@ static const char* const kSvgLock   = R"(<svg viewBox="0 0 24 24" fill="none" st
 static const char* const kSvgRefresh = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>)";
 
 static const char* const kSvgWand = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>)";
+// Material "download" (arrow into tray) - model install actions.
+static const char* const kSvgDownload = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>)";
+// Feather "eye" - visible state of the model visibility toggle.
+static const char* const kSvgEye = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>)";
+// Feather "eye-off" - hidden state of the model visibility toggle.
+static const char* const kSvgEyeOff = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>)";
 
 // Material "pan_tool" filled glyph: reads as a real HAND at small sizes
 // (the previous 2x3 dot grid did not).
@@ -58,13 +64,14 @@ class IconButton : public juce::Button
 public:
     /** Displayed shape: play = filled triangle (or stop square when
      *  toggled), stop = forced square, cross = delete cross, refresh =
-     *  circular re-roll arrow, folder = folder silhouette, grip = drag
-     *  handle, undo/redo = circular arrows, settings = gear, star =
-     *  favourite marker (filled or thin outline, see setFilled), lock =
-     *  padlock (host-transport link semantics are app-defined). */
+     *  circular re-roll arrow, download = arrow into tray (model install),
+     *  eye / eyeOff = visibility toggle pair, folder = folder silhouette,
+     *  grip = drag handle, undo/redo = circular arrows, settings = gear,
+     *  star = favourite marker (filled or thin outline, see setFilled),
+     *  lock = padlock (host-transport link semantics are app-defined). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
-                       lock };
+                       lock, download, eye, eyeOff };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -142,6 +149,21 @@ public:
         {
             setTooltip ("Link");
             icon = textDim();   // quiet grey; ON state is app-driven (alpha/colourId)
+        }
+        else if (s == Shape::download)
+        {
+            setTooltip ("Download");
+            icon = accent();
+        }
+        else if (s == Shape::eye)
+        {
+            setTooltip ("Visible");
+            icon = textDim();
+        }
+        else if (s == Shape::eyeOff)
+        {
+            setTooltip ("Hidden");
+            icon = juce::Colour (0xffe8c34a);
         }
         else
         {
@@ -343,6 +365,9 @@ private:
             case Shape::tool:     return kSvgTool;
             case Shape::search:   return kSvgSearch;
             case Shape::lock:     return kSvgLock;
+            case Shape::download: return kSvgDownload;
+            case Shape::eye:      return kSvgEye;
+            case Shape::eyeOff:   return kSvgEyeOff;
             default:              return nullptr;
         }
     }

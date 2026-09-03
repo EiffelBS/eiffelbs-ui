@@ -221,7 +221,9 @@ int main()
             ebs::IconButton::Shape::undo,    ebs::IconButton::Shape::redo,
             ebs::IconButton::Shape::settings, ebs::IconButton::Shape::star,
             ebs::IconButton::Shape::wand,    ebs::IconButton::Shape::tool,
-            ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock
+            ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock,
+            ebs::IconButton::Shape::download, ebs::IconButton::Shape::eye,
+            ebs::IconButton::Shape::eyeOff
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
@@ -282,7 +284,10 @@ int main()
                 ebs::IconButton::Shape::star, ebs::IconButton::Shape::lock,
                 ebs::IconButton::Shape::grip, ebs::IconButton::Shape::wand,
                 ebs::IconButton::Shape::cross,
-                ebs::IconButton::Shape::refresh
+                ebs::IconButton::Shape::refresh,
+                ebs::IconButton::Shape::download,
+                ebs::IconButton::Shape::eye,
+                ebs::IconButton::Shape::eyeOff
             };
             {
                 ebs::DataList dl;
@@ -297,12 +302,16 @@ int main()
                 r.id = "glyphs";
                 r.cells = { { 1, "" } };
                 dl.setRows ({ r });
-                dl.setSize (320, 60);
+                // Action column: N slots x 24 px from x=0; sample each.
+                const int numGlyphSlots = (int) (sizeof (actionShapes)
+                                                 / sizeof (actionShapes[0]));
+                dl.setSize (numGlyphSlots * 24 + 56, 60);
                 dl.resized();
                 // One ink check per slot: each glyph leaves visible paint.
                 // Threshold: mean brightness must RISE above the panel
                 // background (dim glyphs like the hand still count).
-                const auto glyphImg = renderToImage (320, 60,
+                const auto glyphImg = renderToImage (
+                    numGlyphSlots * 24 + 56, 60,
                     [&] (juce::Graphics& g)
                     { dl.paintEntireComponent (g, false); });
                 const auto bgLum = [] (juce::Colour c)
@@ -310,9 +319,8 @@ int main()
                              + 0.6f * c.getFloatGreen()
                              + 0.1f * c.getFloatBlue(); };
                 const float bg = bgLum (ebs::bgPanel());
-                // Action column: 8 slots x 24 px from x=0; sample each.
                 bool allGlyphInk = true;
-                for (int i = 0; i < 8; ++i)
+                for (int i = 0; i < numGlyphSlots; ++i)
                 {
                     float lum = 0.0f;
                     int n = 0;
