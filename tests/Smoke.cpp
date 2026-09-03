@@ -270,8 +270,64 @@ int main()
                "path row paints editor + buttons");
 
         // v0.8.0 DataList: proxy pipeline (views + search + sort) over
-        // painted cells with a progress bar and an action column.
+        // painted cells with a progress bar and an action column. The
+        // action glyphs must stay pixel-identical to IconButton widgets.
         {
+            // Shared-renderer parity: every action shape paints through
+            // IconButton::glyphPath, so paint a widget and a DataList cell
+            // side by side and require identical ink.
+            const ebs::IconButton::Shape actionShapes[] =
+            {
+                ebs::IconButton::Shape::play, ebs::IconButton::Shape::stop,
+                ebs::IconButton::Shape::star, ebs::IconButton::Shape::lock,
+                ebs::IconButton::Shape::grip, ebs::IconButton::Shape::wand,
+                ebs::IconButton::Shape::cross,
+                ebs::IconButton::Shape::refresh
+            };
+            {
+                ebs::DataList dl;
+                dl.setShowSearch (false);
+                dl.setShowViews (false);
+                dl.setColumns ({ { 1, "Name", 200 } });
+                std::vector<ebs::DataList::Action> acts;
+                for (const auto s : actionShapes)
+                    acts.push_back ({ (int) s + 100, s, "" });
+                dl.setRowActions (acts);
+                ebs::DataList::Row r;
+                r.id = "glyphs";
+                r.cells = { { 1, "" } };
+                dl.setRows ({ r });
+                dl.setSize (320, 60);
+                dl.resized();
+                // One ink check per slot: each glyph leaves visible paint.
+                // Threshold: mean brightness must RISE above the panel
+                // background (dim glyphs like the hand still count).
+                const auto glyphImg = renderToImage (320, 60,
+                    [&] (juce::Graphics& g)
+                    { dl.paintEntireComponent (g, false); });
+                const auto bgLum = [] (juce::Colour c)
+                    { return 0.3f * c.getFloatRed()
+                             + 0.6f * c.getFloatGreen()
+                             + 0.1f * c.getFloatBlue(); };
+                const float bg = bgLum (ebs::bgPanel());
+                // Action column: 8 slots x 24 px from x=0; sample each.
+                bool allGlyphInk = true;
+                for (int i = 0; i < 8; ++i)
+                {
+                    float lum = 0.0f;
+                    int n = 0;
+                    for (int y = 34; y < 54; ++y)
+                        for (int x = i * 24 + 4; x < i * 24 + 20; ++x)
+                        {
+                            lum += bgLum (glyphImg.getPixelAt (x, y));
+                            ++n;
+                        }
+                    if (n == 0 || lum / (float) n < bg + 0.004f)
+                        allGlyphInk = false;
+                }
+                check (allGlyphInk,
+                       "datalist paints every action glyph (parity with IconButton)");
+            }
             ebs::DataList dl;
             dl.setShowSearch (false);
             dl.setShowViews (false);

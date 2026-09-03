@@ -236,6 +236,12 @@ public:
     std::function<void (const juce::String& rowId)> onSelection;
     std::function<void (const juce::String& rowId)> onDoubleClick;
     std::function<void (const juce::String& rowId, int actionId)> onAction;
+    /** Drag gesture starting on an action slot (e.g. the grip handle for
+        native file drag): the action click is skipped and this fires
+        instead, once the mouse moved past the dead zone. Coordinates are
+        local to the DataList. */
+    std::function<void (const juce::String& rowId, int actionId,
+                        const juce::MouseEvent& e)> onActionDrag;
     std::function<void (int columnId, bool forwards)> onSortChanged;
     /** Right-click on a row (e.g. context menu). Coordinates are local
         to the DataList. */
@@ -442,58 +448,12 @@ private:
                            juce::Rectangle<float> box, juce::Colour colour,
                            bool filledStar = true)
     {
-        // Minimal glyph renderer mirroring IconButton semantics for the
-        // shapes used as row actions (play/stop handled by the host via
-        // two different actionIds; here: triangle / square / cross / star).
+        // Glyphs stay pixel-identical to IconButton widgets through the
+        // shared renderer (SVG-sourced lock/wand/refresh/hand included).
         g.setColour (colour);
-        const auto c = box.getCentre();
-        juce::Path p;
-        switch (shape)
-        {
-            case IconButton::Shape::stop:
-                p.addRectangle (box.withSizeKeepingCentre (9.0f, 9.0f));
-                break;
-            case IconButton::Shape::cross:
-            {
-                const float r = 4.5f;
-                juce::Path x;
-                x.startNewSubPath (c.x - r, c.y - r);
-                x.lineTo (c.x + r, c.y + r);
-                x.startNewSubPath (c.x + r, c.y - r);
-                x.lineTo (c.x - r, c.y + r);
-                juce::PathStrokeType (2.0f).createStrokedPath (p, x);
-                break;
-            }
-            case IconButton::Shape::star:
-            {
-                constexpr float pi = juce::MathConstants<float>::pi;
-                // Favourites draw LARGER + filled (legacy row semantics);
-                // non-favourites the thin 1.2 px outline variant.
-                const float outer = filledStar ? 5.9f : 5.0f;
-                for (int k = 0; k < 10; ++k)
-                {
-                    const float ang = pi * -0.5f + k * pi / 5.0f;
-                    const float rad = (k % 2 == 0) ? outer : outer * 0.382f;
-                    const float px = c.x + rad * std::cos (ang);
-                    const float py = c.y + rad * std::sin (ang);
-                    if (k == 0) p.startNewSubPath (px, py); else p.lineTo (px, py);
-                }
-                p.closeSubPath();
-                if (! filledStar)
-                {
-                    juce::Path stroked;
-                    juce::PathStrokeType (1.2f).createStrokedPath (stroked, p);
-                    p = stroked;
-                }
-                break;
-            }
-            default: // play + anything else: right-pointing triangle
-                p.addTriangle (box.getX() + 2.0f, box.getY() + 1.0f,
-                               box.getX() + 2.0f, box.getBottom() - 1.0f,
-                               box.getRight() - 2.0f, c.y);
-                break;
-        }
-        g.fillPath (p);
+        const auto glyphBox = box.withSizeKeepingCentre (10.0f, 10.0f);
+        g.fillPath (IconButton::glyphPath (shape, glyphBox, filledStar,
+                                           false, 10.0f));
     }
 
     juce::Component* refreshComponentForCell (int rowNumber, int columnId,
@@ -521,13 +481,24 @@ private:
             onRightClick (rowId, e.getEventRelativeTo (this).getPosition());
             return;
         }
-        if (columnId == actionColumnId && onAction != nullptr)
+        if (columnId == actionColumnId)
         {
             // Which action slot? Coordinates are relative to the row.
             const auto cellRect = table.getCellPosition (columnId, rowNumber,
                                                          false);
             const int slot = (e.x - cellRect.getX()) / actionSlotPx;
-            if (slot >= 0 && slot < (int) actions.size())
+            if (slot < 0 || slot >= (int) actions.size())
+                return;
+            // A drag that STARTED on an action slot (grip handle) routes
+            // to onActionDrag instead of a click: the click fires on
+            // mouse-up, so a real drag must suppress it.
+            if (e.mouseWasDraggedSinceMouseDown() && onActionDrag != nullptr
+                && e.getDistanceFromDragStart() >= 8)
+            {
+                onActionDrag (rowId, actions[(size_t) slot].actionId, e);
+                return;
+            }
+            if (onAction != nullptr)
                 onAction (rowId, actions[(size_t) slot].actionId);
             return;
         }

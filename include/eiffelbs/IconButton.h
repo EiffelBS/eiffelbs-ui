@@ -193,6 +193,83 @@ public:
         repaint();
     }
 
+    /** Shared glyph renderer: builds the fillable path for a shape inside
+        `box` (already sized to the glyph area). DataList row actions use
+        this so painted glyphs stay pixel-identical to IconButton widgets.
+        `playingToggle` mirrors the native toggle state (play -> stop). */
+    static juce::Path glyphPath (Shape s, juce::Rectangle<float> box,
+                                 bool filledStar, bool playingToggle,
+                                 float iconSide = 10.0f)
+    {
+        juce::Path p;
+        if (s == Shape::cross)
+        {
+            const float r = iconSide * 0.5f;
+            const auto c = box.getCentre();
+            juce::Path x;
+            x.startNewSubPath (c.x - r, c.y - r);
+            x.lineTo (c.x + r, c.y + r);
+            x.startNewSubPath (c.x + r, c.y - r);
+            x.lineTo (c.x - r, c.y + r);
+            juce::PathStrokeType (2.0f).createStrokedPath (p, x);
+        }
+        else if (const char* glyph = svgFor (s))
+        {
+            const float scale = iconSide * 1.30f / 24.0f;
+            p.addPath (svgOutline (glyph),
+                       juce::AffineTransform::translation (-12.0f, -12.0f)
+                           .scaled (scale)
+                           .translated (box.getCentreX(), box.getCentreY()));
+        }
+        else if (s == Shape::folder)
+        {
+            p.startNewSubPath (box.getX(),       box.getY() + 1.5f);
+            p.lineTo (box.getX() + 3.8f,         box.getY() + 1.5f);
+            p.lineTo (box.getX() + 5.4f,         box.getY() + 3.2f);
+            p.lineTo (box.getRight(),            box.getY() + 3.2f);
+            p.lineTo (box.getRight(),            box.getBottom());
+            p.lineTo (box.getX(),                box.getBottom());
+            p.closeSubPath();
+        }
+        else if (s == Shape::star)
+        {
+            const float sStar = filledStar ? iconSide * 1.18f : iconSide;
+            const auto fb = box.withSizeKeepingCentre (sStar, sStar);
+            const auto c = fb.getCentre();
+            const float ro = sStar * 0.5f;
+            const float ri = ro * 0.382f;
+            const float pi = juce::MathConstants<float>::pi;
+            for (int k = 0; k < 10; ++k)
+            {
+                const float ang = pi * -0.5f + k * pi / 5.0f;
+                const float rad = (k % 2 == 0) ? ro : ri;
+                const float x = c.x + rad * std::cos (ang);
+                const float y = c.y + rad * std::sin (ang);
+                if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
+            }
+            p.closeSubPath();
+            if (! filledStar)
+            {
+                juce::Path stroked;
+                juce::PathStrokeType (1.2f).createStrokedPath (stroked, p);
+                p = stroked;
+            }
+        }
+        else if (s == Shape::stop || playingToggle)
+        {
+            p.addRectangle (
+                box.withSizeKeepingCentre (iconSide - 1.5f, iconSide - 1.5f));
+        }
+        else
+        {
+            p.addTriangle (
+                box.getX(), box.getY(),
+                box.getX(), box.getBottom(),
+                box.getRight(), box.getCentreY());
+        }
+        return p;
+    }
+
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         if (framed)                          // real button affordance
@@ -231,75 +308,7 @@ public:
         const float s = 10.0f;               // icon side
         const auto box = getLocalBounds().toFloat()
                              .withSizeKeepingCentre (s, s);
-        juce::Path p;
-        if (shape == Shape::cross)
-        {
-            const float r = s * 0.5f;
-            const auto c = box.getCentre();
-            juce::Path x;
-            x.startNewSubPath (c.x - r, c.y - r);
-            x.lineTo (c.x + r, c.y + r);
-            x.startNewSubPath (c.x + r, c.y - r);
-            x.lineTo (c.x - r, c.y + r);
-            juce::PathStrokeType (2.0f).createStrokedPath (p, x);
-        }
-        else if (const char* glyph = svgFor (shape))
-        {
-            // Vector icon ported verbatim (see the SVG table at the top of
-            // this file): scale the 24-unit viewBox around its centre into
-            // the icon box and fill with the current colour. The outline
-            // path already includes the stroke thickness.
-            const float scale = s * 1.30f / 24.0f;
-            p.addPath (svgOutline (glyph),
-                       juce::AffineTransform::translation (-12.0f, -12.0f)
-                           .scaled (scale)
-                           .translated (box.getCentreX(), box.getCentreY()));
-        }
-        else if (shape == Shape::folder)
-        {
-            // Folder silhouette with its little tab, filled.
-            p.startNewSubPath (box.getX(),       box.getY() + 1.5f);
-            p.lineTo (box.getX() + 3.8f,         box.getY() + 1.5f);
-            p.lineTo (box.getX() + 5.4f,         box.getY() + 3.2f);
-            p.lineTo (box.getRight(),            box.getY() + 3.2f);
-            p.lineTo (box.getRight(),            box.getBottom());
-            p.lineTo (box.getX(),                box.getBottom());
-            p.closeSubPath();
-        }
-        else if (shape == Shape::star)
-        {
-            // Standard five-pointed star: inner radius from the regular
-            // pentagram ratio (~0.382). Favourites draw the glyph LARGER
-            // so they clearly pop next to the plain grey ones.
-            const float sStar = filled ? s * 1.18f : s;
-            const auto fb = getLocalBounds().toFloat()
-                                .withSizeKeepingCentre (sStar, sStar);
-            const auto c = fb.getCentre();
-            const float ro = sStar * 0.5f;
-            const float ri = ro * 0.382f;
-            const float pi = juce::MathConstants<float>::pi;
-            for (int k = 0; k < 10; ++k)
-            {
-                const float ang = pi * -0.5f + k * pi / 5.0f;
-                const float rad = (k % 2 == 0) ? ro : ri;
-                const float x = c.x + rad * std::cos (ang);
-                const float y = c.y + rad * std::sin (ang);
-                if (k == 0) p.startNewSubPath (x, y); else p.lineTo (x, y);
-            }
-            p.closeSubPath();
-        }
-        else if (shape == Shape::stop || getToggleState())
-        {
-            p.addRectangle (                 // solid square, slightly inset
-                box.withSizeKeepingCentre (s - 1.5f, s - 1.5f));
-        }
-        else
-        {
-            p.addTriangle (                  // solid triangle pointing right
-                box.getX(), box.getY(),
-                box.getX(), box.getBottom(),
-                box.getRight(), box.getCentreY());
-        }
+        juce::Path p = glyphPath (shape, box, filled, getToggleState(), s);
         g.fillPath (p);
     }
 
