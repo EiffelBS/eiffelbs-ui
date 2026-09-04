@@ -16,6 +16,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <limits>
 #include <eiffelbs/Theme.h>
 #include <eiffelbs/Fonts.h>
 
@@ -299,14 +300,22 @@ private:
 
     /** Upper width bound: fixed max when setWidths() got maxW > 0, else
         maxWidthFraction of the parent width (default = half the host).
-        No parent yet (smoke/headless) -> falls back to the fixed max. */
+        No parent yet (pre-layout: width 0) -> NO proportional clamp yet
+        (returns a huge bound): the host applies the real clamp in its
+        own resized(), when the window size is known. Clamping against a
+        zero parent here would crush every restored width to minWidth.
+        Headless (never parented, e.g. smoke) -> fixed fallback. */
     int effectiveMaxWidth() const
     {
         if (fixedMaxWidth > 0)
             return juce::jmax (minWidth, fixedMaxWidth);
         if (auto* p = getParentComponent())
-            return juce::jmax (minWidth,
-                (int) ((float) p->getWidth() * maxWidthFraction));
+        {
+            if (p->getWidth() > 0)
+                return juce::jmax (minWidth,
+                    (int) ((float) p->getWidth() * maxWidthFraction));
+            return std::numeric_limits<int>::max();   // pre-layout: no clamp
+        }
         return juce::jmax (minWidth, fallbackMaxWidth);
     }
 
