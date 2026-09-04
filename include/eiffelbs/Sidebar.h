@@ -144,9 +144,17 @@ public:
 
     void resized() override
     {
-        // The cap follows the window: clamp the body BEFORE laying out
-        // so a shrink of the parent pulls an over-wide sidebar back.
-        bodyWidth = juce::jlimit (minWidth, effectiveMaxWidth(), bodyWidth);
+        // Re-clamp the body against the CURRENT parent size, but NEVER
+        // below what the host explicitly reserved via setSidebarWidth():
+        // during window creation JUCE fires resized() with transient
+        // parent widths (0, frame-only 126/120, ...) before the final
+        // size. Clamping the body on those passes would crush a restored
+        // width to minWidth with no user intent. Only the host's layout
+        // pass (which skips transients) may shrink the body; here we only
+        // grow it back toward the target when space allows... actually
+        // simplest correct rule: do NOTHING here. The host owns the width
+        // policy (30% default, half max, user width); this resized() only
+        // lays out rail + content in the bounds the host gave us.
         auto b = getLocalBounds();
         auto strip = (side == Edge::Right) ? b.removeFromLeft (railWidth())
                                            : b.removeFromRight (railWidth());
