@@ -303,19 +303,10 @@ public:
 
     // === Grip drag (mouse listener on the table viewport) ===================
 
-    // The hand cursor over a grip slot is applied on BOTH enter and move:
-    // mouseEnter alone fires when the pointer lands on the slot without
-    // moving, and mouseMove keeps it live while hovering along the column.
-    void mouseEnter (const juce::MouseEvent& e) override
-    {
-        updateGripCursor (e);
-    }
-
-    void mouseMove (const juce::MouseEvent& e) override
-    {
-        updateGripCursor (e);
-    }
-
+    // NOTE: the hover CURSOR is NOT handled here (see getMouseCursorForRow
+    // below): JUCE's ListBox RowComponents sit ON TOP of the viewport and
+    // impose their own cursor, so any setMouseCursor on the table/viewport
+    // is silently overridden. Cursor = model hook; drag = listener here.
     void mouseDown (const juce::MouseEvent& e) override
     {
         gripDragArmed = false;
@@ -418,21 +409,12 @@ private:
         return ActionSlot { firstVisible, slot };
     }
 
-    void updateGripCursor (const juce::MouseEvent& e)
+    bool hasGripAction() const noexcept
     {
-        auto pos = e.getEventRelativeTo (&table).getPosition();
-        bool overGrip = false;
-        if (const auto slot = actionSlotAt (pos))
-            overGrip = actions[(size_t) slot->slot].shape
-                       == IconButton::Shape::grip;
-        // Dragging-hand cursor over a grip slot (open hand at rest over
-        // the handle, the OS takes over once the drag starts): signals
-        // "grab me" instead of a plain click affordance.
-        auto* viewport = table.getViewport();
-        if (viewport != nullptr)
-            viewport->setMouseCursor (
-                overGrip ? juce::MouseCursor::DraggingHandCursor
-                         : juce::MouseCursor::NormalCursor);
+        for (const auto& a : actions)
+            if (a.shape == IconButton::Shape::grip)
+                return true;
+        return false;
     }
 
     void applyProxy()
@@ -694,6 +676,26 @@ private:
         applyProxy();
         if (onSortChanged != nullptr)
             onSortChanged (newSortColumnId, isForwards);
+    }
+
+    juce::MouseCursor getMouseCursorForRow (int rowNumber) override
+    {
+        // The REAL cursor hook: JUCE's ListBox RowComponent calls this on
+        // every row update AND on mouse-move within the row (via
+        // ListBox::getMouseCursorForRow delegation), and applies it to the
+        // ROW component itself - which actually sits under the pointer.
+        // The earlier viewport-listener approach (mouseEnter/mouseMove +
+        // setMouseCursor) never worked: the RowComponent on top imposes
+        // ITS cursor (NormalCursor by default), silently overriding
+        // whatever the viewport/table shows. Per-row override was not
+        // possible (JUCE has no per-pixel hook), so: dragging-hand over
+        // the whole ACTION COLUMN (it holds the grip), normal elsewhere.
+        // The OS takes over once the native drag starts.
+        if (rowNumber < 0 || rowNumber >= (int) visible.size())
+            return juce::MouseCursor::NormalCursor;
+        if (hasGripAction())
+            return juce::MouseCursor::DraggingHandCursor;
+        return juce::MouseCursor::NormalCursor;
     }
 
     juce::String getCellTooltip (int rowNumber, int columnId) override
