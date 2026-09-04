@@ -667,6 +667,19 @@ int main()
         check (! side.isCollapsed() && sideBody.isVisible()
                    && side.outerWidth() == 520 + ebs::Sidebar::railWidth(),
                 "sidebar expand restores content and width");
+        // Proportional cap: no fixed max -> half the parent width.
+        ebs::Sidebar prop (ebs::Sidebar::Edge::Right);
+        prop.setWidths (180, 0, 300);   // 0 = proportional
+        juce::Component host;
+        host.setSize (1600, 800);
+        host.addAndMakeVisible (prop);
+        prop.setBounds (0, 0, 800, 800);
+        prop.setSidebarWidth (1200);
+        check (prop.getSidebarWidth () == 800,
+                "sidebar caps the width at half the parent");
+        check (prop.handleBoundsForTest().getWidth() == ebs::Sidebar::railWidth(),
+                "sidebar rail keeps its width under the cap");
+        host.removeAllChildren();
         side.setContent (nullptr);
 
         // 5) Chrome hook: theme-level restyle of the checkbox well, built-ins

@@ -36,6 +36,9 @@ public:
     {
         addAndMakeVisible (handle);
         handle.owner = this;
+        // Resize cursor from the START (not only mid-drag): the rail is
+        // draggable everywhere, so the affordance must show on hover.
+        handle.setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
         syncChevron();
     }
 
@@ -73,14 +76,14 @@ public:
     bool isCollapsed() const noexcept { return collapsed; }
 
     /** User width of the EXPANDED body (rail strip excluded). Clamped
-        to [minWidth, maxWidth]. Fires onWidthChanged when it changes.
-        Also asks the PARENT to re-layout: the host reserves outerWidth()
-        in its own resized(), so a drag must propagate upward (otherwise
-        the sidebar paints inside stale bounds until the next app resize).
-        Same for setCollapsed/setWidths. */
+        to [minWidth, effectiveMaxWidth()]. Fires onWidthChanged when it
+        changes. Also asks the PARENT to re-layout: the host reserves
+        outerWidth() in its own resized(), so a drag must propagate upward
+        (otherwise the sidebar paints inside stale bounds until the next
+        app resize). Same for setCollapsed/setWidths. */
     void setSidebarWidth (int w)
     {
-        const int clamped = juce::jlimit (minWidth, maxWidth, w);
+        const int clamped = juce::jlimit (minWidth, effectiveMaxWidth(), w);
         if (bodyWidth == clamped)
             return;
         bodyWidth = clamped;
@@ -95,10 +98,21 @@ public:
     void setWidths (int minW, int maxW, int defaultW)
     {
         minWidth = juce::jmax (60, minW);
-        maxWidth = juce::jmax (minWidth, maxW);
-        bodyWidth = juce::jlimit (minWidth, maxWidth, defaultW);
+        // maxW <= 0 = NO fixed cap: the width is bounded by
+        // maxWidthFraction of the parent instead (e.g. half the window).
+        fixedMaxWidth = maxW;
+        bodyWidth = juce::jlimit (minWidth, effectiveMaxWidth(), defaultW);
         resized();
         relayoutParent();
+    }
+
+    /** Fraction of the PARENT width the expanded body may take (0..1,
+        default 0.5): the cap follows the window size instead of a fixed
+        pixel max. Ignored when a fixed max was set via setWidths(). */
+    void setMaxWidthFraction (float f)
+    {
+        maxWidthFraction = juce::jlimit (0.1f, 0.95f, f);
+        setSidebarWidth (bodyWidth);   // re-clamp + propagate when needed
     }
 
     /** Total outer width the host should reserve (body + rail), or just
@@ -114,6 +128,9 @@ public:
 
     void resized() override
     {
+        // The cap follows the window: clamp the body BEFORE laying out
+        // so a shrink of the parent pulls an over-wide sidebar back.
+        bodyWidth = juce::jlimit (minWidth, effectiveMaxWidth(), bodyWidth);
         auto b = getLocalBounds();
         auto strip = (side == Edge::Right) ? b.removeFromLeft (railWidth())
                                            : b.removeFromRight (railWidth());
@@ -144,7 +161,18 @@ private:
             auto b = getLocalBounds().toFloat();
             g.setColour (ebs::bgDark());
             g.fillRect (b);
-            g.setColour (ebs::textDim());
+            // Hover/drag separation feedback: a 2 px accent line on the
+            // CONTENT side of the rail (the visual split between the
+            // sidebar and the rest of the window).
+            const bool active = isMouseOverOrDragging() || isMouseButtonDown();
+            if (active && owner != nullptr)
+            {
+                g.setColour (ebs::accent());
+                const float x = (owner->side == Edge::Right)
+                    ? b.getX() + 1.0f : b.getRight() - 1.0f;
+                g.fillRect (x - 1.0f, 0.0f, 2.0f, b.getHeight());
+            }
+            g.setColour (active ? ebs::accent() : ebs::textDim());
             const auto cx = b.getCentreX();
             const auto cy = b.getCentreY();
             juce::Path chev;
@@ -155,12 +183,6 @@ private:
                 chev.applyTransform (juce::AffineTransform::rotation (
                     juce::MathConstants<float>::pi, cx, cy));
             g.fillPath (chev);
-            // Hover affordance: accent chevron under the cursor.
-            if (isMouseOver())
-            {
-                g.setColour (ebs::accent());
-                g.fillPath (chev);
-            }
         }
 
         void mouseDown (const juce::MouseEvent& e) override
@@ -175,16 +197,16 @@ private:
                 return;
             if (e.getDistanceFromDragStart() < 4)
                 return;                            // dead zone: click later
+            repaint();                             // keep the accent line lit
             const int dx = e.getScreenPosition().x - dragStartX;
             // Right-edge sidebar: dragging LEFT grows the body.
             const int delta = (owner->side == Edge::Right) ? -dx : dx;
             owner->setSidebarWidth (dragStartWidth + delta);
-            setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
         }
 
         void mouseUp (const juce::MouseEvent& e) override
         {
-            setMouseCursor (juce::MouseCursor::NormalCursor);
+            repaint();                             // drop the accent line
             if (owner == nullptr)
                 return;
             // Real click (inside the dead zone): toggle collapse.
@@ -221,12 +243,28 @@ private:
             p->resized();
     }
 
+    /** Upper width bound: fixed max when setWidths() got maxW > 0, else
+        maxWidthFraction of the parent width (default = half the host).
+        No parent yet (smoke/headless) -> falls back to the fixed max. */
+    int effectiveMaxWidth() const
+    {
+        if (fixedMaxWidth > 0)
+            return juce::jmax (minWidth, fixedMaxWidth);
+        if (auto* p = getParentComponent())
+            return juce::jmax (minWidth,
+                (int) ((float) p->getWidth() * maxWidthFraction));
+        return juce::jmax (minWidth, fallbackMaxWidth);
+    }
+
     Edge side = Edge::Right;
     Handle handle;
     juce::Component* content = nullptr;   // host-owned, never deleted here
     bool collapsed = false;
     int bodyWidth = 300;
-    int minWidth = 180, maxWidth = 520;
+    int minWidth = 180;
+    int fixedMaxWidth = 0;                // > 0 = fixed px cap (setWidths)
+    int fallbackMaxWidth = 520;          // no-parent (headless) upper bound
+    float maxWidthFraction = 0.5f;       // of parent width otherwise
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Sidebar)
 };
