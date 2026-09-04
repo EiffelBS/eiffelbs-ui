@@ -381,6 +381,32 @@ int main()
             check (dl.visibleRowId (0) == "t-3"
                        && dl.visibleRowId (3) == "t-1",
                    "datalist sorts text columns backwards");
+            // Stable sort: rows with EQUAL keys keep id order across
+            // refreshes (a progress tick rebuild must not permute the
+            // downloading row with its "queued"/empty siblings).
+            ebs::DataList dlTie;
+            dlTie.setShowSearch (false);
+            dlTie.setShowViews (false);
+            dlTie.setColumns ({ { 1, "Name", 140 }, { 5, "Status", 110 } });
+            ebs::DataList::Row q1, q2, q3;
+            q1.id = "m-b"; q1.cells = { { 1, "b" }, { 5, "queued" } };
+            q2.id = "m-a"; q2.cells = { { 1, "a" }, { 5, "queued" } };
+            q3.id = "m-c"; q3.cells = { { 1, "c" }, { 5, "queued" } };
+            dlTie.setRows ({ q1, q2, q3 });
+            dlTie.sortBy (5, true);   // all keys equal -> id order a,b,c
+            check (dlTie.visibleRowId (0) == "m-a"
+                       && dlTie.visibleRowId (1) == "m-b"
+                       && dlTie.visibleRowId (2) == "m-c",
+                    "datalist breaks sort ties by stable row id");
+            // Same rows, new progress values (a refresh tick): order must
+            // not move.
+            q1.progress = 0.1; q1.progressColumnId = 5;
+            q1.progressIsBar = true;
+            dlTie.setRows ({ q1, q2, q3 });
+            check (dlTie.visibleRowId (0) == "m-a"
+                       && dlTie.visibleRowId (1) == "m-b"
+                       && dlTie.visibleRowId (2) == "m-c",
+                    "datalist keeps equal-key order across progress refresh");
             // Selection + proxy + action-click behaviour slot.
             // A real UP click (zero drag distance) on the action column
             // must route to onAction with the slot's action id.

@@ -445,7 +445,13 @@ private:
         if (sortCol != 0 && sortCol != actionColumnId)
         {
             const bool fwd = table.getHeader().isSortedForwards();
-            std::sort (visible.begin(), visible.end(),
+            // Stable order: ties fall back to the stable row id so rows
+            // with EQUAL sort keys (e.g. several "downloading NN%" /
+            // "queued #N" statuses, or an empty Progress column) never
+            // jump around on refresh. Without this, every progress tick
+            // rebuilds the rows and std::sort freely permutes equal
+            // keys - the downloading row visibly hops while it downloads.
+            std::stable_sort (visible.begin(), visible.end(),
                 [&] (const Row* a, const Row* b)
                 {
                     int cmp = 0;
@@ -453,6 +459,8 @@ private:
                         cmp = comparer (*a, *b, sortCol);
                     else
                         cmp = compareDefault (*a, *b, sortCol);
+                    if (cmp == 0)
+                        cmp = a->id.compareIgnoreCase (b->id);
                     return fwd ? (cmp < 0) : (cmp > 0);
                 });
         }
