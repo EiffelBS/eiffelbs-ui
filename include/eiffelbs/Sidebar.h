@@ -36,8 +36,9 @@ public:
     {
         addAndMakeVisible (handle);
         handle.owner = this;
-        // Resize cursor from the START (not only mid-drag): the rail is
-        // draggable everywhere, so the affordance must show on hover.
+        // Default cursor is the resize affordance; the handle refines it
+        // per zone on mouseMove (hand over the chevron). Collapsed, the
+        // whole rail is the toggle -> hand cursor (set in setCollapsed).
         handle.setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
         syncChevron();
     }
@@ -67,6 +68,10 @@ public:
         if (content != nullptr)
             content->setVisible (! collapsed);
         syncChevron();
+        // Cursor follows the mode: toggle-only rail when collapsed.
+        handle.setMouseCursor (collapsed
+            ? juce::MouseCursor::PointingHandCursor
+            : juce::MouseCursor::LeftRightResizeCursor);
         if (onCollapsed != nullptr)
             onCollapsed (collapsed);
         resized();
@@ -149,12 +154,28 @@ public:
 private:
     /** Edge handle rail: a click (no drag) toggles collapse; a press+move
         past the dead zone resizes the body. Lives on the CONTENT side of
-        the strip so the chevron sits against the panel it collapses. */
+        the strip so the chevron sits against the panel it collapses. The
+        rail splits into two hit zones: the chevron square (collapse click,
+        hand cursor) and the rest of the rail (width drag, resize cursor).
+        Collapsed, the whole rail is just the toggle (no resize feedback:
+        there is no body to resize). */
     struct Handle : public juce::Component
     {
         Sidebar* owner = nullptr;
         // collapsedState = "chevron points LEFT". Set by syncChevron().
         bool collapsedState = false;
+
+        /** Chevron hit square (centred): the collapse/expand target. */
+        juce::Rectangle<int> chevronZone() const
+        {
+            const auto c = getLocalBounds().getCentre();
+            return juce::Rectangle<int> (c.x - 9, c.y - 9, 18, 18);
+        }
+
+        bool overChevron (const juce::MouseEvent& e) const
+        {
+            return chevronZone().contains (e.getPosition());
+        }
 
         void paint (juce::Graphics& g) override
         {
@@ -163,8 +184,12 @@ private:
             g.fillRect (b);
             // Hover/drag separation feedback: a 2 px accent line on the
             // CONTENT side of the rail (the visual split between the
-            // sidebar and the rest of the window).
-            const bool active = isMouseOverOrDragging() || isMouseButtonDown();
+            // sidebar and the rest of the window). EXPANDED ONLY: when
+            // collapsed there is no body to resize, the rail is purely
+            // the expand toggle.
+            const bool expanded = owner != nullptr && ! owner->collapsed;
+            const bool active = expanded
+                && (isMouseOverOrDragging() || isMouseButtonDown());
             if (active && owner != nullptr)
             {
                 g.setColour (ebs::accent());
@@ -193,8 +218,8 @@ private:
 
         void mouseDrag (const juce::MouseEvent& e) override
         {
-            if (owner == nullptr)
-                return;
+            if (owner == nullptr || owner->collapsed)
+                return;                            // collapsed: no resize
             if (e.getDistanceFromDragStart() < 4)
                 return;                            // dead zone: click later
             repaint();                             // keep the accent line lit
@@ -215,8 +240,33 @@ private:
                 owner->setCollapsed (! owner->collapsed);
         }
 
-        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseEnter (const juce::MouseEvent&) override
+        {
+            updateCursor (getMouseXYRelative());
+            repaint();
+        }
+
         void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+        void mouseMove (const juce::MouseEvent& e) override
+        {
+            updateCursor (e.getPosition());
+        }
+
+        /** Cursor follows the zone: hand over the chevron (collapse
+            affordance), resize cursor on the drag rail, plain arrow when
+            collapsed (toggle only, no body to resize). */
+        void updateCursor (juce::Point<int> pos)
+        {
+            if (owner != nullptr && owner->collapsed)
+            {
+                setMouseCursor (juce::MouseCursor::PointingHandCursor);
+                return;
+            }
+            setMouseCursor (chevronZone().contains (pos)
+                ? juce::MouseCursor::PointingHandCursor
+                : juce::MouseCursor::LeftRightResizeCursor);
+        }
 
         int dragStartX = 0, dragStartWidth = 300;
     };
