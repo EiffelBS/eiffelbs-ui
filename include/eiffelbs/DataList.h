@@ -425,11 +425,14 @@ private:
         if (const auto slot = actionSlotAt (pos))
             overGrip = actions[(size_t) slot->slot].shape
                        == IconButton::Shape::grip;
-        // Standard pointing hand over a grip slot (same cursor as every
-        // other clickable widget); the native OS drag takes over once the
-        // drag actually starts.
-        table.setMouseCursor (overGrip ? juce::MouseCursor::PointingHandCursor
-                                       : juce::MouseCursor::NormalCursor);
+        // Dragging-hand cursor over a grip slot (open hand at rest over
+        // the handle, the OS takes over once the drag starts): signals
+        // "grab me" instead of a plain click affordance.
+        auto* viewport = table.getViewport();
+        if (viewport != nullptr)
+            viewport->setMouseCursor (
+                overGrip ? juce::MouseCursor::DraggingHandCursor
+                         : juce::MouseCursor::NormalCursor);
     }
 
     void applyProxy()
