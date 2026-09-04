@@ -58,7 +58,10 @@ public:
             content->setVisible (! collapsed);
         }
         handle.toFront (false);
-        resized();
+        // NO resized()/relayoutParent() here: at wiring time the host has
+        // no size yet, and relayoutParent() would run the host's resized()
+        // against a zero-size parent - crushing the restored bodyWidth to
+        // minWidth before the first real layout.
     }
 
     void setCollapsed (bool on)
@@ -109,9 +112,12 @@ public:
         // maxW <= 0 = NO fixed cap: the width is bounded by
         // maxWidthFraction of the parent instead (e.g. half the window).
         fixedMaxWidth = maxW;
+        // Clamp the default WITHOUT touching bodyWidth when it was already
+        // set (restore path): setWidths runs at wiring time, before the
+        // parent has a size - clamping bodyWidth here would crush a
+        // restored width to minWidth via the zero-size parent.
         bodyWidth = juce::jlimit (minWidth, effectiveMaxWidth(), defaultW);
-        resized();
-        relayoutParent();
+        // NO resized()/relayoutParent() here (same reason as setContent).
     }
 
     /** Fraction of the PARENT width the expanded body may take (0..1,
