@@ -85,14 +85,16 @@ public:
         changes. Also asks the PARENT to re-layout: the host reserves
         outerWidth() in its own resized(), so a drag must propagate upward
         (otherwise the sidebar paints inside stale bounds until the next
-        app resize). Same for setCollapsed/setWidths. */
-    void setSidebarWidth (int w)
+        app resize). Same for setCollapsed/setWidths.
+        notify=false: silent re-clamp (host layout pass) - the host only
+        persists USER-initiated widths, never clamp-backs. */
+    void setSidebarWidth (int w, bool notify = true)
     {
         const int clamped = juce::jlimit (minWidth, effectiveMaxWidth(), w);
         if (bodyWidth == clamped)
             return;
         bodyWidth = clamped;
-        if (onWidthChanged != nullptr)
+        if (notify && onWidthChanged != nullptr)
             onWidthChanged (bodyWidth);
         resized();
         relayoutParent();
@@ -117,7 +119,9 @@ public:
     void setMaxWidthFraction (float f)
     {
         maxWidthFraction = juce::jlimit (0.1f, 0.95f, f);
-        setSidebarWidth (bodyWidth);   // re-clamp + propagate when needed
+        // Re-clamp silently: the fraction change is host policy, not a
+        // user drag - must not overwrite the persisted user width.
+        setSidebarWidth (bodyWidth, false);
     }
 
     /** Total outer width the host should reserve (body + rail), or just
