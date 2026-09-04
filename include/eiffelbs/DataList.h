@@ -303,6 +303,14 @@ public:
 
     // === Grip drag (mouse listener on the table viewport) ===================
 
+    // The hand cursor over a grip slot is applied on BOTH enter and move:
+    // mouseEnter alone fires when the pointer lands on the slot without
+    // moving, and mouseMove keeps it live while hovering along the column.
+    void mouseEnter (const juce::MouseEvent& e) override
+    {
+        updateGripCursor (e);
+    }
+
     void mouseMove (const juce::MouseEvent& e) override
     {
         updateGripCursor (e);
@@ -417,7 +425,10 @@ private:
         if (const auto slot = actionSlotAt (pos))
             overGrip = actions[(size_t) slot->slot].shape
                        == IconButton::Shape::grip;
-        table.setMouseCursor (overGrip ? juce::MouseCursor::DraggingHandCursor
+        // Standard pointing hand over a grip slot (same cursor as every
+        // other clickable widget); the native OS drag takes over once the
+        // drag actually starts.
+        table.setMouseCursor (overGrip ? juce::MouseCursor::PointingHandCursor
                                        : juce::MouseCursor::NormalCursor);
     }
 
