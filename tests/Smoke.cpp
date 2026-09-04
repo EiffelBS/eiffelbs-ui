@@ -637,6 +637,38 @@ int main()
             { powerOn.paint (g); });
         check (countGold (pDisImg) == 0, "disabled power toggle drops the glow");
 
+        // 5b) ebs::Sidebar: collapse rail + width clamp + content hide.
+        ebs::Sidebar side (ebs::Sidebar::Edge::Right);
+        side.setWidths (180, 520, 300);
+        juce::Component sideBody;
+        side.setContent (&sideBody);
+        side.setSize (318, 400);
+        side.resized();
+        check (side.outerWidth() == 318 && sideBody.isVisible()
+                   && sideBody.getWidth() == 300
+                   && side.handleBoundsForTest().getWidth() == ebs::Sidebar::railWidth(),
+                "sidebar expanded lays out rail + body");
+        const auto sideImg = renderToImage (318, 400, [&] (juce::Graphics& g)
+            { side.paintEntireComponent (g, false); });
+        check (inkPixels (sideImg) > 200, "sidebar paints rail chevron");
+        int widthCb = -1;
+        side.onWidthChanged = [&] (int w) { widthCb = w; };
+        side.setSidebarWidth (90);   // below min -> clamped
+        check (side.getSidebarWidth() == 180 && widthCb == 180,
+                "sidebar width clamps to minimum and notifies");
+        side.setSidebarWidth (900);  // above max -> clamped
+        check (side.getSidebarWidth() == 520,
+                "sidebar width clamps to maximum");
+        side.setCollapsed (true);
+        check (side.isCollapsed() && side.outerWidth() == ebs::Sidebar::railWidth()
+                   && ! sideBody.isVisible(),
+                "sidebar collapse hides content, rail only");
+        side.setCollapsed (false);
+        check (! side.isCollapsed() && sideBody.isVisible()
+                   && side.outerWidth() == 520 + ebs::Sidebar::railWidth(),
+                "sidebar expand restores content and width");
+        side.setContent (nullptr);
+
         // 5) Chrome hook: theme-level restyle of the checkbox well, built-ins
         //    untouched otherwise (the earlier toggle interior check above ran
         //    under the plain L&F and asserts the vizBg built-in).

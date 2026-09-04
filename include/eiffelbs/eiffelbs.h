@@ -17,3 +17,4 @@
 #include "eiffelbs/HelpBubble.h"
 #include "eiffelbs/PathRow.h"
 #include "eiffelbs/DataList.h"
+#include "eiffelbs/Sidebar.h"
