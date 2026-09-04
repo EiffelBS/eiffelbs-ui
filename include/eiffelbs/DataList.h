@@ -90,7 +90,6 @@ public:
 
     DataList()
     {
-        cursorTimer.owner = this;
         addAndMakeVisible (searchBox);
         searchBox.setTextToShowWhenEmpty ("Search...", textDim());
         searchBox.setColour (juce::TextEditor::textColourId, text());
@@ -113,13 +112,10 @@ public:
             juce::TableHeaderComponent::backgroundColourId, bgDark());
         table.getHeader().setColour (
             juce::TableHeaderComponent::textColourId, text());
-        // Mouse listener on the table viewport: grip-slot drags + hand
-        // cursor. The rows paint the grip glyph but own no component, so
-        // the drag must start here: mouse-down on a grip slot arms it,
-        // mouse-move past the dead zone fires onGripDrag (native OS file
-        // drag, resolved AT DRAG TIME from the row id), which also
-        // suppresses the pending action click (see cellClicked).
-        table.getViewport()->addMouseListener (this, true);
+        // Grip affordance lives in transparent overlays (see below), NOT
+        // in a viewport mouse listener: JUCE's RowComponents sit on top
+        // and swallow hover before any listener sees it. The overlays are
+        // repositioned on every scroll/resize (listWasScrolled hook).
     }
 
     /** Native file drag starting on a grip action slot: the host resolves
@@ -300,32 +296,38 @@ public:
             viewBox.setBounds ({});
         }
         table.setBounds (b);
+        // Table geometry changed: re-glue the grip overlays to the rows.
+        refreshGripOverlays();
     }
 
-    // === Grip drag (mouse listener on the table viewport) ===================
+    // === Grip drag (transparent overlay per visible row) ====================
+    // The overlay (see below) owns BOTH the hover cursor AND the drag
+    // gesture: it sits ON TOP of JUCE's RowComponents, hit-tests ONLY the
+    // grip slot rect, and forwards nothing else (selection/clicks on the
+    // rest of the row behave exactly as before). The old viewport-listener
+    // + setMouseCursor approaches are REMOVED: proven dead (rows on top
+    // impose their own cursor, listeners never see hover).
 
-    // NOTE: the hover CURSOR is NOT handled here (see getMouseCursorForRow
-    // below): JUCE's ListBox RowComponents sit ON TOP of the viewport and
-    // impose their own cursor, so any setMouseCursor on the table/viewport
-    // is silently overridden. Cursor = model hook; drag = listener here.
-    void mouseDown (const juce::MouseEvent& e) override
+    /** Arm a grip drag for a visible row (called by the overlay). */
+    void armGripDrag (int visibleRow, const juce::MouseEvent&)
     {
         gripDragArmed = false;
-        if (const auto slot = actionSlotAt (e.getEventRelativeTo (&table)
-                                                .getPosition()))
-        {
-            if (actions[(size_t) slot->slot].shape
-                    == IconButton::Shape::grip)
-            {
-                gripDragArmed = true;
-                gripDragArmedRow = slot->row;
-                gripDragArmedSlot = slot->slot;
-            }
-        }
+        int gripSlot = -1;
+        for (int s = 0; s < (int) actions.size(); ++s)
+            if (actions[(size_t) s].shape == IconButton::Shape::grip)
+            { gripSlot = s; break; }
+        if (gripSlot < 0 || visibleRow < 0
+            || visibleRow >= (int) visible.size())
+            return;
+        gripDragArmed = true;
+        gripDragArmedRow = visibleRow;
+        gripDragArmedSlot = gripSlot;
     }
 
-    void mouseDrag (const juce::MouseEvent& e) override
+    /** Continue a grip drag (called by the overlay). */
+    void dragGrip (int visibleRow, const juce::MouseEvent& e)
     {
+        juce::ignoreUnused (visibleRow);
         if (! gripDragArmed || gripFilesForRow == nullptr)
             return;
         if (e.getDistanceFromDragStart() < 8)
@@ -342,12 +344,6 @@ public:
         // NOTE: blocks until the native OLE drag loop ends on Windows.
         juce::DragAndDropContainer::performExternalDragDropOfFiles (
             files, true, this);
-    }
-
-    void mouseUp (const juce::MouseEvent&) override
-    {
-        // Keep the armed state until cellClicked (mouse-up) consumed it:
-        // clearing here would re-enable the click after a real drag.
     }
 
     // === Test hooks (also used by the smoke test) =============================
@@ -385,30 +381,8 @@ private:
 
     int actionWidth() const noexcept { return (int) actions.size() * actionSlotPx; }
 
-    struct ActionSlot { int row = -1; int slot = -1; };
-
-    /** Viewport position -> action slot, or nullopt when not on one.
-        Rows painted by the library own no component, so geometry comes
-        from the header layout + the row height. */
-    std::optional<ActionSlot> actionSlotAt (juce::Point<int> tablePos) const
-    {
-        if (actions.empty())
-            return std::nullopt;
-        const int rowH = table.getRowHeight();
-        if (rowH <= 0)
-            return std::nullopt;
-        const int firstVisible = table.getRowContainingPosition (0, tablePos.y);
-        if (firstVisible < 0 || firstVisible >= (int) visible.size())
-            return std::nullopt;
-        const auto cellRect = table.getCellPosition (actionColumnId,
-                                                     firstVisible, true);
-        if (cellRect.isEmpty() || ! cellRect.contains (tablePos))
-            return std::nullopt;
-        const int slot = (tablePos.x - cellRect.getX()) / actionSlotPx;
-        if (slot < 0 || slot >= (int) actions.size())
-            return std::nullopt;
-        return ActionSlot { firstVisible, slot };
-    }
+    // (actionSlotAt REMOVED: geometry now comes from getCellPosition per
+    // visible row in refreshGripOverlays - no manual row math.)
 
     bool hasGripAction() const noexcept
     {
@@ -468,6 +442,9 @@ private:
         pendingSelectedId.clear();
         if (keep.isNotEmpty())
             selectRowByIdSilent (keep);
+        // Row geometry changed (new rows, sort, filter): rebuild the grip
+        // overlays so cursor + drag stay glued to the grip slots.
+        refreshGripOverlays();
     }
 
     static int compareDefault (const Row& a, const Row& b, int columnId)
@@ -679,48 +656,85 @@ private:
             onSortChanged (newSortColumnId, isForwards);
     }
 
-    // === Grip cursor (polled by a timer, not by mouse events) ===============
-    // Why polling: the rows are JUCE-owned RowComponents sitting ON TOP of
-    // the viewport, so viewport/table mouse listeners never see hover
+    // === Grip cursor (transparent overlay per visible row) =================
+    // Why an overlay: the rows are JUCE-owned RowComponents sitting ON TOP
+    // of the viewport, so viewport/table mouse listeners never see hover
     // (proven: mouseEnter/mouseMove + setMouseCursor had zero effect), and
     // TableListBoxModel has NO getMouseCursorForRow hook (only the plain
-    // ListBoxModel does - verified in juce_ListBox.h:179 vs
-    // juce_TableListBox.h). A 15 Hz poll of the global mouse position is
-    // the only hook-free way; it stops when the component hides.
-    void visibilityChanged() override
-    {
-        if (isVisible() && hasGripAction())
-            cursorTimer.startTimer (66);    // ~15 Hz hover poll
-        else
-            cursorTimer.stopTimer();
-    }
-
-    void pollGripCursor()
-    {
-        if (! isVisible() || ! hasGripAction())
-            return;
-        const auto tablePos = table.getMouseXYRelative();
-        bool overGrip = false;
-        if (tablePos.y >= 0 && table.getLocalBounds().contains (tablePos))
-            if (const auto slot = actionSlotAt (tablePos))
-                overGrip = actions[(size_t) slot->slot].shape
-                           == IconButton::Shape::grip;
-        auto* viewport = table.getViewport();
-        // Set on BOTH viewport and table: whichever component JUCE queries
-        // for the cursor under the RowComponent gap, it gets the drag hand.
-        const juce::MouseCursor c = overGrip
-            ? juce::MouseCursor::DraggingHandCursor
-            : juce::MouseCursor::NormalCursor;
-        if (viewport != nullptr)
-            viewport->setMouseCursor (c);
-        table.setMouseCursor (c);
-    }
-
-    struct CursorTimer : juce::Timer
+    // ListBoxModel does - verified in juce_ListBox.h:179, C3668 proven).
+    // Polling setMouseCursor on the viewport/table also failed: JUCE
+    // queries the cursor on the TOP component (the RowComp, NormalCursor).
+    // So each visible row gets a transparent MouseListener overlay carrying
+    // the DraggingHandCursor over the grip slot rect. The overlay paints
+    // NOTHING (fully transparent, non-opaque) and forwards clicks to the
+    // table (cellClicked/action logic untouched) - it only owns the cursor
+    // and the drag-arming gesture.
+    struct GripOverlay : public juce::Component
     {
         DataList* owner = nullptr;
-        void timerCallback() override { if (owner != nullptr) owner->pollGripCursor(); }
-    } cursorTimer;
+        int row = -1, gripX = 0, gripW = 0;   // grip slot rect (row-local)
+
+        GripOverlay (DataList* o, int r) : owner (o), row (r)
+        {
+            setInterceptsMouseClicks (true, false);   // self only, not children
+            setMouseCursor (juce::MouseCursor::DraggingHandCursor);
+        }
+
+        // Hit-test: ONLY the grip slot rect is clickable (cursor shows);
+        // everywhere else the overlay is invisible to the mouse and the
+        // row underneath behaves exactly as before (selection, clicks...).
+        bool hitTest (int x, int /*y*/) override
+        {
+            return x >= gripX && x < gripX + gripW;
+        }
+
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (owner != nullptr)
+                owner->armGripDrag (row, e);
+        }
+
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (owner != nullptr)
+                owner->dragGrip (row, e);
+        }
+    };
+
+    /** Rebuild the grip overlays after any layout/row change: one overlay
+        per visible row, positioned over the action cell's grip slot. */
+    void refreshGripOverlays()
+    {
+        // Drop previous overlays (OwnedArray delete = remove from parent).
+        gripOverlays.clear();
+        if (! hasGripAction())
+            return;
+        const int rowH = table.getRowHeight();
+        if (rowH <= 0)
+            return;
+        int gripSlot = -1;
+        for (int s = 0; s < (int) actions.size(); ++s)
+            if (actions[(size_t) s].shape == IconButton::Shape::grip)
+            { gripSlot = s; break; }
+        if (gripSlot < 0)
+            return;
+        for (int r = 0; r < (int) visible.size(); ++r)
+        {
+            const auto cell = table.getCellPosition (actionColumnId, r, true);
+            if (cell.isEmpty())
+                continue;                    // row off-screen: no overlay
+            auto* ov = new GripOverlay (this, r);
+            gripOverlays.add (ov);
+            table.addAndMakeVisible (ov);    // on top of the rows
+            ov->setBounds (cell);
+            // Row-local grip rect: the slot slice of the action cell.
+            ov->gripX = gripSlot * actionSlotPx;
+            ov->gripW = actionSlotPx;
+            ov->toFront (false);
+        }
+    }
+
+    void listWasScrolled() override { refreshGripOverlays(); }
 
     // (Unused symmetry helper REMOVED: TableListBoxModel has no cursor
     // hook - C3668. The live path is pollGripCursor() above.)
@@ -775,6 +789,9 @@ private:
     // Grip-drag arming (mouse-down slot -> mouse-move past dead zone).
     bool gripDragArmed = false;
     int gripDragArmedRow = -1, gripDragArmedSlot = -1;
+    // Transparent per-row cursor/drag overlays (owned here, parented to
+    // the table so they float above JUCE's RowComponents).
+    juce::OwnedArray<GripOverlay> gripOverlays;
 
     juce::TextEditor searchBox;
     juce::ComboBox viewBox;
