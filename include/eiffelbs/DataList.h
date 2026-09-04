@@ -90,6 +90,7 @@ public:
 
     DataList()
     {
+        cursorTimer.owner = this;
         addAndMakeVisible (searchBox);
         searchBox.setTextToShowWhenEmpty ("Search...", textDim());
         searchBox.setColour (juce::TextEditor::textColourId, text());
@@ -678,25 +679,51 @@ private:
             onSortChanged (newSortColumnId, isForwards);
     }
 
-    juce::MouseCursor getMouseCursorForRow (int rowNumber) override
+    // === Grip cursor (polled by a timer, not by mouse events) ===============
+    // Why polling: the rows are JUCE-owned RowComponents sitting ON TOP of
+    // the viewport, so viewport/table mouse listeners never see hover
+    // (proven: mouseEnter/mouseMove + setMouseCursor had zero effect), and
+    // TableListBoxModel has NO getMouseCursorForRow hook (only the plain
+    // ListBoxModel does - verified in juce_ListBox.h:179 vs
+    // juce_TableListBox.h). A 15 Hz poll of the global mouse position is
+    // the only hook-free way; it stops when the component hides.
+    void visibilityChanged() override
     {
-        // The REAL cursor hook: JUCE's ListBox RowComponent calls this on
-        // every row update AND on mouse-move within the row (via
-        // ListBox::getMouseCursorForRow delegation), and applies it to the
-        // ROW component itself - which actually sits under the pointer.
-        // The earlier viewport-listener approach (mouseEnter/mouseMove +
-        // setMouseCursor) never worked: the RowComponent on top imposes
-        // ITS cursor (NormalCursor by default), silently overriding
-        // whatever the viewport/table shows. Per-row override was not
-        // possible (JUCE has no per-pixel hook), so: dragging-hand over
-        // the whole ACTION COLUMN (it holds the grip), normal elsewhere.
-        // The OS takes over once the native drag starts.
-        if (rowNumber < 0 || rowNumber >= (int) visible.size())
-            return juce::MouseCursor::NormalCursor;
-        if (hasGripAction())
-            return juce::MouseCursor::DraggingHandCursor;
-        return juce::MouseCursor::NormalCursor;
+        if (isVisible() && hasGripAction())
+            cursorTimer.startTimer (66);    // ~15 Hz hover poll
+        else
+            cursorTimer.stopTimer();
     }
+
+    void pollGripCursor()
+    {
+        if (! isVisible() || ! hasGripAction())
+            return;
+        const auto tablePos = table.getMouseXYRelative();
+        bool overGrip = false;
+        if (tablePos.y >= 0 && table.getLocalBounds().contains (tablePos))
+            if (const auto slot = actionSlotAt (tablePos))
+                overGrip = actions[(size_t) slot->slot].shape
+                           == IconButton::Shape::grip;
+        auto* viewport = table.getViewport();
+        // Set on BOTH viewport and table: whichever component JUCE queries
+        // for the cursor under the RowComponent gap, it gets the drag hand.
+        const juce::MouseCursor c = overGrip
+            ? juce::MouseCursor::DraggingHandCursor
+            : juce::MouseCursor::NormalCursor;
+        if (viewport != nullptr)
+            viewport->setMouseCursor (c);
+        table.setMouseCursor (c);
+    }
+
+    struct CursorTimer : juce::Timer
+    {
+        DataList* owner = nullptr;
+        void timerCallback() override { if (owner != nullptr) owner->pollGripCursor(); }
+    } cursorTimer;
+
+    // (Unused symmetry helper REMOVED: TableListBoxModel has no cursor
+    // hook - C3668. The live path is pollGripCursor() above.)
 
     juce::String getCellTooltip (int rowNumber, int columnId) override
     {
