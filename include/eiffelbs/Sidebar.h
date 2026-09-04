@@ -67,12 +67,17 @@ public:
         if (onCollapsed != nullptr)
             onCollapsed (collapsed);
         resized();
+        relayoutParent();
     }
 
     bool isCollapsed() const noexcept { return collapsed; }
 
     /** User width of the EXPANDED body (rail strip excluded). Clamped
-        to [minWidth, maxWidth]. Fires onWidthChanged when it changes. */
+        to [minWidth, maxWidth]. Fires onWidthChanged when it changes.
+        Also asks the PARENT to re-layout: the host reserves outerWidth()
+        in its own resized(), so a drag must propagate upward (otherwise
+        the sidebar paints inside stale bounds until the next app resize).
+        Same for setCollapsed/setWidths. */
     void setSidebarWidth (int w)
     {
         const int clamped = juce::jlimit (minWidth, maxWidth, w);
@@ -82,6 +87,7 @@ public:
         if (onWidthChanged != nullptr)
             onWidthChanged (bodyWidth);
         resized();
+        relayoutParent();
     }
 
     int getSidebarWidth() const noexcept { return bodyWidth; }
@@ -92,6 +98,7 @@ public:
         maxWidth = juce::jmax (minWidth, maxW);
         bodyWidth = juce::jlimit (minWidth, maxWidth, defaultW);
         resized();
+        relayoutParent();
     }
 
     /** Total outer width the host should reserve (body + rail), or just
@@ -201,6 +208,17 @@ private:
         handle.collapsedState = (side == Edge::Right) ? ! expanded
                                                       : expanded;
         handle.repaint();
+    }
+
+    /** Ask the parent to re-run its layout: the host positions us with
+        outerWidth() in ITS resized(), so our own resized() is not enough
+        - without this the new width only shows after an app-level resize.
+        Guarded: resizing the parent re-sets our bounds (same size -> the
+        host's resized() is cheap and idempotent). */
+    void relayoutParent()
+    {
+        if (auto* p = getParentComponent())
+            p->resized();
     }
 
     Edge side = Edge::Right;
