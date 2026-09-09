@@ -95,13 +95,20 @@ public:
         searchBox.setColour (juce::TextEditor::textColourId, text());
         searchBox.setColour (juce::TextEditor::backgroundColourId, bgDark());
         searchBox.setColour (juce::TextEditor::outlineColourId, panelBorder());
-        searchBox.onTextChange = [this] { applyProxy(); };
+        searchBox.onTextChange = [this]
+        {
+            applyProxy();
+            if (onSearchChanged != nullptr)
+                onSearchChanged (searchBox.getText());
+        };
 
         addAndMakeVisible (viewBox);
         viewBox.onChange = [this]
         {
             activeView = viewBox.getSelectedItemIndex();
             applyProxy();
+            if (onViewChanged != nullptr)
+                onViewChanged (activeView);
         };
 
         addAndMakeVisible (table);
@@ -112,10 +119,46 @@ public:
             juce::TableHeaderComponent::backgroundColourId, bgDark());
         table.getHeader().setColour (
             juce::TableHeaderComponent::textColourId, text());
+        // Right-click on the HEADER opens OUR column menu (functional
+        // content-aware auto-size) - see mouseDown below.
+        table.getHeader().addMouseListener (this, false);
         // Grip affordance lives in transparent overlays (see below), NOT
         // in a viewport mouse listener: JUCE's RowComponents sit on top
         // and swallow hover before any listener sees it. The overlays are
         // repositioned on every scroll/resize (listWasScrolled hook).
+    }
+
+    void mouseDown (const juce::MouseEvent& event) override
+    {
+        if (event.eventComponent != &table.getHeader()
+            || ! event.mods.isPopupMenu())
+            return;
+        auto& header = table.getHeader();
+        const auto local = event.getEventRelativeTo (&header).position;
+        const int col = header.getColumnIdAtX ((int) local.x);
+        juce::PopupMenu menu;
+        if (col > 0)
+            menu.addItem (juce::PopupMenu::Item ("Auto-size this column")
+                              .setAction ([this, col]
+                                          { autoSizeColumn (col); }));
+        menu.addItem (juce::PopupMenu::Item ("Auto-size all columns")
+                          .setAction ([this] { autoSizeAllColumns(); }));
+        // Show/hide chooser (restores the JUCE built-in entry that the
+        // appearsOnColumnMenu flag used to provide).
+        juce::PopupMenu showMenu;
+        for (const auto& c : columns)
+            showMenu.addItem (juce::PopupMenu::Item (c.title)
+                                  .setTicked (header.isColumnVisible (c.id))
+                                  .setAction ([this, c]
+                                  {
+                                      const bool on =
+                                          table.getHeader().isColumnVisible (c.id);
+                                      table.getHeader().setColumnVisible (c.id, ! on);
+                                  }));
+        menu.addSubMenu ("Display columns", showMenu);
+        menu.showMenuAsync (juce::PopupMenu::Options()
+                                .withTargetComponent (this)
+                                .withMousePosition());
     }
 
     /** Native file drag starting on a grip action slot: the host resolves
@@ -136,9 +179,59 @@ public:
         for (const auto& c : columns)
             header.addColumn (c.title, c.id, c.defaultWidth,
                               c.minWidth, c.maxWidth,
-                              c.sortable ? juce::TableHeaderComponent::defaultFlags
-                                         : juce::TableHeaderComponent::notSortable);
+                              // Explicit visible|resizable|draggable(|sortable)
+                              // WITHOUT appearsOnColumnMenu: JUCE's built-in
+                              // header menu offers "Auto-size this column"
+                              // but its implementation measures only the
+                              // HEADER TITLE, never cell content - it reads
+                              // as broken. We provide our own right-click
+                              // header menu with a CONTENT-AWARE auto-size
+                              // AND the show/hide column chooser.
+                              (int) juce::TableHeaderComponent::visible
+                                  | (int) juce::TableHeaderComponent::resizable
+                                  | (int) juce::TableHeaderComponent::draggable
+                                  | (c.sortable
+                                     ? (int) juce::TableHeaderComponent::sortable : 0));
         applyProxy();
+    }
+
+    /** Content-aware auto-size: measures the widest CELL TEXT among the
+     *  proxy-visible rows (plus the header title), clamped to the
+     *  column's min/max. This is what JUCE's built-in "Auto-size" menu
+     *  item pretends to do (it only measures the header title). */
+    void autoSizeColumn (int columnId, bool includeHeader = true)
+    {
+        const Column* col = nullptr;
+        for (const auto& c : columns)
+            if (c.id == columnId) { col = &c; break; }
+        if (col == nullptr)
+            return;
+        const auto font = ebs::fontBody();
+        int best = 0;
+        if (includeHeader)
+            best = font.getStringWidth (col->title) + 22;
+        for (const auto& r : visible)
+        {
+            auto it = r->cells.find (columnId);
+            if (it == r->cells.end() || it->second.isEmpty())
+                continue;
+            best = juce::jmax (best, font.getStringWidth (it->second) + 16);
+        }
+        // maxWidth < 0 = unlimited: use a generous cap, NOT jlimit's upper
+        // bound (jlimit (min, -1, best) returns -1 -> header clamps to the
+        // MIN width - the exact "columns collapse" bug users saw).
+        const int hi = col->maxWidth < 0 ? 4096 : col->maxWidth;
+        table.getHeader().setColumnWidth (columnId,
+                                          juce::jlimit (col->minWidth, hi, best));
+        table.resized();
+        repaint();
+    }
+
+    void autoSizeAllColumns()
+    {
+        for (const auto& c : columns)
+            autoSizeColumn (c.id);
+        repaint();
     }
 
     void setViews (const std::vector<View>& v, int defaultIndex = 0)
@@ -262,12 +355,27 @@ public:
                                                     : juce::String();
     }
 
+    // === State accessors (hosts persist sort/view/search) =====================
+
+    int sortColumnId() const noexcept
+    {
+        return table.getHeader().getSortColumnId();
+    }
+    bool sortForwards() const noexcept
+    {
+        return table.getHeader().isSortedForwards();
+    }
+    int activeViewIndex() const noexcept { return activeView; }
+    juce::String searchText() const { return searchBox.getText(); }
+
     // === Host callbacks =======================================================
 
     std::function<void (const juce::String& rowId)> onSelection;
     std::function<void (const juce::String& rowId)> onDoubleClick;
     std::function<void (const juce::String& rowId, int actionId)> onAction;
     std::function<void (int columnId, bool forwards)> onSortChanged;
+    std::function<void (int viewIndex)> onViewChanged;
+    std::function<void (const juce::String& text)> onSearchChanged;
     /** Right-click on a row (e.g. context menu). Coordinates are local
         to the DataList. */
     std::function<void (const juce::String& rowId, juce::Point<int> pos)> onRightClick;

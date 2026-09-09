@@ -68,7 +68,7 @@ namespace ebs
     inline juce::Font fontPanelTitle()     { return createFont (16.0f, true);  }
     inline juce::Font fontSectionLabel()   { return createFont (13.0f, true);  }
     inline juce::Font fontPlayerGroup()    { return createFont (12.0f, true);  }
-    inline juce::Font fontHint()           { return createFont (11.0f, false); }
+inline juce::Font fontHint()           { return createFont (13.0f, false); }
     inline juce::Font fontBody()           { return createFont (13.0f, false); }
     inline juce::Font fontOverlayHeading() { return createFont (17.0f, true);  }
     inline juce::Font fontComboBox()       { return createFont (14.0f, false); }
