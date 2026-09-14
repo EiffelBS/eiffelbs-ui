@@ -58,7 +58,11 @@ public:
     LogWindow() : juce::DialogWindow ("Log", bgDark(),
                                       /*escapeCloses*/ true)
     {
-        setUsingNativeTitleBar (false);
+        // OS-native title bar, consistent with the rest of the app
+        // (SettingsWindow/ModelsManagementWindow and the editor hook set
+        // setUsingNativeTitleBar(true)); the JUCE-drawn bar was the odd
+        // one out (macOS port wave, 2026-09-14).
+        setUsingNativeTitleBar (true);
         // NB: DialogWindow has NO resizable ctor arg (that 4th bool is
         // addToDesktop) - resizability is enabled in showLogWindow().
     }
