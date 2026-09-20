@@ -45,6 +45,7 @@
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/LookAndFeel.h"   // resolved(): theme-level colour hook
+#include "eiffelbs/TextSanitize.h"  // sanitizeForShaping(): C0/C1 guard
 
 namespace ebs
 {
@@ -190,7 +191,12 @@ public:
     {
         hop ([id, r] (StatusBar& s)
         {
-            s.meterReadings[(int) id] = r;
+            // Meter values are drawn through the same HarfBuzz shaper as
+            // the log line: strip unshapable controls at the edge (a C1
+            // byte from a misdecoded probe string crashed paint).
+            auto sanitized = r;
+            sanitized.valueText = sanitizeForShaping (r.valueText);
+            s.meterReadings[(int) id] = sanitized;
             s.repaint();
         });
     }
@@ -247,6 +253,13 @@ public:
             return;
         }
 
+        // Unshapable controls (C0/C1) crash JUCE's HarfBuzz shaper on the
+        // very next paint (missing-glyph jassert -> __debugbreak): strip
+        // them once here so history, lastLine AND the Log window stay safe
+        // no matter what the consumer logged (double-encoded UTF-8 from a
+        // sidecar pipe is the classic producer).
+        const auto safe = sanitizeForShaping (line);
+
         // TRANSIENT progress lines: when the new line shares the prefix
         // before its first digit with a RECENT entry ("Generating... N s
         // elapsed"), it REPLACES that entry instead of stacking - one
@@ -261,7 +274,7 @@ public:
         // history line (consumer report 2026-08-27: "Done: 4 stems"
         // listed a single path - the four sibling paths replaced each
         // other in place).
-        const auto pfx = transientPrefixOf (line);
+        const auto pfx = transientPrefixOf (safe);
         bool replaced = false;
         if (pfx.isNotEmpty() && ! pfx.contains ("/") && ! pfx.contains ("\\")
             && ! history.empty())
@@ -272,7 +285,7 @@ public:
             {
                 if (transientPrefixOf (*it) == pfx)
                 {
-                    *it = line;
+                    *it = safe;
                     replaced = true;
                     break;
                 }
@@ -280,12 +293,12 @@ public:
         }
         if (! replaced)
         {
-            history.push_back (line);
+            history.push_back (safe);
             while (history.size() > kMaxLines)
                 history.pop_front();
             totalLogged++;
         }
-        lastLine = line;
+        lastLine = safe;
         repaint();
     }
 

@@ -16,6 +16,7 @@
 #include "eiffelbs/PowerToggle.h"
 #include "eiffelbs/ToggleSwitch.h"
 #include "eiffelbs/StatusBar.h"
+#include "eiffelbs/TextSanitize.h"
 #include "eiffelbs/HelpBubble.h"
 #include "eiffelbs/PathRow.h"
 #include "eiffelbs/DataList.h"

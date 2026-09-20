@@ -253,6 +253,62 @@ int main()
         check (barImg.getPixelAt (150, 12) == ebs::bgPanel(),
                "status bar paints the panel surface");
 
+        // v0.12.1 TextSanitize: C0/C1 controls must never reach the
+        // HarfBuzz shaper (missing-glyph jassert -> __debugbreak crash in
+        // Debug, e.g. OpenTimbre standalone on a double-encoded en-dash).
+        {
+            const auto hasControl = [] (const juce::String& s)
+            {
+                for (auto p = s.getCharPointer(); ! p.isEmpty(); ++p)
+                {
+                    const auto c = (juce::uint32) *p;
+                    if ((c < 0x20 && c != '\t' && c != '\n' && c != '\r')
+                        || (c >= 0x7f && c <= 0x9f))
+                        return true;
+                }
+                return false;
+            };
+            check (! hasControl (ebs::sanitizeForShaping ("plain ASCII")),
+                   "sanitize keeps plain ASCII intact");
+            // Genuine non-ASCII survives: en-dash + accent + CJK.
+            const auto uni = juce::String::fromUTF8 (
+                "caf\xC3\xA9 \xE2\x80\x93 \xE4\xB8\xAD");
+            check (ebs::sanitizeForShaping (uni).toStdString()
+                       == uni.toStdString(),
+                   "sanitize preserves accents, en-dash and CJK");
+            check (ebs::sanitizeForShaping ("a\tb\nc\rd") == "a\tb\nc\rd",
+                   "sanitize keeps tab/LF/CR (JUCE substitutes them)");
+            check (ebs::sanitizeForShaping ("").isEmpty(),
+                   "sanitize handles the empty string");
+            // The exact crash payload: en-dash UTF-8 (E2 80 93) decoded as
+            // Latin-1, i.e. U+00E2 U+0080 U+0093 (fromUTF8 of C3 A2 C2 80
+            // C2 93). The C1 pair must go; the printable U+00E2 stays.
+            const auto corrupted = juce::String::fromUTF8 (
+                "\xC3\xA2\xC2\x80\xC2\x93");
+            const auto fixed = ebs::sanitizeForShaping (corrupted);
+            check (! hasControl (fixed) && fixed.length() == 3
+                       && fixed[0] == (juce::juce_wchar) 0xe2,
+                   "sanitize strips the C1 pair of a double-encoded en-dash");
+            check (ebs::sanitizeForShaping (fixed) == fixed,
+                   "sanitize is idempotent");
+            // End to end through the bar: corrupted log line + corrupted
+            // meter value, then a real paint pass (the Debug crash repro:
+            // without the logLine/updateMeter sanitize this trips the
+            // HarfBuzz missing-glyph jassert).
+            ebs::StatusBar crashBar;
+            crashBar.setSize (400, 24);
+            crashBar.logLine (juce::String::fromUTF8 (
+                "Failed after \xE2\x80\x93: boom \xC3\xA2\xC2\x80\xC2\x93"));
+            ebs::StatusBar::MeterReading mr;
+            mr.ratio01 = 0.5f;
+            mr.valueText = juce::String::fromUTF8 ("\xC3\xA2\xC2\x80");
+            crashBar.updateMeter (ebs::StatusBar::MeterId::vram, mr);
+            const auto crashImg = renderToImage (
+                400, 24, [&] (juce::Graphics& g) { crashBar.paint (g); });
+            check (inkPixels (crashImg) > 0,
+                   "status bar paints a C1-poisoned line without crashing");
+        }
+
         // v0.7.1 HelpBubble: accent ring + "?" glyph actually paint, and the
         // tooltip plumbing (SettableTooltipClient) is present.
         ebs::HelpBubble bubble;
