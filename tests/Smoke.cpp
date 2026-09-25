@@ -575,6 +575,18 @@ int main()
         checkPixel (ffImg, { 6, 14 }, juce::Colour (0xff402060),
                     "framed icon button honours frameFillColourId");
 
+        // 5) Disabled custom transport glyphs grey explicitly. The disabled
+        //    button has weaker ink, and its play glyph no longer keeps the
+        //    full accent colour.
+        PaintableIconButton disabledPlay (ebs::IconButton::Shape::play);
+        disabledPlay.setSize (28, 28);
+        disabledPlay.setEnabled (false);
+        const auto dpImg = renderToImage (28, 28, [&] (juce::Graphics& g)
+            { disabledPlay.paint (g); });
+        check (dpImg.getPixelAt (12, 14).getAlpha() > 20
+                   && dpImg.getPixelAt (12, 14).getRed() < 0x60,
+               "disabled icon button greys its custom glyph");
+
         // === v0.3 widgets & palette =========================================
         // 1) New always-dark viz-chrome palette tokens (hex-frozen contract).
         check (ebs::grid()        == juce::Colour (0x20ffffff), "viz-chrome grid hex");

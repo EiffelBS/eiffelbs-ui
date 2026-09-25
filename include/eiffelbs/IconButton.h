@@ -294,7 +294,7 @@ public:
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
-        if (framed)                          // real button affordance
+        if (framed && isEnabled())          // real button affordance
         {
             auto frame   = getLocalBounds().toFloat().reduced (1.0f);
             auto base    = resolved (frameFillColourId,    bgDark());
@@ -314,14 +314,20 @@ public:
             g.setColour (outline);
             g.drawRoundedRectangle (frame, 5.0f, 1.0f);
         }
-        else if (over || down)               // quiet hover backdrop
+        else if ((over || down) && isEnabled()) // quiet hover backdrop
         {
             g.setColour (bgPanel());
             g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
         }
 
         auto colour = resolved (iconColourId, icon);
-        if (down)
+        if (! isEnabled())
+        {
+            // Custom paint bypasses the framework's alpha pass; grey the
+            // glyph explicitly so disabled transport is obvious.
+            colour = textDim().withAlpha (0.35f);
+        }
+        else if (down)
             colour = colour.brighter (0.30f);
         else if (over)
             colour = colour.brighter (0.20f);
@@ -332,6 +338,11 @@ public:
                              .withSizeKeepingCentre (s, s);
         juce::Path p = glyphPath (shape, box, filled, getToggleState(), s);
         g.fillPath (p);
+    }
+
+    void enablementChanged() override
+    {
+        repaint();
     }
 
 private:
