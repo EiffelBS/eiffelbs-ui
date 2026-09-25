@@ -738,6 +738,23 @@ int main()
         host.removeAllChildren();
         side.setContent (nullptr);
 
+        // 5d) ebs::BusyIndicator: themed strip + indeterminate/determinate API.
+        ebs::BusyIndicator busy;
+        busy.setSize (220, 16);
+        busy.setStage ("Enhancing");
+        check (busy.isIndeterminate() && busy.getProgress() < 0.0,
+               "busy indicator starts as an indeterminate strip");
+        const auto busyImg = renderToImage (220, 16, [&] (juce::Graphics& g)
+            { busy.paint (g); });
+        check (inkPixels (busyImg) > 40,
+               "busy indicator paints its animated progress strip");
+        busy.setProgress (0.5);
+        check (! busy.isIndeterminate() && busy.getProgress() == 0.5,
+               "busy indicator supports normalized determinate progress");
+        busy.clear();
+        check (busy.isIndeterminate(),
+               "busy indicator clear returns to indeterminate mode");
+
         // 5) Chrome hook: theme-level restyle of the checkbox well, built-ins
         //    untouched otherwise (the earlier toggle interior check above ran
         //    under the plain L&F and asserts the vizBg built-in).
