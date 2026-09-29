@@ -10,6 +10,13 @@
 // The reveal button opens the path's folder in Explorer (the path itself
 // when it is a directory). The host reads getText() (e.g. from an Apply
 // button) and/or reacts to onTextChanged.
+//
+// The row is a SettableTooltipClient so a host can explain what the field
+// expects (setTooltip). The placeholder alone is not enough: it disappears on
+// the first keystroke, and a path contract - which folder, which level - is
+// exactly what a user cannot guess. JUCE walks the component chain when
+// looking for a tooltip, so one set here also shows while hovering the
+// editor or the two buttons.
 
 #pragma once
 
@@ -21,7 +28,8 @@
 namespace ebs
 {
 
-class PathRow : public juce::Component
+class PathRow : public juce::Component,
+                public juce::SettableTooltipClient
 {
 public:
     enum class Mode { File, Directory };

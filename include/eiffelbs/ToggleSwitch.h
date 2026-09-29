@@ -49,7 +49,7 @@ namespace ebs
         void paint (juce::Graphics& g) override
         {
             auto bounds = getLocalBounds().toFloat();
-            const bool isOn = getToggleState();
+            const bool toggled = getToggleState();
 
             // Pill = full bounds (caller sizes it, ~44x22 is the sweet spot).
             const float h     = bounds.getHeight();
@@ -58,9 +58,18 @@ namespace ebs
 
             const juce::Colour trackOn  = widgetColour (*this, trackOnColourId,  ebs::accent());
             const juce::Colour trackOff = widgetColour (*this, trackOffColourId, ebs::text().withAlpha (0.18f));
-            juce::Colour trackCol = isOn ? trackOn : trackOff;
+            juce::Colour trackCol = toggled ? trackOn : trackOff;
             if (! isEnabled())
-                trackCol = trackCol.withAlpha (trackCol.getAlpha() * 0.45f);
+            {
+                // withMultipliedAlpha, NOT withAlpha: the intent is to DIM
+                // the colour that is already there, and withAlpha REPLACES the
+                // alpha (asserting on the degenerate value a transparent
+                // theme colour produces). That made any DISABLED ToggleSwitch
+                // assert inside juce::Colour::withAlpha on the first repaint -
+                // OpenTimbre hit it the day it greyed this switch out with
+                // the control-API master switch.
+                trackCol = trackCol.withMultipliedAlpha (0.45f);
+            }
 
             g.setColour (trackCol);
             g.fillRoundedRectangle (bounds, trackR);
@@ -72,7 +81,7 @@ namespace ebs
             const juce::Colour knobCol = isEnabled()
                 ? juce::Colour (0xFFF2F2F5)
                 : ebs::text().withAlpha (0.35f);
-            const juce::Colour knobEdge = isOn && isEnabled()
+            const juce::Colour knobEdge = toggled && isEnabled()
                 ? trackOn.darker (0.25f).withAlpha (0.35f)
                 : ebs::text().withAlpha (0.15f);
 

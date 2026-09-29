@@ -207,22 +207,22 @@ public:
         if (col == nullptr)
             return;
         const auto font = ebs::fontBody();
-        int best = 0;
+        float best = 0.0f;
         if (includeHeader)
-            best = font.getStringWidth (col->title) + 22;
+            best = juce::GlyphArrangement::getStringWidth (font, col->title) + 22.0f;
         for (const auto& r : visible)
         {
             auto it = r->cells.find (columnId);
             if (it == r->cells.end() || it->second.isEmpty())
                 continue;
-            best = juce::jmax (best, font.getStringWidth (it->second) + 16);
+            best = juce::jmax (best, juce::GlyphArrangement::getStringWidth (font, it->second) + 16.0f);
         }
         // maxWidth < 0 = unlimited: use a generous cap, NOT jlimit's upper
         // bound (jlimit (min, -1, best) returns -1 -> header clamps to the
         // MIN width - the exact "columns collapse" bug users saw).
         const int hi = col->maxWidth < 0 ? 4096 : col->maxWidth;
         table.getHeader().setColumnWidth (columnId,
-                                          juce::jlimit (col->minWidth, hi, best));
+                                          juce::jlimit (col->minWidth, hi, (int) best));
         table.resized();
         repaint();
     }

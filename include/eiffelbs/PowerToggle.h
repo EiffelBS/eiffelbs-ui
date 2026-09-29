@@ -48,7 +48,7 @@ namespace ebs
         void paint (juce::Graphics& g) override
         {
             auto bounds = getLocalBounds().toFloat();
-            const bool isOn = getToggleState();
+            const bool toggled = getToggleState();
 
             const float radius    = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.3f;
             const float iconWidth = radius * 2.0f;
@@ -73,7 +73,7 @@ namespace ebs
 
             // Colours based on state.
             juce::Colour glowColor   = resolvedGlow();
-            juce::Colour activeColor = isOn ? glowColor
+            juce::Colour activeColor = toggled ? glowColor
                                             : ebs::text().withAlpha (0.3f);
 
             if (! isEnabled())
@@ -83,7 +83,7 @@ namespace ebs
             }
 
             // Engaged glow halo.
-            if (isOn && isEnabled())
+            if (toggled && isEnabled())
             {
                 juce::ColourGradient glowGrad (glowColor.withAlpha (0.4f),
                                                center.x, center.y,
@@ -115,10 +115,13 @@ namespace ebs
 
             if (hasText)
             {
-                g.setColour (isOn ? ebs::text().withAlpha (isEnabled() ? 1.0f : 0.25f)
-                                  : ebs::text().withAlpha (0.5f * (isEnabled() ? 1.0f : 0.5f)));
-                g.drawText (label, startX + iconWidth + 8.0f, 0.0f, textWidth,
-                            bounds.getHeight(),
+                g.setColour (toggled ? ebs::text().withAlpha (isEnabled() ? 1.0f : 0.25f)
+                                     : ebs::text().withAlpha (0.5f * (isEnabled() ? 1.0f : 0.5f)));
+                g.drawText (label,
+                            juce::roundToInt (startX + iconWidth + 8.0f),
+                            0,
+                            juce::roundToInt (textWidth),
+                            juce::roundToInt (bounds.getHeight()),
                             juce::Justification::centredLeft, true);
             }
         }

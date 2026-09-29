@@ -22,3 +22,4 @@
 #include "eiffelbs/PathRow.h"
 #include "eiffelbs/DataList.h"
 #include "eiffelbs/Sidebar.h"
+#include "eiffelbs/BandGrip.h"

@@ -18,10 +18,16 @@
 // ACTIVITY SLOTS (v0.5.0 concept, consumer request 2026-08-27): textual
 // progress ("Generating... 12 s elapsed") relied on a fragile replace-
 // by-prefix heuristic. Structured signals replace it: beginActivity()
-// claims a slot rendered as [spinner + label + elapsed s][determinate
-// ratio bar when the task can measure itself], and setQueue() renders the
-// processing-queue position as a small "done/total" bar. Log lines then
-// carry EVENTS only; progress lives in the slots.
+// claims a slot rendered as [spinner + label + elapsed s][bar slot], and
+// setQueue() renders the processing-queue position as a small "done/total"
+// bar. Log lines then carry EVENTS only; progress lives in the slots.
+//
+// INDETERMINATE SEGMENTS (v0.12.5): the bar slot is always reserved, so a
+// task that cannot measure itself (no ratio fed) gets an ebs::BusyIndicator
+// strip there instead of a bare "[Ns]". With two live claims - a generation
+// that reports a percentage next to a job that does not - the bar shows
+// which one is actually running instead of leaving a single shared spinner
+// to speak for both.
 //
 // MULTIPLE CONCURRENT CLAIMS (v0.7.0, consumer report 2026-08-30): a long
 // task (TTS generation) used to lose its indication the moment another
@@ -40,12 +46,14 @@
 #include <atomic>
 #include <deque>
 #include <map>
+#include <memory>
 #include <vector>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/LookAndFeel.h"   // resolved(): theme-level colour hook
 #include "eiffelbs/TextSanitize.h"  // sanitizeForShaping(): C0/C1 guard
+#include "eiffelbs/BusyIndicator.h" // per-claim strip (no progress to show)
 
 namespace ebs
 {
@@ -122,10 +130,11 @@ public:
         ~ProgressActivity() { release(); }
 
         /** Determinate ratio 0..1; a negative value returns the segment to
-            indeterminate. Call only when the task can MEASURE itself -
-            the segment stays hidden while nobody feeds it. No textual
-            label exists in the segment (consumer feedback 2026-08-27:
-            the log line beside it already tells WHAT is running). */
+            the indeterminate BusyIndicator strip (v0.12.5). Call only when
+            the task can MEASURE itself - until then the segment shows the
+            strip, never a made-up ratio. No textual label exists in the
+            segment (consumer feedback 2026-08-27: the log line beside it
+            already tells WHAT is running). */
         void progress (float ratio01);
 
         /** Release the slots now (the destructor calls this too). */
@@ -143,8 +152,9 @@ public:
     };
 
     /** Claim an activity segment (ANY thread): spinner + per-claim elapsed
-        seconds, plus a determinate bar as soon as progress() feeds a
-        ratio >= 0. Concurrent claims stack as independent segments. */
+        seconds, plus a bar in the per-claim slot - an ebs::BusyIndicator
+        strip until progress() feeds a ratio >= 0, the determinate mini
+        bar after. Concurrent claims stack as independent segments. */
     ProgressActivity beginActivity();
 
     /** Queue slot (ANY thread): "done/total" mini-bar; total <= 0 hides.
@@ -336,7 +346,7 @@ public:
         const bool taskLive  = ! claims.empty();
         if (taskLive || burstLive)
         {
-            const float r = 5.0f;
+            const float r = kSpinnerR;
             juce::Path arc;
             arc.addCentredArc (x + r, cy, r, r, 0.0f,
                                spinnerPhase, spinnerPhase + 3.8f, true);
@@ -344,32 +354,36 @@ public:
             g.strokePath (arc, juce::PathStrokeType (1.6f));
             x += 2.0f * r + 6.0f;
 
-            // ONE SEGMENT PER LIVE CLAIM (v0.7.0): [Ns][ratio bar?], with
-            // a thin divider between segments. The spinner ensemble keeps
-            // ticking while ANY claim is live; each segment vanishes when
-            // its own task finishes.
+            // ONE SEGMENT PER LIVE CLAIM (v0.7.0): [Ns][bar], with a thin
+            // divider between segments. The spinner ensemble keeps ticking
+            // while ANY claim is live; each segment vanishes when its own
+            // task finishes.
+            //
+            // The bar slot is ALWAYS reserved: a claim that CANNOT measure
+            // itself (ratio < 0) hosts an ebs::BusyIndicator strip there
+            // (syncClaimStrips), where the segment used to show a bare
+            // "[Ns]" that said nothing about WHICH live task was running.
+            const auto slots = claimSlots();
             for (size_t ci = 0; ci < claims.size(); ++ci)
             {
                 const auto& claim = claims[ci];
+                const auto& slot  = slots[ci];
                 if (ci > 0)
                 {
                     g.setColour (resolved (textColourId, textDim())
                                      .withAlpha (0.35f));
-                    g.fillRect (x, cy - 6.0f, 1.5f, 12.0f);
-                    x += 9.0f;
+                    g.fillRect (slot.dividerX, cy - 6.0f, 1.5f, 12.0f);
                 }
                 const auto secs = (int) ((juce::Time::getCurrentTime()
                                           - claim.start).inSeconds());
-                g.drawText (juce::String (secs) + " s", (int) x, 0, 40,
+                g.drawText (juce::String (secs) + " s", (int) slot.textX, 0, 40,
                             getHeight(), juce::Justification::centredLeft, true);
-                x += 44.0f;
                 if (claim.ratio >= 0.0f)
-                {
-                    drawMiniBar (g, x, cy, 45.0f,
+                    drawMiniBar (g, slot.barX, cy, kBarW,
                                  juce::jlimit (0.0f, 1.0f, claim.ratio));
-                    x += 53.0f;
-                }
             }
+            if (! claims.empty())
+                x = slots.back().barX + kBarW + 8.0f;   // burst block follows
 
             if (burstLive)
             {
@@ -568,13 +582,82 @@ public:
     }
 
 private:
+    /** Activity-segment bar slot: 45 x 8 px, the geometry of the
+        determinate mini bar AND of the indeterminate BusyIndicator that
+        replaces it, so the two are interchangeable at the pixel level. */
+    static constexpr float kBarW = 45.0f, kBarH = 8.0f;
+    static constexpr float kSpinnerR = 5.0f;   // the activity-block arc radius
+
+    /** Per-claim slot geometry, shared by paint() and syncClaimStrips().
+        The block is LEFT-ANCHORED and every cell is a fixed width (44 px
+        for the elapsed counter, kBarW + 8 px for the bar slot), so the
+        layout depends on neither the bar width nor the claims' own
+        progress - one function can drive the paint pass and the child
+        strip bounds without the two drifting apart. */
+    struct ClaimSlot
+    {
+        float dividerX = 0.0f;   // ci > 0 only
+        float textX    = 0.0f;
+        float barX     = 0.0f;
+    };
+
+    std::vector<ClaimSlot> claimSlots() const
+    {
+        std::vector<ClaimSlot> slots;
+        slots.reserve (claims.size());
+
+        float x = 8.0f + 2.0f * kSpinnerR + 6.0f;   // after the spinner arc
+        for (size_t ci = 0; ci < claims.size(); ++ci)
+        {
+            ClaimSlot slot;
+            slot.dividerX = x;
+            if (ci > 0)
+                x += 9.0f;                 // divider + gap
+            slot.textX = x;  x += 44.0f;   // "N s"
+            slot.barX  = x;  x += kBarW + 8.0f;
+            slots.push_back (slot);
+        }
+        return slots;
+    }
+
+    /** One ebs::BusyIndicator per claim WITHOUT a determinate ratio,
+        hosted in that claim's own bar slot. Message thread only: called
+        from the same hops that add/remove/re-ratio a claim, so the child
+        visibility always matches what paint() reserves. */
+    void syncClaimStrips()
+    {
+        while (claimStrips.size() < claims.size())
+        {
+            auto strip = std::make_unique<ebs::BusyIndicator>();
+            strip->setStage (juce::String());   // 8 px slot: text never fits
+            strip->setInterceptsMouseClicks (false, false);  // the bar owns clicks
+            addAndMakeVisible (*strip);
+            claimStrips.push_back (std::move (strip));
+        }
+
+        const auto slots = claimSlots();
+        const float cy = (float) getHeight() * 0.5f;
+        for (size_t i = 0; i < claimStrips.size(); ++i)
+        {
+            auto& strip = *claimStrips[i];
+            if (i >= claims.size() || claims[i].ratio >= 0.0f)
+            {
+                strip.setVisible (false);   // determinate paint owns the slot
+                continue;
+            }
+            strip.setBounds (juce::Rectangle<float> (
+                slots[i].barX, cy - kBarH * 0.5f, kBarW, kBarH).toNearestInt());
+            strip.setVisible (true);
+        }
+    }
+
     /** Shared mini progress-bar renderer for the activity/queue slots.
         Border + outline use the TEXT colour (user feedback 2026-08-28:
         the dim divider made the slot hard to read). */
     void drawMiniBar (juce::Graphics& g, float x, float cy, float width,
                       float ratio)
     {
-        const juce::Rectangle<float> r { x, cy - 4.0f, width, 8.0f };
+        const juce::Rectangle<float> r { x, cy - kBarH * 0.5f, width, kBarH };
         g.setColour (resolved (textColourId, textDim()));
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
         g.setColour (accent().withAlpha (0.85f));
@@ -687,6 +770,10 @@ private:
         float        ratio = -1.0f;       // < 0 = indeterminate
     };
     std::vector<ActivityClaim> claims;     // independent, RAII per token
+    /** One child strip per claim slot, reused across claims (never
+        removed: the count only follows the live-claim high-water mark).
+        A strip is shown only while its claim has no determinate ratio. */
+    std::vector<std::unique_ptr<ebs::BusyIndicator>> claimStrips;
     float        spinnerPhase  = 0.0f;
     int          queueDone = 0, queueTotal = 0;
     juce::Time   queueBurstStart;                 // valid -> total elapsed shown
@@ -707,6 +794,7 @@ inline StatusBar::ProgressActivity StatusBar::beginActivity()
     hop ([t] (StatusBar& s)
     {
         s.claims.push_back ({ t, juce::Time::getCurrentTime(), -1.0f });
+        s.syncClaimStrips();     // a fresh claim has no ratio: show its strip
         s.startTimerHz (10);             // spinner + elapsed repaint
         s.repaint();
     });
@@ -743,7 +831,7 @@ inline void StatusBar::ProgressActivity::progress (float ratio01)
     bar->hop ([t, ratio01] (StatusBar& s)
     {
         for (auto& c : s.claims)
-            if (c.token == t) { c.ratio = ratio01; s.repaint(); }
+            if (c.token == t) { c.ratio = ratio01; s.syncClaimStrips(); s.repaint(); }
     });
 }
 
@@ -761,6 +849,7 @@ inline void StatusBar::ProgressActivity::finish()
                 s.claims.erase (s.claims.begin() + (long) i);
                 break;
             }
+        s.syncClaimStrips();   // the freed slot's strip goes back down
         // The 10 Hz repaint serves BOTH slots: keep it while the queue
         // slot is visible (its burst elapsed must tick in the gap between
         // two generations) or while other claims are still live.

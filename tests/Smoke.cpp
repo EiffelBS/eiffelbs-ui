@@ -253,6 +253,38 @@ int main()
         check (barImg.getPixelAt (150, 12) == ebs::bgPanel(),
                "status bar paints the panel surface");
 
+        // v0.12.5 StatusBar: an activity claim WITHOUT a determinate ratio
+        // hosts an ebs::BusyIndicator strip in its own bar slot (the
+        // segment used to show a bare "[Ns]"), and the strip goes back
+        // down as soon as a ratio arrives or the claim finishes. The hops
+        // are synchronous here (we ARE the message thread), so no waiting.
+        {
+            ebs::StatusBar claimBar;
+            claimBar.setSize (300, 24);
+            check (claimBar.getNumChildComponents() == 0,
+                   "an idle status bar hosts no claim strip");
+
+            auto claim = claimBar.beginActivity();
+            check (claimBar.getNumChildComponents() == 1
+                       && dynamic_cast<ebs::BusyIndicator*> (
+                              claimBar.getChildComponent (0)) != nullptr,
+                   "a progressless claim shows a busy strip");
+            auto* strip = dynamic_cast<ebs::BusyIndicator*> (
+                claimBar.getChildComponent (0));
+            check (strip != nullptr && strip->isVisible()
+                       && strip->getWidth() == 45 && strip->getHeight() == 8
+                       && strip->getX() > 0,
+                   "the claim strip fills the 45x8 bar slot");
+
+            claim.progress (0.5f);
+            check (strip != nullptr && ! strip->isVisible(),
+                   "a determinate claim hands the slot back to the mini bar");
+
+            claim.finish();
+            check (strip != nullptr && ! strip->isVisible(),
+                   "a finished claim keeps no strip visible");
+        }
+
         // v0.12.1 TextSanitize: C0/C1 controls must never reach the
         // HarfBuzz shaper (missing-glyph jassert -> __debugbreak crash in
         // Debug, e.g. OpenTimbre standalone on a double-encoded en-dash).
@@ -705,6 +737,30 @@ int main()
             { powerOn.paint (g); });
         check (countGold (pDisImg) == 0, "disabled power toggle drops the glow");
 
+        // 5a-bis) ebs::ToggleSwitch: the DISABLED track. The dimming branch
+        // used juce::Colour::withAlpha, which ASSERTS on the degenerate value
+        // a transparent theme colour produces - so disabling a ToggleSwitch
+        // broke the first repaint. Painted in every state so a regression is
+        // a red test, not a crash on someone's panel.
+        {
+            ebs::ToggleSwitch disOn, disOff;
+            disOn.setToggleState (true,  juce::dontSendNotification);
+            disOn.setEnabled (false);
+            disOff.setToggleState (false, juce::dontSendNotification);
+            disOff.setEnabled (false);
+            const auto disOnImg = renderToImage (44, 22, [&] (juce::Graphics& g)
+                { disOn.paint (g); });
+            const auto disOffImg = renderToImage (44, 22, [&] (juce::Graphics& g)
+                { disOff.paint (g); });
+            check (inkPixels (disOnImg) > 0 && inkPixels (disOffImg) > 0,
+                   "disabled ToggleSwitch paints in both states without asserting");
+            // Compare the two renders to each other rather than sampling a
+            // magic pixel: the knob travels, so any fixed coordinate sits on
+            // the knob in one state and the track in the other.
+            check (disOnImg != disOffImg,
+                   "disabled ToggleSwitch still reads ON vs OFF");
+        }
+
         // 5b) ebs::Sidebar: collapse rail + width clamp + content hide.
         ebs::Sidebar side (ebs::Sidebar::Edge::Right);
         side.setWidths (180, 520, 300);
@@ -749,24 +805,52 @@ int main()
                 "sidebar rail keeps its width under the cap");
         host.removeAllChildren();
         side.setContent (nullptr);
+         // 5c) ebs::BandGrip: height clamp and painting.
+         ebs::BandGrip grip;
+         grip.setHeightRange (96, 360);
+         grip.setHeightSilently (200);
+         check (grip.getHeightValue() == 200
+                    && grip.clampForTest (20) == 96
+                    && grip.clampForTest (500) == 360,
+                "band grip clamps the host-owned height range");
+         grip.setSize (120, ebs::BandGrip::defaultGripHeight());
+         const auto gripImg = renderToImage (120, ebs::BandGrip::defaultGripHeight(),
+             [&] (juce::Graphics& g) { grip.paint (g); });
+         check (inkPixels (gripImg) > 20, "band grip paints its resize affordance");
 
-        // 5d) ebs::BusyIndicator: themed strip + indeterminate/determinate API.
-        ebs::BusyIndicator busy;
-        busy.setSize (220, 16);
-        busy.setStage ("Enhancing");
-        check (busy.isIndeterminate() && busy.getProgress() < 0.0,
-               "busy indicator starts as an indeterminate strip");
-        const auto busyImg = renderToImage (220, 16, [&] (juce::Graphics& g)
-            { busy.paint (g); });
-        check (inkPixels (busyImg) > 40,
-               "busy indicator paints its animated progress strip");
-        busy.setProgress (0.5);
-        check (! busy.isIndeterminate() && busy.getProgress() == 0.5,
-               "busy indicator supports normalized determinate progress");
-        busy.clear();
-        check (busy.isIndeterminate(),
-               "busy indicator clear returns to indeterminate mode");
-
+         // 5d) ebs::BusyIndicator: themed strip + indeterminate/determinate API.
+         ebs::BusyIndicator busy;
+         busy.setSize (220, 16);
+         busy.setStage ("Enhancing");
+         check (busy.isIndeterminate() && busy.getProgress() < 0.0,
+                "busy indicator starts as an indeterminate strip");
+         const auto busyImg = renderToImage (220, 16, [&] (juce::Graphics& g)
+             { busy.paint (g); });
+         check (inkPixels (busyImg) > 40,
+                "busy indicator paints its animated progress strip");
+         busy.setProgress (0.5);
+         check (! busy.isIndeterminate() && busy.getProgress() == 0.5,
+                "busy indicator supports normalized determinate progress");
+         busy.clear();
+         check (busy.isIndeterminate(),
+                "busy indicator clear returns to indeterminate mode");
+         // The strip is a HIDDEN overlay in its two consumers (the TTS
+         // panel hotspot, a status-bar claim slot), and juce::ProgressBar
+         // only starts/stops its 30 ms timer from its OWN visibility
+         // change: without the forwarding, a hidden indicator keeps the
+         // message loop ticking for the rest of the session. NB: a
+         // standalone BusyIndicator starts with its OWN visible flag
+         // false, so show it first - setVisible (false) on a never-shown
+         // instance is a no-op and would prove nothing.
+         busy.setVisible (true);
+         check (busy.stripControlVisibleForTest(),
+                "shown busy indicator runs its strip timer");
+         busy.setVisible (false);
+         check (! busy.stripControlVisibleForTest(),
+                "hidden busy indicator stops its strip timer");
+         busy.setVisible (true);
+         check (busy.stripControlVisibleForTest(),
+                "re-shown busy indicator restarts its strip timer");
         // 5) Chrome hook: theme-level restyle of the checkbox well, built-ins
         //    untouched otherwise (the earlier toggle interior check above ran
         //    under the plain L&F and asserts the vizBg built-in).

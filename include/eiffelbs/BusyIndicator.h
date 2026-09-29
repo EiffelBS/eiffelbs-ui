@@ -59,6 +59,20 @@ public:
         progress.setBounds (getLocalBounds());
     }
 
+    /** juce::ProgressBar starts/stops its 30 ms repaint timer from ITS OWN
+        visibility change, and a hidden ANCESTOR never reaches it - so a
+        BusyIndicator hidden as an overlay (TTS panel hotspot, status-bar
+        claim slot) would keep ticking for the rest of the session. Forward
+        ours, and the strip costs nothing while it is not shown. */
+    void visibilityChanged() override
+    {
+        progress.setVisible (isVisible());
+    }
+
+    /** Test hook: the inner strip control's own visibility, i.e. whether
+        the 30 ms animation timer is running. */
+    bool stripControlVisibleForTest() const noexcept { return progress.isVisible(); }
+
 private:
     double progressValue = -1.0;
     juce::ProgressBar progress { progressValue };
