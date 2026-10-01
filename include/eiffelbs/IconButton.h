@@ -68,10 +68,11 @@ public:
      *  eye / eyeOff = visibility toggle pair, folder = folder silhouette,
      *  grip = drag handle, undo/redo = circular arrows, settings = gear,
      *  star = favourite marker (filled or thin outline, see setFilled),
-     *  lock = padlock (host-transport link semantics are app-defined). */
+     *  lock = padlock (host-transport link semantics are app-defined),
+     *  rewind = return to start (transport: bar + left-pointing triangle). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
-                       lock, download, eye, eyeOff };
+                       lock, download, eye, eyeOff, rewind };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -164,6 +165,11 @@ public:
         {
             setTooltip ("Hidden");
             icon = juce::Colour (0xffe8c34a);
+        }
+        else if (s == Shape::rewind)
+        {
+            setTooltip ("Back to start");
+            icon = textDim();   // navigation, not the main action
         }
         else
         {
@@ -276,6 +282,21 @@ public:
                 juce::PathStrokeType (1.2f).createStrokedPath (stroked, p);
                 p = stroked;
             }
+        }
+        else if (s == Shape::rewind)
+        {
+            // Transport "return to start": a bar on the left plus a
+            // left-pointing triangle, drawn inside the glyph box.
+            const float bar = iconSide * 0.18f;
+            const float gap = iconSide * 0.12f;
+            const float tri  = iconSide - bar - gap;
+            const float h    = tri * 0.5f;
+            const auto c     = box.getCentre();
+            p.addRectangle (juce::Rectangle<float> (c.x - iconSide * 0.5f,
+                                                    c.y - h, bar, tri));
+            p.addTriangle (c.x + (tri - bar) * 0.5f, c.y - h,
+                           c.x + (tri - bar) * 0.5f, c.y + h,
+                           c.x - gap - bar, c.y);
         }
         else if (s == Shape::stop || playingToggle)
         {

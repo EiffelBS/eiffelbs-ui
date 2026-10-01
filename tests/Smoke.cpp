@@ -223,7 +223,7 @@ int main()
             ebs::IconButton::Shape::wand,    ebs::IconButton::Shape::tool,
             ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock,
             ebs::IconButton::Shape::download, ebs::IconButton::Shape::eye,
-            ebs::IconButton::Shape::eyeOff
+            ebs::IconButton::Shape::eyeOff,  ebs::IconButton::Shape::rewind
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
