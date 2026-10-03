@@ -22,6 +22,46 @@
 // setQueue() renders the processing-queue position as a small "done/total"
 // bar. Log lines then carry EVENTS only; progress lives in the slots.
 //
+// LOG WINDOW (v0.12.7) - APPEND-ONLY, ALIVE, TRUNCATION VISIBLE. Three
+// defects made the app's only text diagnostic surface untrustworthy:
+//
+// 1. APPEND-ONLY. logLine() used to REPLACE a recent entry whose text
+//    before its first digit matched the new line. That heuristic only ever
+//    served the elapsed-seconds heartbeat, and it was never removed when the
+//    activity slots took the heartbeat over - so it stayed live with nothing
+//    left to feed it, silently overwriting unrelated lines a dozen entries
+//    up ("Import: converted 4 stems" then "Import: error: unreadable audio":
+//    the success line vanished, because both share the prefix "Import: ").
+//    A log that eats lines is worse than a short log; the heuristic is gone.
+// 2. ALIVE. logLine() never touched the OPEN window (it ended on repaint of
+//    the bar), and refreshLogText() only ran from showLogWindow(): the window
+//    showed a FROZEN SNAPSHOT until the user clicked the bar again. Lines are
+//    now appended into the live window, coalesced onto the message thread.
+// 3. VISIBLE TRUNCATION. The cap was 500 with the loss counted but never
+//    shown (counterColourId is deliberately "reserved (counter removed)" -
+//    the bar carries no counter any more, so the window is where the loss
+//    must be announced). The cap is configurable (default 5000) and the
+//    window states how many earlier lines it no longer holds.
+//
+// SCROLL POLICY: the view follows the newest line ONLY while it was already
+// showing it. Scrolling up to read keeps the reading position - through new
+// arrivals AND through the renumbering a front-drop causes.
+//
+// WINDOW BUTTONS: juce::DialogWindow's constructor hard-wires its base
+// DocumentWindow to closeButton, and DocumentWindow only advertises
+// minimise/maximise when those bits are requested. setUsingNativeTitleBar
+// gives the native frame but does NOT ask for the buttons: without
+// setTitleBarButtonsRequired the log window is born with an X and nothing
+// else. Every other window of the app makes that call; this one did not.
+//
+// COMPONENT CHOICE: the window's content is an ebs::LogView built on
+// juce::CodeEditorComponent, not a juce::TextEditor. TextEditor has no
+// incremental insert (every update is a full setText(), quadratic over a long
+// history) and exposes no scroll position, so "is the reader still at the
+// bottom?" could only be guessed from the caret. CodeEditorComponent edits a
+// juce::CodeDocument in place, reports the visible line range, keeps
+// selection + Ctrl+C, and lays out only the lines on screen.
+//
 // INDETERMINATE SEGMENTS (v0.12.5): the bar slot is always reserved, so a
 // task that cannot measure itself (no ratio fed) gets an ebs::BusyIndicator
 // strip there instead of a bare "[Ns]". With two live claims - a generation
@@ -42,6 +82,16 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+// The Log window's content is a juce::CodeEditorComponent over a
+// juce::CodeDocument (see the LOG WINDOW note): only a CodeDocument can be
+// appended to in place, and only CodeEditorComponent reports the visible
+// line range the scroll policy needs.
+//
+// The MODULE header, not the two sub-headers: juce_CodeDocument.h and
+// juce_CodeEditorComponent.h carry no include guard of their own (they are
+// only ever reached through juce_gui_extra.h), so including them directly
+// redefines both classes in any TU that also pulls the module in.
+#include <juce_gui_extra/juce_gui_extra.h>
 #include <array>
 #include <atomic>
 #include <deque>
@@ -72,6 +122,15 @@ public:
         // setUsingNativeTitleBar(true)); the JUCE-drawn bar was the odd
         // one out (macOS port wave, 2026-09-14).
         setUsingNativeTitleBar (true);
+        // v0.12.7: juce::DialogWindow's constructor passes
+        // DocumentWindow::closeButton - and NOTHING else - to the base
+        // DocumentWindow, and DocumentWindow::getDesktopWindowStyleFlags()
+        // only adds the minimise/maximise bits when they are REQUIRED. The
+        // native frame above gives the window its title bar but never asks
+        // for the buttons, so this window was born with an X and nothing
+        // else. Requesting allButtons is the one line every other window of
+        // the app already makes.
+        setTitleBarButtonsRequired (juce::DocumentWindow::allButtons, true);
         // NB: DialogWindow has NO resizable ctor arg (that 4th bool is
         // addToDesktop) - resizability is enabled in showLogWindow().
     }
@@ -98,6 +157,225 @@ public:
 };
 
 inline LogWindow* LogWindow::liveWindow = nullptr;
+
+/** Content of the Log window: a truncation notice above a read-only view of
+    the live history. Public (not nested) so the smoke test can exercise the
+    append / drop / scroll policy with no desktop window at all.
+
+    Incremental on BOTH ends: a full rebuild per update would be quadratic
+    over a long session, and the whole point of raising the history cap is to
+    make long sessions readable. */
+class LogView : public juce::Component
+{
+public:
+    LogView()
+    {
+        notice.setFont (createFont (11.0f));
+        notice.setColour (juce::Label::textColourId, textDim());
+        notice.setJustificationType (juce::Justification::centredLeft);
+        notice.setInterceptsMouseClicks (false, false);
+        notice.setVisible (false);
+        addAndMakeVisible (notice);
+        addAndMakeVisible (editor);
+    }
+
+    /** Announce how much of the history this window can no longer show ("" =
+        nothing dropped). A hidden limit is worse than a visible one. */
+    void setNotice (const juce::String& text)
+    {
+        if (notice.getText() == text)
+            return;
+        notice.setText (text, juce::dontSendNotification);
+        notice.setVisible (text.isNotEmpty());
+        resized();
+    }
+
+    /** Rebuild from scratch: first open, or an explicit "show me the log"
+        while the window was already up - which lands on the newest line, the
+        behaviour a click on the bar has always had. */
+    void reset (const std::vector<juce::String>& lines)
+    {
+        juce::String text;
+        for (const auto& line : lines)
+            text << line << "\n";
+
+        document.replaceAllContent (text);
+        document.clearUndoHistory();   // replaceAllContent does not clear it
+        showTail();
+    }
+
+    /** ONE live update: the `droppedFromFront` oldest lines that fell off the
+        history cap, then the `lines` just logged.
+
+        Scroll policy: the tail is followed ONLY when the view was already
+        showing it. A reader who scrolled up keeps the line they were on -
+        through new arrivals, and through the renumbering a front-drop causes
+        (the view scrolls with the content, so the SAME text stays under
+        their eyes). */
+    void sync (const std::vector<juce::String>& lines, int droppedFromFront)
+    {
+        const auto follow       = isShowingTail();
+        const auto wasFirstLine = editor.getFirstLineOnScreen();
+
+        if (droppedFromFront > 0)
+        {
+            const auto end = droppedFromFront >= document.getNumLines()
+                                 ? document.getNumCharacters()
+                                 : juce::CodeDocument::Position (document,
+                                                                  droppedFromFront, 0)
+                                       .getPosition();
+            document.deleteSection (0, end);
+            // Dropping from the front slides every remaining line UP by
+            // `droppedFromFront`: scrolling by the same amount keeps the
+            // SAME text at the top of the view (and clamps to the start when
+            // the reader was inside the range that just went away).
+            if (! follow)
+                editor.scrollToLine (juce::jmax (0, wasFirstLine - droppedFromFront));
+        }
+
+        if (! lines.empty())
+        {
+            juce::String text;
+            for (const auto& line : lines)
+                text << line << "\n";
+            document.insertText (document.getNumCharacters(), text);
+        }
+
+        document.clearUndoHistory();   // a read-only view needs no undo stack
+
+        if (follow)
+            showTail();
+    }
+
+    /** True when the newest line is the last one on screen. */
+    bool isShowingTail() const
+    {
+        const auto numLines = document.getNumLines();
+        return numLines <= 1
+            || editor.getFirstLineOnScreen() + editor.getNumLinesOnScreen()
+                   >= numLines - 1;
+    }
+
+    /** Park the view on the newest line (and on the caret, so navigation
+        continues from there - but never over an active selection). */
+    void showTail()
+    {
+        if (! editor.isHighlightActive())
+            editor.moveCaretToEnd (false);
+        editor.scrollToKeepCaretOnScreen();
+    }
+
+    // --- inspection (smoke test, and consumers embedding the view) -------
+    juce::String getLogText() const            { return document.getAllContent(); }
+    /** Log lines held by the view. The document keeps a trailing empty
+        line (every line is terminated), so the count is one less than
+        getNumLines(). */
+    int         getLogLineCount() const
+    {
+        return juce::jmax (0, document.getNumLines() - 1);
+    }
+    juce::CodeEditorComponent& getEditor()     { return editor; }
+    const juce::CodeEditorComponent& getEditor() const { return editor; }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (bgDark());
+        if (notice.isVisible())
+        {
+            g.setColour (panelBorder().withAlpha (0.6f));
+            g.fillRect (0, kNoticeHeight - 1, getWidth(), 1);
+        }
+    }
+
+    void resized() override
+    {
+        auto area = getLocalBounds();
+        if (notice.isVisible())
+            notice.setBounds (area.removeFromTop (kNoticeHeight));
+        editor.setBounds (area);
+    }
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LogView)
+
+private:
+    /** juce::CodeEditorComponent with NO caret: the log is a document to
+        READ, and a blinking caret would claim it can be edited.
+
+        JUCE creates the caret as a CHILD component in lookAndFeelChanged()
+        (base ctor and every later L&F change) and re-shows it from several
+        paths we cannot override - the document-change notification included.
+        So the caret is simply detached once it exists: the component keeps
+        owning it, it just never enters the paint tree. Read-only, selection
+        and Ctrl+C are untouched. */
+    class Editor : public juce::CodeEditorComponent
+    {
+    public:
+        explicit Editor (juce::CodeDocument& doc)
+            : juce::CodeEditorComponent (doc, /*no tokeniser*/ nullptr)
+        {
+            setReadOnly (true);
+            setLineNumbersShown (false);
+            setWantsKeyboardFocus (true);
+            setTabSize (4, true);
+            setScrollbarThickness (12);
+            setFont (createMonospaceFont (13.0f));
+            setColour (juce::CodeEditorComponent::backgroundColourId, bgDark());
+            setColour (juce::CodeEditorComponent::defaultTextColourId, text());
+            setColour (juce::CodeEditorComponent::highlightColourId, accentSoft());
+            dropCaret();
+        }
+
+        void lookAndFeelChanged() override
+        {
+            juce::CodeEditorComponent::lookAndFeelChanged();
+            dropCaret();     // a fresh caret component was just added
+        }
+
+        void caretPositionMoved() override
+        {
+            juce::CodeEditorComponent::caretPositionMoved();
+            dropCaret();
+        }
+
+        void focusGained (FocusChangeType type) override
+        {
+            juce::CodeEditorComponent::focusGained (type);
+            dropCaret();
+        }
+
+        void focusLost (FocusChangeType type) override
+        {
+            juce::CodeEditorComponent::focusLost (type);
+            dropCaret();
+        }
+
+    private:
+        void dropCaret()
+        {
+            juce::CaretComponent* caret = nullptr;
+            for (auto* child : getChildren())
+                if (auto* c = dynamic_cast<juce::CaretComponent*> (child))
+                {
+                    caret = c;
+                    break;
+                }
+
+            if (caret == nullptr)
+                return;
+
+            caret->setVisible (false);
+            caret->setColour (juce::CaretComponent::caretColourId,
+                              juce::Colours::transparentBlack);
+            removeChildComponent (caret);
+        }
+    };
+
+    static constexpr int kNoticeHeight = 18;
+
+    juce::CodeDocument document;
+    Editor             editor { document };
+    juce::Label        notice;
+};
 
 class StatusBar : public juce::Component,
                   public juce::SettableTooltipClient,
@@ -249,78 +527,79 @@ public:
         setTooltip ("Click to open the full log");
     }
 
-    /** ANY thread: hop to the message thread, then record + repaint. */
+    /** ANY thread: append ONE line - never rewrite an older one - and mirror
+        it into the Log window when one is open.
+
+        v0.12.7: the replace-by-prefix heuristic is GONE. It only ever served
+        the "Generating... N s elapsed" heartbeat (superseded by the activity
+        slots) and stayed live with nothing left to feed it, so any two lines
+        sharing their text before the first digit silently replaced each
+        other a dozen entries up.
+
+        Cross-thread calls are COALESCED: a producer streaming a burst queues
+        under a lock and wakes the message thread ONCE, so the window takes a
+        single append instead of one per line. */
     void logLine (const juce::String& line)
     {
-        if (! juce::MessageManager::existsAndIsCurrentThread())
-        {
-            juce::MessageManager::callAsync (
-                [safe = juce::Component::SafePointer<StatusBar> (this), line]
-                {
-                    if (safe != nullptr)
-                        safe->logLine (line);
-                });
-            return;
-        }
-
         // Unshapable controls (C0/C1) crash JUCE's HarfBuzz shaper on the
         // very next paint (missing-glyph jassert -> __debugbreak): strip
         // them once here so history, lastLine AND the Log window stay safe
         // no matter what the consumer logged (double-encoded UTF-8 from a
-        // sidecar pipe is the classic producer).
-        const auto safe = sanitizeForShaping (line);
+        // sidecar pipe is the classic producer). Done OFF the message
+        // thread - String building is thread-safe, and paying it inside the
+        // coalesced drain would just move the cost, not remove it.
+        {
+            const juce::ScopedLock sl (pendingLock);
+            pending.push_back (sanitizeForShaping (line));
+        }
 
-        // TRANSIENT progress lines: when the new line shares the prefix
-        // before its first digit with a RECENT entry ("Generating... N s
-        // elapsed"), it REPLACES that entry instead of stacking - one
-        // evolving line even when stage/notice lines interleave between
-        // heartbeats (bounded backward scan).
-        //
-        // PATH GUARD: a prefix containing a path separator is a file-path
-        // fragment, NEVER a transient progress signature. Sibling files of
-        // one run ("...\run-5132a8ae\fc9c3307-vocals.wav" vs
-        // "...\bass.wav") share everything before their first digit (the
-        // run directory name) and would otherwise collapse into ONE
-        // history line (consumer report 2026-08-27: "Done: 4 stems"
-        // listed a single path - the four sibling paths replaced each
-        // other in place).
-        const auto pfx = transientPrefixOf (safe);
-        bool replaced = false;
-        if (pfx.isNotEmpty() && ! pfx.contains ("/") && ! pfx.contains ("\\")
-            && ! history.empty())
-        {
-            int scanned = 0;
-            for (auto it = history.rbegin();
-                 it != history.rend() && scanned < 12; ++it, ++scanned)
-            {
-                if (transientPrefixOf (*it) == pfx)
-                {
-                    *it = safe;
-                    replaced = true;
-                    break;
-                }
-            }
-        }
-        if (! replaced)
-        {
-            history.push_back (safe);
-            while (history.size() > kMaxLines)
-                history.pop_front();
-            totalLogged++;
-        }
-        lastLine = safe;
-        repaint();
+        if (juce::MessageManager::existsAndIsCurrentThread())
+            flushPending();     // same synchronous contract as before
+        else
+            scheduleFlush();
     }
 
-    /** Substring before the FIRST digit - the transient-progress
-        signature of a line ("Generating... " for the heartbeat). Empty
-        when the line starts with a digit or holds none at all. */
-    static juce::String transientPrefixOf (const juce::String& s)
+    /** History cap (ANY thread, hops). Default 5000 - the old 500 was a
+        SILENT limit: the losses were counted and nothing ever displayed
+        them. Whatever the cap drops is announced in the Log window. */
+    void setMaxHistoryLines (int lines)
     {
-        for (int i = 0; i < s.length(); ++i)
-            if (s[i] >= '0' && s[i] <= '9')
-                return s.substring (0, i);
-        return {};
+        hop ([lines] (StatusBar& s)
+        {
+            s.maxHistoryLines.store (juce::jmax (1, lines));
+
+            auto dropped = 0;
+            while ((int) s.history.size() > s.maxHistoryLines.load())
+            {
+                s.history.pop_front();
+                ++dropped;
+            }
+
+            if (dropped > 0)
+            {
+                s.droppedTotal.fetch_add (dropped, std::memory_order_relaxed);
+                if (auto* view = s.liveLogView())
+                {
+                    view->sync ({}, dropped);
+                    view->setNotice (s.truncationNotice());
+                }
+            }
+        });
+    }
+
+    int getMaxHistoryLines() const noexcept  { return maxHistoryLines.load(); }
+    /** Lines logged since the bar was created (thread safe). */
+    int getTotalLoggedCount() const noexcept  { return totalLogged.load(); }
+    /** Lines the cap has dropped, i.e. how much the log can no longer show
+        (thread safe) - what the Log window announces. */
+    int getDroppedLineCount() const noexcept  { return droppedTotal.load(); }
+
+    /** The retained lines, oldest first. MESSAGE THREAD ONLY: the history is
+        owned by the message thread, so a caller on another thread must hop
+        first (a juce::MessageManagerLock is the usual way). */
+    std::vector<juce::String> historySnapshot() const
+    {
+        return std::vector<juce::String> (history.begin(), history.end());
     }
 
     void paint (juce::Graphics& g) override
@@ -710,27 +989,123 @@ private:
         return builtin;
     }
 
+    /** The live Log window's view, or nullptr when no window is open. NEVER
+        cached: closeButtonPressed() deletes the window through a posted
+        lambda, so it can vanish between two calls. */
+    LogView* liveLogView() const
+    {
+        if (LogWindow::liveWindow == nullptr)
+            return nullptr;
+        return dynamic_cast<LogView*> (
+            LogWindow::liveWindow->getContentComponent());
+    }
+
+    /** Post AT MOST ONE flush per pending burst. A line pushed while a flush
+        is already in flight is picked up by that flush, which re-checks the
+        queue before it leaves. */
+    void scheduleFlush()
+    {
+        if (flushPosted.exchange (true))
+            return;
+
+        juce::MessageManager::callAsync (
+            [safe = juce::Component::SafePointer<StatusBar> (this)]
+            {
+                if (safe != nullptr)
+                    safe->flushPending();
+            });
+    }
+
+    /** Message thread: drain every queued line, one batch at a time. */
+    void flushPending()
+    {
+        for (;;)
+        {
+            std::vector<juce::String> batch;
+            {
+                const juce::ScopedLock sl (pendingLock);
+                batch.swap (pending);
+
+                if (batch.empty())
+                {
+                    // Release the slot UNDER the lock: a line queued just
+                    // before this point is already in `pending` (the loop
+                    // runs again), and one queued just after sees
+                    // flushPosted == false and posts its own flush. No lost
+                    // wake-up on either side.
+                    flushPosted.store (false);
+                    return;
+                }
+            }
+
+            applyLines (batch);
+        }
+    }
+
+    /** Message thread: record the batch, cap the history, repaint, and
+        mirror it into the Log window when one is open. */
+    void applyLines (const std::vector<juce::String>& batch)
+    {
+        if (batch.empty())
+            return;
+
+        for (const auto& line : batch)
+        {
+            history.push_back (line);
+            totalLogged.fetch_add (1, std::memory_order_relaxed);
+        }
+
+        auto dropped = 0;
+        while ((int) history.size() > maxHistoryLines.load())
+        {
+            history.pop_front();
+            ++dropped;
+        }
+
+        lastLine = batch.back();
+        droppedTotal.fetch_add (dropped, std::memory_order_relaxed);
+        repaint();
+
+        if (auto* view = liveLogView())
+        {
+            view->sync (batch, dropped);
+            view->setNotice (truncationNotice());
+        }
+    }
+
+    /** What the Log window says above the text when the cap has dropped
+        lines: the loss is stated, never silent. */
+    juce::String truncationNotice() const
+    {
+        const auto dropped = droppedTotal.load();
+        if (dropped <= 0)
+            return {};
+
+        return juce::String (dropped)
+                 + (dropped > 1 ? " earlier lines are" : " earlier line is")
+                 + " no longer in this log (history limit "
+                 + juce::String (maxHistoryLines.load()) + ")";
+    }
+
     void showLogWindow()
     {
         if (LogWindow::liveWindow != nullptr)
         {
-            refreshLogText();
+            if (auto* view = liveLogView())
+            {
+                view->reset (historySnapshot());
+                view->setNotice (truncationNotice());
+            }
             LogWindow::liveWindow->toFront (true);
             return;
         }
 
-        auto* box = new juce::TextEditor ("log");
-        box->setMultiLine (true, true);
-        box->setReadOnly (true);
-        box->setCaretVisible (false);
-        box->setWantsKeyboardFocus (true);
-        box->setFont (createMonospaceFont (13.0f));
-        box->setColour (juce::TextEditor::backgroundColourId, bgDark());
-        box->setColour (juce::TextEditor::outlineColourId, accent());
-        fillLogText (*box);
+        auto* view = new LogView();
+        view->reset (historySnapshot());
+        view->setNotice (truncationNotice());
 
         auto* window = new LogWindow();
-        window->setContentOwned (box, true);
+        window->setContentOwned (view, true);
         // DialogWindow has NO resizable ctor arg (that 4th bool is
         // addToDesktop): resizability must be turned on EXPLICITLY here.
         window->setResizable (true, true);            // + corner grip handle
@@ -740,26 +1115,23 @@ private:
         window->setVisible (true);
     }
 
-    void refreshLogText()
-    {
-        if (auto* box = dynamic_cast<juce::TextEditor*> (
-                LogWindow::liveWindow->getContentComponent()))
-            fillLogText (*box);
-    }
-
-    void fillLogText (juce::TextEditor& box)
-    {
-        juce::String all;
-        for (const auto& l : history)
-            all << l << "\r\n";
-        box.setText (all, false);
-        box.moveCaretToEnd();
-    }
-
-    static constexpr int kMaxLines = 500;
+    // HISTORY (message thread only; every entry hops through the coalescing
+    // drain above). The cap is a real, consumer-owned number and EVERY line
+    // it drops is announced in the Log window: a silent cap is exactly how
+    // "the text seems limited" went unnoticed. Counters are atomic so a
+    // server thread can read them without hopping.
+    static constexpr int kDefaultMaxLines = 5000;
     std::deque<juce::String> history;
     juce::String lastLine;
-    int totalLogged = 0;
+    std::atomic<int> totalLogged    { 0 };
+    std::atomic<int> droppedTotal   { 0 };
+    std::atomic<int> maxHistoryLines { kDefaultMaxLines };
+
+    // Cross-thread ingest: producers queue under the lock, and AT MOST ONE
+    // posted flush drains the burst on the message thread.
+    juce::CriticalSection pendingLock;
+    std::vector<juce::String> pending;
+    std::atomic<bool> flushPosted { false };
 
     // Activity segments + queue slot (message thread only; entries hop).
     std::atomic<juce::uint32> nextToken { 0 };

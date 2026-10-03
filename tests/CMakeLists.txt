@@ -34,4 +34,5 @@ target_link_libraries(eiffelbs-ui-smoke PRIVATE
     juce::juce_graphics
     juce::juce_data_structures
     juce::juce_gui_basics
+    juce::juce_gui_extra
     juce::juce_recommended_config_flags)

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.12.6 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.12.7 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -24,6 +24,16 @@ target_compile_features(eiffelbs-ui INTERFACE cxx_std_20)
 
 target_include_directories(eiffelbs-ui INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+
+# v0.12.7: ebs::LogView (include/eiffelbs/StatusBar.h) is built on
+# juce::CodeEditorComponent + juce::CodeDocument, which live in
+# juce_gui_extra. Consumers must therefore have their JUCE modules
+# defined BEFORE FetchContent_MakeAvailable(eiffelbs-ui) - they always do,
+# since every ebs header includes juce_gui_basics. The link is
+# UNCONDITIONAL on purpose: a consumer that forgot the module gets a
+# configure-time "target juce::juce_gui_extra not found" instead of a
+# cryptic C1083 inside its own build.
+target_link_libraries(eiffelbs-ui INTERFACE juce::juce_gui_extra)
 
 # ABI contract: every binary in a process MUST share these values with its
 # JUCE build (two juce::String ABIs in one process is an ODR violation ->

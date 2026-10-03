@@ -12,6 +12,13 @@
 // thread so StatusBar::logLine can take its synchronous path.
 
 #include <juce_gui_basics/juce_gui_basics.h>
+// The whole juce_gui_extra module is pulled in BEFORE eiffelbs on purpose:
+// ebs::StatusBar.h reaches juce::CodeEditorComponent / juce::CodeDocument
+// through juce_gui_extra.h, and those two headers carry NO include guard of
+// their own. Without this line the smoke TU would compile while every real
+// consumer - which pulls the module in from elsewhere - would die on a
+// class redefinition.
+#include <juce_gui_extra/juce_gui_extra.h>
 #include <eiffelbs/eiffelbs.h>
 
 #include <cstdio>
@@ -339,6 +346,141 @@ int main()
                 400, 24, [&] (juce::Graphics& g) { crashBar.paint (g); });
             check (inkPixels (crashImg) > 0,
                    "status bar paints a C1-poisoned line without crashing");
+        }
+
+        // === v0.12.7 StatusBar: the log window ============================
+        // The log is the app's only text diagnostic surface. Four contracts,
+        // each a defect this cut removes: it APPENDS (the old
+        // replace-by-prefix heuristic overwrote unrelated lines), it stays
+        // ALIVE while open (it used to be a snapshot frozen at open time),
+        // its TRUNCATION is announced (the 500-line cap dropped lines
+        // silently), and the reading position survives new arrivals.
+        {
+            // 1) APPEND-ONLY. The exact regression: "Import: " is shared, so
+            //    the old heuristic - same text before the FIRST DIGIT within
+            //    the last 12 entries - made the success line disappear when
+            //    the error line landed.
+            ebs::StatusBar hist;
+            hist.logLine ("Import: converted 4 stems");
+            hist.logLine ("Import: error: unreadable audio");
+            hist.logLine ("Import: 4 stems written to disk");
+            const auto snap = hist.historySnapshot();
+            check ((int) snap.size() == 3
+                       && snap[0] == "Import: converted 4 stems"
+                       && snap[1] == "Import: error: unreadable audio"
+                       && snap[2] == "Import: 4 stems written to disk",
+                   "log keeps every line: a shared prefix never replaces one");
+
+            // 2) ALIVE + INCREMENTAL. The window mirrors the history, then
+            //    takes new lines with no reopen and no rebuild.
+            ebs::LogView view;
+            view.setSize (640, 300);
+            view.reset (snap);
+            const auto mirrored = view.getLogText();
+            const auto at = [&mirrored] (const char* needle)
+                { return mirrored.indexOf (needle); };
+            check (view.getLogLineCount() == 3
+                       && at ("converted 4 stems") >= 0
+                       && at ("converted 4 stems") < at ("unreadable audio")
+                       && at ("unreadable audio") < at ("written to disk"),
+                   "log view mirrors the history, in order");
+            view.sync ({ "Import: retrying", "Import: ok" }, 0);
+            check (view.getLogLineCount() == 5
+                       && view.getLogText().contains ("unreadable audio")
+                       && view.getLogText().trim().endsWith ("Import: ok"),
+                   "an open log window takes new lines without reopening");
+
+            // 3) TRUNCATION VISIBLE. The cap is the consumer's number now,
+            //    and every line it drops is counted and announced.
+            ebs::StatusBar capped;
+            capped.setMaxHistoryLines (4);
+            check (capped.getMaxHistoryLines() == 4,
+                   "history cap is configurable");
+            for (int i = 0; i < 10; ++i)
+                capped.logLine ("line " + juce::String (i));
+            const auto cappedSnap = capped.historySnapshot();
+            check ((int) cappedSnap.size() == 4
+                       && cappedSnap.front() == "line 6"
+                       && cappedSnap.back() == "line 9"
+                       && capped.getTotalLoggedCount() == 10
+                       && capped.getDroppedLineCount() == 6,
+                   "the cap keeps the newest lines and counts what it dropped");
+            check (ebs::StatusBar().getMaxHistoryLines() == 5000,
+                   "default history cap is 5000 lines, not the silent 500");
+
+            // 4) SCROLL POLICY. The tail is followed by default; a reader
+            //    who scrolls up keeps the line they were on - by CONTENT, so
+            //    the same text survives both arrivals and a front-drop that
+            //    renumbers the whole document.
+            std::vector<juce::String> rows;
+            for (int i = 0; i < 200; ++i)
+                rows.push_back ("row " + juce::String (i));
+
+            ebs::LogView tail;
+            tail.setSize (640, 300);
+            tail.reset (rows);
+            check (tail.isShowingTail(),
+                   "a freshly opened log window shows the newest line");
+            tail.sync ({ "arrival at the tail" }, 0);
+            check (tail.isShowingTail(),
+                   "arrivals keep a tail-following window on the tail");
+
+            ebs::LogView reader;
+            reader.setSize (640, 300);
+            reader.reset (rows);
+            reader.getEditor().scrollToLine (40);
+            check (! reader.isShowingTail(),
+                   "scrolling up takes the window off the tail");
+            reader.sync ({ "arrival 1", "arrival 2" }, 0);
+            check (reader.getEditor().getFirstLineOnScreen() == 40,
+                   "a reader scrolled up keeps their position as lines arrive");
+            // The cap dropping 5 lines shifts every remaining line up by 5:
+            // the view must follow the content, not the index.
+            reader.sync ({ "arrival 3" }, 5);
+            check (reader.getEditor().getFirstLineOnScreen() == 35
+                       && ! reader.isShowingTail(),
+                   "a front-drop keeps the same text under the reader");
+
+            // ... while a tail-following window stays on the tail through
+            //     the very same drop.
+            tail.sync ({ "newest" }, 7);
+            check (tail.isShowingTail()
+                       && tail.getLogText().trim().endsWith ("newest"),
+                   "a tail-following window survives a front-drop");
+
+            // 5) READ-ONLY SURFACE: no caret is painted into a document the
+            //    user cannot edit (a blinking caret would claim otherwise),
+            //    and typing at the caret changes nothing.
+            {
+                const auto textBefore = reader.getLogText();
+                reader.getEditor().moveCaretToEnd (false);
+                reader.getEditor().insertTextAtCaret ("MUST NOT APPEAR");
+                const auto caretChild = [&reader]
+                {
+                    for (auto* child : reader.getEditor().getChildren())
+                        if (dynamic_cast<juce::CaretComponent*> (child) != nullptr)
+                            return true;
+                    return false;
+                };
+                check (reader.getEditor().isReadOnly()
+                           && ! caretChild()
+                           && reader.getLogText() == textBefore,
+                       "the log view is read-only, paints no caret, takes no edit");
+            }
+
+            // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
+            //    closeButton and NOTHING else, and DocumentWindow maps
+            //    requiredButtons to the peer flags - so the window was born
+            //    asking the OS for an X alone. Constructing a DialogWindow
+            //    creates no peer until it is shown, so this stays headless.
+            auto* window = new ebs::LogWindow();
+            const auto flags = window->getDesktopWindowStyleFlags();
+            delete window;
+            using Peer = juce::ComponentPeer;
+            check ((flags & Peer::windowHasCloseButton) != 0
+                       && (flags & Peer::windowHasMinimiseButton) != 0
+                       && (flags & Peer::windowHasMaximiseButton) != 0,
+                   "log window asks the OS for minimise, maximise and close");
         }
 
         // v0.7.1 HelpBubble: accent ring + "?" glyph actually paint, and the
