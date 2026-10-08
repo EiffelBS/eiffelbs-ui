@@ -66,8 +66,8 @@ public:
             return;
         side = s;
         avatar.setWho (whoFor (side));
-        resized();
-        repaint();
+        measuredWidth = -1;   // the side changes the width, so the measure died
+        invalidate();
     }
 
     Side getSide() const noexcept { return side; }
@@ -156,8 +156,41 @@ public:
         invalidate();
     }
 
+    /** Draw the rounded box around the message, or just the text on the
+     *  panel's background. The USER keeps its chrome: an accent fill is what
+     *  makes "what I said" legible back at a glance. The ASSISTANT's long
+     *  answers drop it - the avatar and the side already name the speaker,
+     *  a bordered box around a paragraph is decoration, and the fill is a
+     *  rounded path per message per repaint, which is the one part of a long
+     *  conversation that grows without bound. */
+    void setShowBubble (bool shouldShow)
+    {
+        if (showBubble == shouldShow)
+            return;
+        showBubble = shouldShow;
+        invalidate();
+    }
+
+    bool getShowBubble() const noexcept { return showBubble; }
+
     std::function<void()> onCopy;
+    std::function<void()> onHeightChanged;
     std::function<void (bool)> onExpandedToggled;
+
+    /** Body font size in points. A transcript is READ, not skimmed: a long
+     *  answer at a fixed size is unreadable on a 4K panel and huge on a
+     *  laptop, so the caller owns the size and every bubble re-measures when
+     *  it moves. The default is the theme's body font. */
+    void setBodyFontSize (float points)
+    {
+        const auto clamped = juce::jlimit (minBodyPts, maxBodyPts, points);
+        if (juce::exactlyEqual (bodyPts, clamped))
+            return;
+        bodyPts = clamped;
+        invalidate();
+    }
+
+    float getBodyFontSize() const noexcept { return bodyPts; }
 
     // === metrics ==========================================================
 
@@ -168,7 +201,27 @@ public:
     int requiredHeightForWidth (int w) const
     {
         auto* self = const_cast<ChatBubble*> (this);
+        // Same inputs, same answer: the measure cache is what makes a
+        // streamed delta O(1) instead of a re-layout of every message in the
+        // conversation. A transcript of sixty bubbles measured per delta is
+        // sixty text layouts per delta, and a streamed answer is a thousand
+        // of them - which is exactly how an earlier transcript looked frozen
+        // under a reasoning model.
+        if (self->measuredWidth == w && self->measuredPts == bodyPts
+            && self->measuredText == text && self->measuredExpanded == expanded
+            && self->measuredShowCopy == showCopy
+            && self->measuredHeader == header)
+        {
+            return self->height;
+        }
         self->layOutForWidth (w);
+        self->measuredWidth    = w;
+        self->measuredPts      = bodyPts;
+        self->measuredText     = text;
+        self->measuredExpanded = expanded;
+        self->measuredShowCopy  = showCopy;
+        self->measuredHeader    = header;
+        self->lastHeight = self->height;   // a measure is not a content change
         return self->height;
     }
 
@@ -277,10 +330,24 @@ public:
         if (italic)
             ink = ebs::textDim();
 
-        g.setColour (fill);
-        g.fillRoundedRectangle (bubble.toFloat(), (float) corner);
-        g.setColour (outline);
-        g.drawRoundedRectangle (bubble.toFloat(), (float) corner, 1.0f);
+        if (showBubble)
+        {
+            g.setColour (fill);
+            g.fillRoundedRectangle (bubble.toFloat(), (float) corner);
+            g.setColour (outline);
+            g.drawRoundedRectangle (bubble.toFloat(), (float) corner, 1.0f);
+        }
+        else
+        {
+            // No chrome: the answer sits on the panel's own background. A note
+            // still needs a surface to read as a note rather than an answer,
+            // so only the PLAIN assistant message gives its box up.
+            if (tone == Tone::note)
+            {
+                g.setColour (fill);
+                g.fillRoundedRectangle (bubble.toFloat(), (float) corner);
+            }
+        }
 
         bodyLayout.draw (g, bubble.withTrimmedLeft (padH)
                                   .withTrimmedRight (padH)
@@ -340,12 +407,16 @@ private:
      *  caller and triggers resized(), which places the children. */
     void layOutForWidth (int w)
     {
+        const auto f = ebs::fontBody().withHeight (bodyPts);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
         juce::AttributedString as;
-        as.append (text, ebs::fontHint(), ebs::text());
+        as.append (text, f, ebs::text());
         as.setWordWrap (juce::AttributedString::byWord);
         bodyLayout.createLayout (as, (float) textW);
-        bodyH = juce::roundToInt (bodyLayout.getHeight());
+        // One pixel of slack: roundToInt truncates, and a layout rounded down
+        // by even half a point puts the last descender outside the bubble on
+        // some fonts - which reads as a message that overflows its own box.
+        bodyH = juce::roundToInt (bodyLayout.getHeight()) + 1;
 
         height = 0;
         if (header.isNotEmpty())
@@ -363,16 +434,55 @@ private:
             height += copyRowH;
     }
 
+    /** Re-measure, then TELL THE CALLER. A bubble is placed by its host (see
+     *  requiredHeightForWidth), so a body that grew - a streamed delta, a
+     *  folded block - has changed the height the host gave it. Nothing inside
+     *  this component can move the neighbours that sit under it: without the
+     *  callback the text keeps growing past a box that never follows, which is
+     *  both an overflow and, under a streamed answer, a transcript that stops
+     *  showing the words as they arrive. */
     void invalidate()
     {
-        layOutForWidth (getWidth());
+        const int w = getWidth();
+        const auto f = ebs::fontBody().withHeight (bodyPts);
+        const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
+
+        // Width, size and text unchanged: the layout is still valid, so a
+        // repaint alone answers. Measuring a whole transcript for every delta
+        // is the cost this guard removes.
+        if (measuredWidth == w && measuredPts == bodyPts && measuredText == text
+            && measuredExpanded == expanded && measuredShowCopy == showCopy
+            && measuredHeader == header)
+        {
+            repaint();
+            if (onHeightChanged != nullptr && lastHeight != height)
+            {
+                lastHeight = height;
+                onHeightChanged();
+            }
+            return;
+        }
+
+        layOutForWidth (w);
+        measuredWidth   = w;
+        measuredPts     = bodyPts;
+        measuredText    = text;
+        measuredExpanded = expanded;
+        measuredShowCopy  = showCopy;
+
         resized();
         repaint();
+        if (onHeightChanged != nullptr && lastHeight != height)
+        {
+            lastHeight = height;
+            onHeightChanged();
+        }
     }
 
     Side  side        = Side::assistant;
     Tone  tone        = Tone::plain;
     bool  showCopy    = false;
+    bool  showBubble  = true;
     bool  collapsible = false;
     bool  expanded    = true;
     bool  italic      = false;
@@ -392,7 +502,21 @@ private:
     juce::TextLayout bodyLayout;
     int bodyH  = 0;
     int height = 0;
+    int lastHeight = 0;
     juce::Rectangle<int> headerPill;
+
+    /** Zoom range for the body, in points. The bottom keeps a paragraph
+     *  legible on a laptop; the top keeps a long answer on one screen's worth
+     *  of rows without the transcript turning into a slide deck. */
+    static constexpr float minBodyPts = 11.0f;
+    static constexpr float maxBodyPts = 19.0f;
+    float bodyPts = ebs::fontBody().getHeight();
+
+    int  measuredWidth    = -1;
+    float measuredPts     = -1.0f;
+    bool measuredExpanded = true;
+    bool measuredShowCopy = false;
+    juce::String measuredText, measuredHeader;
 
     Avatar avatar;
     ebs::IconButton copyButton { ebs::IconButton::Shape::copy };

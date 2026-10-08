@@ -348,7 +348,14 @@ public:
         }
         else if ((over || down) && isEnabled()) // quiet hover backdrop
         {
-            g.setColour (bgPanel());
+            // A BLUE hover, not a grey one: grey reads as disabled, and an
+            // affordance that looks dead while the pointer is on it teaches
+            // the user that it is dead. The semantic colours (a red delete,
+            // gold favourite) keep their own ink, so the accent is the
+            // backdrop and never fights the glyph.
+            const auto hue = shape == Shape::cross
+                                 ? danger() : accent();
+            g.setColour (hue.withAlpha (down ? 0.28f : 0.16f));
             g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
         }
 
@@ -361,8 +368,12 @@ public:
         }
         else if (down)
             colour = colour.brighter (0.30f);
-        else if (over)
+        else if (over && semanticInk())
             colour = colour.brighter (0.20f);
+        else if (over)
+            // A neutral glyph BLUE on hover: the same accent the framed mode
+            // outlines with, so a quiet icon and a button share one language.
+            colour = accent();
         g.setColour (colour);
 
         const float s = 10.0f;               // icon side
@@ -391,6 +402,16 @@ private:
                 ! themed.isTransparent())
                 return themed;
         return builtin;
+    }
+
+    /** false for the shapes whose ink already MEANS something (a red delete,
+        a gold favourite, a golden hidden eye): those keep their own hue on
+        hover, because switching them to the accent would drop the meaning.
+        Everything else is neutral, and turns accent blue. */
+    bool semanticInk() const noexcept
+    {
+        return shape == Shape::cross || shape == Shape::star
+            || shape == Shape::eyeOff;
     }
 
     /** SVG source string for a shape, or nullptr when the shape is still
