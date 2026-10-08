@@ -11,6 +11,17 @@
 // NOT instantiated); the ScopedJuceInitialiser_GUI only wires the message
 // thread so StatusBar::logLine can take its synchronous path.
 
+#if defined(_WIN32) && ! defined(NOMINMAX)
+// Consumer contexts do NOT all define NOMINMAX: the ARA SDK and the VST3
+// plugin-client chain pull <windows.h> in bare, which turns min/max into
+// function-like macros. Headers that call std::max or
+// std::numeric_limits<int>::max() unparenthesised then fail to compile
+// (C4003 / C2589) in exactly those consumers - OpenVoxTuner's tree hit all
+// four sites before v0.12.7. Include the polluted context FIRST, before
+// anything else, so this TU is the strictest one in the repo.
+#include <windows.h>
+#endif
+
 #include <juce_gui_basics/juce_gui_basics.h>
 // The whole juce_gui_extra module is pulled in BEFORE eiffelbs on purpose:
 // ebs::StatusBar.h reaches juce::CodeEditorComponent / juce::CodeDocument

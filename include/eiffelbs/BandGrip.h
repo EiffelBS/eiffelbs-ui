@@ -115,7 +115,7 @@ private:
     }
 
     int minH = 1;
-    int maxH = std::numeric_limits<int>::max();
+    int maxH = (std::numeric_limits<int>::max)();
     int currentH = 1;
     int dragStartHeight = 1;
     int dragStartY = 0;

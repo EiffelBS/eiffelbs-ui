@@ -328,7 +328,7 @@ private:
             if (p->getWidth() > 0)
                 return juce::jmax (minWidth,
                     (int) ((float) p->getWidth() * maxWidthFraction));
-            return std::numeric_limits<int>::max();   // pre-layout: no clamp
+            return (std::numeric_limits<int>::max)();   // pre-layout: no clamp
         }
         return juce::jmax (minWidth, fallbackMaxWidth);
     }

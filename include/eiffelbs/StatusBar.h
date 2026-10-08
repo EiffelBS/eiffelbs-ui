@@ -718,9 +718,9 @@ public:
             float w = juce::GlyphArrangement::getStringWidth (
                 g.getCurrentFont(), value);
             if (value.endsWith ("%"))
-                w = std::max (w, juce::GlyphArrangement::getStringWidth (
+                w = (std::max) (w, juce::GlyphArrangement::getStringWidth (
                                      g.getCurrentFont(), "100 %"));
-            return std::max (w, 20.0f);
+            return (std::max) (w, 20.0f);
         };
         const auto grid4 = [] (float w)
         { return ((int) std::ceil (w / 4.0f)) * 4.0f; };
