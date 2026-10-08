@@ -5,6 +5,8 @@ palette, typography helpers, the application-wide `LookAndFeel` and a small set
 of generic widgets — extracted from [OpenVoxTuner](https://github.com/EiffelBS/OpenVoxTuner)
 (origin) and [OpenTimbre](https://github.com/EiffelBS/OpenTimbre) so every new
 JUCE project consumes ONE versioned implementation instead of a per-app copy.
+Consumed today by OpenVoxTuner (with its OpenVoxKey companion), OpenTimbre and
+OpenVisuAI.
 
 ## Contents
 
@@ -13,16 +15,24 @@ JUCE project consumes ONE versioned implementation instead of a per-app copy.
 | `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger`; always-dark viz-chrome tokens (`grid`, `scaleLine`, `rulerBg`, `curveGrid`, `vizHeaderBg`, `vizHeaderAccent`, `vizLegendBg`, `cpuBg`, `cpuText`) |
 | `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
 | `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, rotary knobs, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` + shared `widgetColour()` three-level resolver + chrome `ThemeChromeIds` |
-| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff), framed chrome mode, play/stop toggle state, `ColourIds` overrides |
+| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff and the transport pair + rewind), framed chrome mode, play/stop toggle state, grey disabled transport glyphs, `ColourIds` overrides |
+| `FileGripButton.h` | `ebs::FileGripButton`: external-file drag handle — resolves the file AT DRAG TIME (a recycled row can never drag a stale path), open-hand cursor, native drag-out towards DAW/desktop |
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
 | `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
 | `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
 | `PowerToggle.h` | `ebs::PowerToggle`: power-glyph toggle with warm glow when engaged, disabled dimming; `glowColourId` override |
-| `DataList.h` | `ebs::DataList`: filterable/sortable table list over `juce::TableListBox` — `Row`/`Column`/`View` model, view+search+sort proxy, stable-id selection, per-row action column, progress cells, optional host cell components |
-| `StatusBar.h` | `ebs::StatusBar` global log bar + single-instance floating `LogWindow` (thread-safe `logLine()`), `ColourIds` overrides |
+| `ToggleSwitch.h` | `ebs::ToggleSwitch`: iOS-style sliding switch for settings pages (plain `juce::ToggleButton` underneath, ~120 ms knob glide); `trackOnColourId` / `trackOffColourId`; disabled dims everything |
+| `StatusBar.h` | `ebs::StatusBar` global log bar + activity slots (`beginActivity`: spinner + label + elapsed, ratio bar, queue bar, burst) + resource meters (right-aligned slots, GPU cell) + single-instance floating `LogWindow` (append-only, live, visible truncation, OS-native title bar, `ebs::LogView` over `juce::CodeEditorComponent`), thread-safe `logLine()`, C0/C1 sanitising, `ColourIds` overrides |
+| `BusyIndicator.h` | `ebs::BusyIndicator`: reusable indeterminate/determinate progress strip behind the shared theme (stage text or normalized progress) |
+| `TextSanitize.h` | `ebs::sanitizeForShaping()`: replaces the C0/C1 controls JUCE's HarfBuzz shaper cannot render (missing-glyph crash guard); idempotent; apply at every edge feeding on-screen text |
+| `HelpBubble.h` | `ebs::HelpBubble`: 14x14 accent "?" bubble showing the host tooltip — section instructions live in the bubble, same look across panels and projects |
+| `PathRow.h` | `ebs::PathRow`: path input row (editor + reveal-in-Explorer + browse), File/Directory modes, tooltip-aware via `SettableTooltipClient` |
+| `DataList.h` | `ebs::DataList`: filterable/sortable table list over `juce::TableListBox` — `Row`/`Column`/`View` model, view+search+sort proxy, stable-id selection, per-row action column, progress cells (bar or percent), content-aware auto-size, show/hide column menu, native file-drag grips |
+| `Sidebar.h` | `ebs::Sidebar`: collapsible/resizable side panel — the library owns only the chrome (edge rail: collapse chevron + width drag, `onWidthChanged`); the host owns the content and the width policy |
+| `BandGrip.h` | `ebs::BandGrip`: vertical resize strip for a bottom band — the host owns the geometry, the grip owns the interaction (drag, clamping, reset, relayout) |
 | `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
-## Colour overrides (v0.2.0)
+## Colour overrides
 
 Widgets expose JUCE-standard `ColourIds`. Resolution order:
 
@@ -30,14 +40,26 @@ Widgets expose JUCE-standard `ColourIds`. Resolution order:
 2. theme-level hook — subclass `ebs::LookAndFeel` and override
    `widgetThemeColour (int colourId)` (return non-transparent to restyle
    every instance at once; default overrides nothing),
-3. built-in shape-aware palette default (unchanged since v0.1).
+3. built-in shape-aware palette default.
 
 Text buttons: setting `juce::TextButton::buttonColourId` **per instance**
-turns that colour into the body tint across rest / hover / down / toggled
-states, so translucent "chip" buttons keep their tinted look while sharing
-the common accent hover outline (the 1 px liseret). Without an explicit
-colour, buttons use the built-in form-style fills (`bgDark` body,
-`panelBorder` edge).
+keeps that colour as the body tint across rest / hover / down (brighter/darker
+variations on hover/down) while inheriting the shared accent hover rule
+(the 1 px liseret). Without an explicit colour, buttons use the built-in
+form-style fills (`bgDark` body, `panelBorder` edge).
+
+**Toggled state (v0.7.2).** For a button with `setClickingTogglesState (true)`,
+the ON state resolves in this order:
+
+1. an explicitly set `TextButton::buttonOnColourId` wins outright (solid fill,
+   no outline);
+2. a chip that only set `buttonColourId` keeps its EXACT fill — the accent
+   outline is the active-state signal, so translucent chips do not change
+   alpha/brightness when toggled;
+3. a bare button switches to the solid accent.
+
+`drawButtonText` additionally honours an instance `textColourOffId` and keeps
+white over pressed/toggled accent fills.
 
 ```cpp
 // one-off:
@@ -84,10 +106,13 @@ override `checkboxFillColourId` per instance (or through
 
 ## Requirements
 
-- JUCE 8 (developed against **8.0.8**)
-- C++20, CMake 3.22+
-- The consumer links `juce::juce_gui_basics`; the library never pulls JUCE in
-  by itself.
+- JUCE 8 (the smoke test fetches 8.0.8; pass `EIFFELBS_UI_JUCE_DIR` to test
+  against your own checkout).
+- C++20, CMake 3.22+.
+- Since **v0.12.7** the INTERFACE target also links `juce::juce_gui_extra`
+  (the log window's `LogView` lives there). Provide that module in your own
+  JUCE setup, or configuration fails with
+  `target juce::juce_gui_extra not found`.
 
 ## Consumption (FetchContent, pinned tag)
 
@@ -95,12 +120,13 @@ override `checkboxFillColourId` per instance (or through
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.4.1)              # pin tags; breaking changes bump major
+    GIT_TAG        v0.12.7)              # pin tags; behaviour changes bump minor
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
     eiffelbs::ui                        # headers + ABI-critical JUCE defines
-    juce::juce_gui_basics)              # JUCE comes from your own setup
+    juce::juce_gui_basics               # plus juce_gui_extra since v0.12.7
+    juce::juce_gui_extra)
 ```
 
 ```cpp
@@ -141,7 +167,8 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - Public tokens (`ebs::*` names, colour function names, font names, widget
   behaviour) are stable within a major version.
 - Breaking change = major bump (`v1.0.0` → `v2.0.0`).
-- Additions (new widgets, ColourIds hooks) = minor bump.
+- Additive components = patch bump; behaviour / ColourIds / API changes =
+  minor bump. Every release tag is expected to ship with a green smoke run.
 
 ## Roadmap
 
@@ -150,32 +177,55 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.2** — `ColourIds` on `IconButton` / `StatusBar` with the three-level
   resolution contract (instance > theme hook > built-in); consumer cutover
   done in OpenTimbre (local copies deleted, FetchContent pin).
-- **v0.2.1** — `IconButton::Shape::lock` padlock glyph (stroke-style SVG,
-  default tooltip "Link"); semantics are app-defined (e.g. host-transport
-  link in OpenTimbre).
+  **v0.2.1** — `IconButton::Shape::lock` padlock glyph; semantics are
+  app-defined.
 - **v0.3** — rotary `Knob` + painter, `MorphSlider`, `PowerToggle`
   (carried over from the OpenVoxTuner origin UI), always-dark viz-chrome
   palette tokens and chrome `ThemeChromeIds` (tab pill fill/text, bar rule,
   checkbox well) with built-ins frozen at their pre-v0.3 values; per-instance
   `TextButton::buttonColourId` chip fills under the shared hover rule.
-  First consumers of the tag: OpenVoxTuner and its OpenVoxKey companion
-  (FetchContent pin, local LookAndFeel deleted), while OpenTimbre stays on
-  the stable v0.2.x line.
+  First consumers of the tag: OpenVoxTuner and its OpenVoxKey companion.
 - **v0.4** — theme-switch broadcast: `setTheme()` + `ThemeSubscriber`
   (subscribe/unsubscribe), LookAndFeel self-subscribed and auto-refreshed on
-  switch. First consumer: OpenVoxTuner light-theme completion series.
+  switch. **v0.4.1** — theme-aware default checkbox well. **v0.4.2** —
+  `drawButtonText` honours instance `textColourOffId`; `drawButtonBackground`
+  toggle branch honours instance `buttonOnColourId`.
+- **v0.5** — `StatusBar` activity slots: `beginActivity()` claims a slot
+  rendered as spinner + label + elapsed with a ratio bar; `setQueue()` shows
+  the processing-queue position; burst block and `onQueueClicked` follow.
+- **v0.6** — `StatusBar` resource meters: right-aligned slots, GPU cell,
+  glued labels + dividers, exact 5 px gaps, widths reserved for 100 % (no
+  jitter), compact view.
+- **v0.7** — `StatusBar` multiple concurrent activity claims.
+  **v0.7.1** — `HelpBubble`. **v0.7.2** — toggle contract: an explicit
+  `buttonOnColourId` wins; a chip that only set `buttonColourId` keeps its
+  exact fill with the accent outline as the state signal.
+  **v0.7.3** — `PathRow` shared path input row.
 - **v0.8** — `DataList`: generic take/model-style lists (views, search,
   sortable columns, row actions, progress cells) over `juce::TableListBox`.
-  First consumer: OpenTimbre takes + Settings model lists.
-- **v0.8.1** — `IconButton` shapes `download` (Material arrow-into-tray),
-  `eye` / `eyeOff` (Feather visibility pair) for model install + show/hide
-  row actions.
-- **v0.9** — `DataList` dedicated Progress-column look (`Row::progressIsBar`:
-  inset track + accent fill + percent text, for model-download lists where
-  the user watches the Settings window, not the status bar).
+  **v0.8.1** — `IconButton` shapes `download` / `eye` / `eyeOff`.
+  **v0.9** — `DataList` dedicated Progress-column bar; action clicks route to
+  `onAction`; progress rows repaint eagerly.
+- **v0.10** — `ebs::Sidebar`: collapsible/resizable side panel with a rail
+  handle; the host owns content and width policy.
+- **v0.11** — `DataList` stable sort with id tiebreak + progress-safe
+  refresh; `Sidebar` cursor/affordance polish (no proportional clamp, silent
+  `setSidebarWidth`, zone cursors). **v0.11.2** — `DataList` content-aware
+  auto-size + show/hide column menu, per-row transparent grip overlay;
+  new `ebs::ToggleSwitch` and `ebs::FileGripButton`; `fontHint` raised to
+  13 px.
+- **v0.12** — `StatusBar` `LogWindow` on the OS-native title bar.
+  **v0.12.1** — C0/C1 control sanitising before shaping (HarfBuzz
+  missing-glyph crash guard). **v0.12.3** — `ebs::BusyIndicator`.
+  **v0.12.4** — grey disabled custom transport glyphs. **v0.12.5** —
+  `BusyIndicator` status-bar strips, new `ebs::BandGrip`, `ToggleSwitch`
+  disabled-state fix. **v0.12.6** — `IconButton` rewind transport glyph.
+  **v0.12.7** — `LogWindow` becomes append-only, alive (live appends) and
+  honest (visible truncation, native title-bar buttons); the INTERFACE
+  target links `juce_gui_extra`.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
-  LogWindow chrome); OpenVisuAI adoption of the widget set when its editor
-  grows one.
+  LogWindow chrome); keep the smoke green as the gate for every
+  consumer-facing tag.
 
 ## License
 

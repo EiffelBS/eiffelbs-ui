@@ -9,13 +9,13 @@ project(eiffelbs-ui VERSION 0.12.7 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.3.0)
+#       GIT_TAG        v0.12.7)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
 # The INTERFACE target carries the include directory and the ABI-critical
-# JUCE compile definitions; it NEVER pulls JUCE into the consumer's build -
-# consumers link their own JUCE modules.
+# JUCE compile definitions; it pulls no JUCE of its own except the
+# juce_gui_extra link below - consumers link their own JUCE modules.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
