@@ -23,3 +23,5 @@
 #include "eiffelbs/DataList.h"
 #include "eiffelbs/Sidebar.h"
 #include "eiffelbs/BandGrip.h"
+#include "eiffelbs/Avatar.h"
+#include "eiffelbs/ChatBubble.h"

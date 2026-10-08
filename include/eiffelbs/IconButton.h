@@ -54,6 +54,11 @@ static const char* const kSvgEye = R"(<svg viewBox="0 0 24 24" fill="none" strok
 // Feather "eye-off" - hidden state of the model visibility toggle.
 static const char* const kSvgEyeOff = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>)";
 
+// Feather "copy" (two overlapping squares) - the clipboard affordance
+// every copyable text needs. Drawn as a STROKE outline like the rest of the
+// Feather set, so it stays legible at the 10 px the icon slot renders.
+static const char* const kSvgCopy = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>)";
+
 // Material "pan_tool" filled glyph: reads as a real HAND at small sizes
 // (the previous 2x3 dot grid did not).
 static const char* const kSvgHand = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V1.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z"/></svg>)";
@@ -69,10 +74,11 @@ public:
      *  grip = drag handle, undo/redo = circular arrows, settings = gear,
      *  star = favourite marker (filled or thin outline, see setFilled),
      *  lock = padlock (host-transport link semantics are app-defined),
-     *  rewind = return to start (transport: bar + left-pointing triangle). */
+     *  rewind = return to start (transport: bar + left-pointing triangle),
+     *  copy = two overlapping squares (clipboard). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
-                       lock, download, eye, eyeOff, rewind };
+                       lock, download, eye, eyeOff, rewind, copy };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -170,6 +176,11 @@ public:
         {
             setTooltip ("Back to start");
             icon = textDim();   // navigation, not the main action
+        }
+        else if (s == Shape::copy)
+        {
+            setTooltip ("Copy");
+            icon = textDim();   // quiet: it acts on text already on screen
         }
         else
         {
@@ -400,6 +411,7 @@ private:
             case Shape::download: return kSvgDownload;
             case Shape::eye:      return kSvgEye;
             case Shape::eyeOff:   return kSvgEyeOff;
+            case Shape::copy:     return kSvgCopy;
             default:              return nullptr;
         }
     }
