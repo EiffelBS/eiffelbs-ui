@@ -1,0 +1,134 @@
+// IconTextButton.h
+// eiffelbs-ui - shared icon + text label button (EiffelBS design system).
+//
+// Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
+//
+// An IconButton that also carries a TEXT label. IconButton draws a glyph alone,
+// and juce::DrawableButton centres its label and its image on top of each other,
+// so neither produces "icon at the left, text glued to its right" without an
+// override. That layout is what an action needs: a row of icon-only buttons is
+// a guess, and one labelled button among guesses is the one a reader looks for.
+//
+// The glyph is drawn from the SAME path builder IconButton exposes, so a shape
+// looks pixel-identical at the same size whichever of the two buttons renders
+// it. Everything else - the colours, the hover, the framed chrome - follows the
+// shared colour language: bgDark fill, panelBorder outline, accent on hover,
+// one 5 px corner radius.
+//
+// A candidate for IconButton itself once a second project needs it; kept
+// separate so IconButton's own surface (which several panels measure by shape)
+// does not move under them.
+
+#pragma once
+
+#include <juce_gui_basics/juce_gui_basics.h>
+#include <cmath>
+
+#include "eiffelbs/Theme.h"
+#include "eiffelbs/LookAndFeel.h"
+#include "eiffelbs/IconButton.h"
+
+namespace ebs
+{
+
+    class IconTextButton : public juce::Button
+    {
+    public:
+        /** `shape` is any IconButton::Shape: the glyph is built by the SAME
+         *  path builder, so a shape means exactly what it means there.
+         *  `text` is drawn to the RIGHT of the glyph, on one line. */
+        /** `text` defaults to empty: a kebab-only mini-options button carries
+         *  no label and asking for one in braces would read as a typo. */
+        IconTextButton (IconButton::Shape shape,
+                        const juce::String& text = juce::String())
+            : juce::Button (text), shape (shape)
+        {
+            setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        /** Glyph side in pixels (the same 10 px IconButton uses), and the
+         *  gap between the glyph and the label. */
+        void setIconSide (float px)
+        {
+            if (juce::exactlyEqual (iconSide, px))
+                return;
+            iconSide = px;
+            repaint();
+        }
+
+        /** FRAMED mode: draws a real button chrome around the icon+text - rounded
+         *  bgDark fill + panelBorder outline, brighter on hover (accent 40%
+         *  outline), darker when down, pointing-hand cursor. For standalone
+         *  mini action buttons. */
+        void setFramed (bool shouldBeFramed)
+        {
+            if (framed == shouldBeFramed)
+                return;
+            framed = shouldBeFramed;
+            if (framed)
+                setMouseCursor (juce::MouseCursor::PointingHandCursor);
+            repaint();
+        }
+
+        void paintButton (juce::Graphics& g, bool over, bool down) override
+        {
+            const auto b = getLocalBounds().toFloat().reduced (1.0f);
+
+            // The frame chrome, in the shared language: a real button
+            // affordance rather than a bare glyph that only shows itself on
+            // hover. A control that appears only under the pointer is a control
+            // nobody finds by looking.
+            g.setColour (down   ? ebs::bgDark().darker (0.08f)
+                         : over ? ebs::bgDark().brighter (0.07f)
+                                : ebs::bgDark());
+            g.fillRoundedRectangle (b, 5.0f);
+            g.setColour (over ? ebs::accent().withAlpha (0.40f)
+                              : ebs::panelBorder());
+            g.drawRoundedRectangle (b, 5.0f, 1.0f);
+
+            auto row = getLocalBounds().reduced (7, 0);
+            const int iconW = (int) (iconSide * 1.30f) + gap_;
+            auto iconBox = row.removeFromLeft (iconW).toFloat();
+
+            const auto ink = ! isEnabled() ? ebs::textDim().withAlpha (0.35f)
+                                          : (over ? ebs::accent().brighter (0.15f)
+                                                  : ebs::accent());
+            g.setColour (ink);
+            const auto glyphBox = iconBox.withSizeKeepingCentre (iconSide,
+                                                                 iconSide);
+            g.fillPath (IconButton::glyphPath (shape, glyphBox, true,
+                                               getToggleState(), iconSide));
+
+            // NOTE the explicit `ebs::`: a member of juce::Button hides the
+            // namespace-scope colour of the same name inside this class, so an
+            // unqualified `text()` here resolves to a PRIVATE member and fails
+            // to compile. `textDim()` has no such collision, but both are
+            // qualified so the pair reads the same way.
+            g.setColour (! isEnabled() ? ebs::textDim().withAlpha (0.35f)
+                                       : (over ? ebs::text().brighter (0.15f)
+                                               : ebs::text()));
+            g.setFont (fontHint());
+            g.drawText (getButtonText(), row, juce::Justification::centredLeft);
+        }
+
+        /** The width the button needs for its own label at the current font.
+         *  A layout that sizes this button to a guess either cuts the text
+         *  mid-word or leaves a dead band the pointer crosses before the click
+         *  counts, so the width is measured, never assumed. */
+        int widthForLabel() const
+        {
+            const int labelW = (int) std::ceil (
+                fontHint().getStringWidth (getButtonText()));
+            return 7 + (int) (iconSide * 1.30f) + gap_ + labelW + 7;
+        }
+
+    private:
+        IconButton::Shape shape;
+        float iconSide = 10.0f;
+        int   gap_     = 4;
+        bool  framed   = false;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IconTextButton)
+    };
+
+} // namespace ebs

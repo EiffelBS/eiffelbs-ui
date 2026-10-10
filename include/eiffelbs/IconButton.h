@@ -64,6 +64,11 @@ static const char* const kSvgCopy = R"(<svg viewBox="0 0 24 24" fill="none" stro
 static const char* const kSvgHand = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M23 5.5V20c0 2.2-1.8 4-4 4h-7.3c-1.08 0-2.1-.43-2.85-1.19L1 14.83s1.26-1.23 1.3-1.25c.22-.19.49-.29.79-.29.22 0 .42.06.6.16.04.01 4.31 2.46 4.31 2.46V4.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V1.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V2.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5V11h1V5.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5z"/></svg>)";
 
 
+// Kebab menu (three vertical dots) - the options/overflow affordance.
+// Drawn as a FILLED outline (three dots), unlike the stroked Feather set:
+// dots below the stroke-width floor vanish at the 10 px the icon slot uses.
+static const char* const kSvgKebab = R"(<svg viewBox="0 0 24 24" fill="#010101"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>)";
+
 class IconButton : public juce::Button
 {
 public:
@@ -78,7 +83,8 @@ public:
      *  copy = two overlapping squares (clipboard). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
-                       lock, download, eye, eyeOff, rewind, copy };
+                       lock, download, eye, eyeOff, rewind, copy, sparkle,
+                       kebab };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -181,6 +187,11 @@ public:
         {
             setTooltip ("Copy");
             icon = textDim();   // quiet: it acts on text already on screen
+        }
+        else if (s == Shape::sparkle)
+        {
+            setTooltip ("Generate with AI");
+            icon = accent();     // the accent is what this button is FOR here
         }
         else
         {
@@ -309,6 +320,29 @@ public:
                            c.x + (tri - bar) * 0.5f, c.y + h,
                            c.x - gap - bar, c.y);
         }
+        else if (s == Shape::sparkle)
+        {
+            // The AI glyph: a big four-pointed star with CONCAVE sides, plus a
+            // smaller companion down-right. Drawn procedurally like star, not
+            // from an SVG, so it scales without a parse and stays a fillable
+            // outline the caller can recolour.
+            const float r  = iconSide * 0.5f;
+            const auto  c  = box.getCentre();
+
+            auto one = [&] (juce::Point<float> ctr, float rad)
+            {
+                const float rIn = rad * 0.17f;
+                p.startNewSubPath (ctr.x, ctr.y - rad);
+                p.quadraticTo (ctr.x + rIn, ctr.y - rIn, ctr.x + rad, ctr.y);
+                p.quadraticTo (ctr.x + rIn, ctr.y + rIn, ctr.x, ctr.y + rad);
+                p.quadraticTo (ctr.x - rIn, ctr.y + rIn, ctr.x - rad, ctr.y);
+                p.quadraticTo (ctr.x - rIn, ctr.y - rIn, ctr.x, ctr.y - rad);
+                p.closeSubPath();
+            };
+
+            one (c - juce::Point<float> (r * 0.32f, r * 0.30f), r * 0.95f);
+            one (c + juce::Point<float> (r * 0.52f, r * 0.46f), r * 0.46f);
+        }
         else if (s == Shape::stop || playingToggle)
         {
             p.addRectangle (
@@ -433,6 +467,7 @@ private:
             case Shape::eye:      return kSvgEye;
             case Shape::eyeOff:   return kSvgEyeOff;
             case Shape::copy:     return kSvgCopy;
+            case Shape::kebab:     return kSvgKebab;
             default:              return nullptr;
         }
     }
