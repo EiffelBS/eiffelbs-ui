@@ -69,6 +69,18 @@ static const char* const kSvgHand = R"(<svg viewBox="0 0 24 24" fill="#010101"><
 // dots below the stroke-width floor vanish at the 10 px the icon slot uses.
 static const char* const kSvgKebab = R"(<svg viewBox="0 0 24 24" fill="#010101"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>)";
 
+// Tab-strip glyphs (Feather set, same 24-grid and stroke as the rest,
+// except keys). One recognisable mark per section so the pill reads at
+// a glance instead of seven text labels in a row.
+static const char* const kSvgMusic = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>)";
+static const char* const kSvgLayers = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>)";
+static const char* const kSvgActivity = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>)";
+static const char* const kSvgChat = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>)";
+static const char* const kSvgMic = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>)";
+// Piano keys (no Feather equivalent): stroked shell and separators, FILLED
+// black keys. Mixed like the rest of the set (kebab is fill-only).
+static const char* const kSvgKeys = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="18"/><path d="M6.4 6h3.2v6.5H6.4z" fill="#010101" stroke="none"/><path d="M14.4 6h3.2v6.5h-3.2z" fill="#010101" stroke="none"/></svg>)";
+
 class IconButton : public juce::Button
 {
 public:
@@ -80,11 +92,14 @@ public:
      *  star = favourite marker (filled or thin outline, see setFilled),
      *  lock = padlock (host-transport link semantics are app-defined),
      *  rewind = return to start (transport: bar + left-pointing triangle),
-     *  copy = two overlapping squares (clipboard). */
+     *  copy = two overlapping squares (clipboard). Tab-strip marks:
+     *  music, layers, activity (audio over time), chat (speech bubble),
+     *  mic, keys (piano) - one per section so navigation reads at
+     *  a glance; the Assistant reuses sparkle, the established AI mark. */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
-                       kebab };
+                       kebab, music, layers, activity, chat, mic, keys };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -468,6 +483,12 @@ private:
             case Shape::eyeOff:   return kSvgEyeOff;
             case Shape::copy:     return kSvgCopy;
             case Shape::kebab:     return kSvgKebab;
+            case Shape::music:     return kSvgMusic;
+            case Shape::layers:    return kSvgLayers;
+            case Shape::activity:  return kSvgActivity;
+            case Shape::chat:      return kSvgChat;
+            case Shape::mic:       return kSvgMic;
+            case Shape::keys:      return kSvgKeys;
             default:              return nullptr;
         }
     }
