@@ -29,3 +29,4 @@
 #include "eiffelbs/BandGrip.h"
 #include "eiffelbs/Avatar.h"
 #include "eiffelbs/ChatBubble.h"
+#include "eiffelbs/PillTabSwitch.h"
