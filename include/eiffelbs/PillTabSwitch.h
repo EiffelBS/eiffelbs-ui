@@ -57,6 +57,14 @@ public:
 
     ~PillTabSwitch() override { stopTimer(); }
 
+    /** Short display label for tab `i`. Set once, before first paint -
+     *  the strip measures it. Default: the full tab name. App chrome
+     *  (short names) stays in the app: the component only shortens what
+     *  it is told to. */
+    std::function<juce::String (int)> onTabLabel;
+    /** Glyph for tab `i`, or nullopt for text-only (default: none). */
+    std::function<std::optional<IconButton::Shape> (int)> onTabIcon;
+
     /** Width the pill ASKS for: one slot per tab, every slot as wide as the
      *  WIDEST label at the fixed type size, plus trailing air after the
      *  last slot. That air is not a wider slot: uniform slots are the
@@ -426,14 +434,6 @@ private:
         g.drawLine (cx - dir * s, cy - s * 1.4f, cx + dir * s, cy, 2.0f);
         g.drawLine (cx + dir * s, cy, cx - dir * s, cy + s * 1.4f, 2.0f);
     }
-
-    /** Short display label for tab `i`. Set once, before first paint -
-     *  the strip measures it. Default: the full tab name. App chrome
-     *  (short names) stays in the app: the component only shortens what
-     *  it is told to. */
-    std::function<juce::String (int)> onTabLabel;
-    /** Glyph for tab `i`, or nullopt for text-only (default: none). */
-    std::function<std::optional<IconButton::Shape> (int)> onTabIcon;
 
     /** Icon side and gap, in px. The icon reads at label height without
      *  owning the slot: 14 px on a ~30 px pill, breathing like the type. */
