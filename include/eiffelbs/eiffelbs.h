@@ -10,6 +10,7 @@
 #include "eiffelbs/LookAndFeel.h"
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/IconTextButton.h"
+#include "eiffelbs/MenuChevronButton.h"
 #include "eiffelbs/FileGripButton.h"
 #include "eiffelbs/FramedBody.h"
 #include "eiffelbs/Knob.h"
