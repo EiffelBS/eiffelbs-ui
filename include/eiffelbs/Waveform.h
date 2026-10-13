@@ -226,6 +226,7 @@ namespace ebs
                 return;
             }
             selection = { start, end };
+            updateSelectionBounds();
             repaint();
         }
 
@@ -234,6 +235,7 @@ namespace ebs
             if (! selection)
                 return;
             selection = {};
+            updateSelectionBounds();
             repaint();
             if (onSelectionChanged != nullptr)
                 onSelectionChanged (0.0, 0.0);
