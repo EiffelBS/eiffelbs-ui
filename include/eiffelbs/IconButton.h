@@ -97,7 +97,8 @@ public:
      *  copy = two overlapping squares (clipboard). Tab-strip marks:
      *  music, layers, activity (audio over time), chat (speech bubble),
      *  mic, keys (piano) - one per section so navigation reads at
-     *  a glance; the Assistant reuses sparkle, the established AI mark. */
+     *  a glance; the Assistant reuses sparkle, the established AI mark.
+     *  repeat = loop toggle (two chasing arrows). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
