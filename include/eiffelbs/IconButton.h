@@ -68,6 +68,8 @@ static const char* const kSvgHand = R"(<svg viewBox="0 0 24 24" fill="#010101"><
 // Drawn as a FILLED outline (three dots), unlike the stroked Feather set:
 // dots below the stroke-width floor vanish at the 10 px the icon slot uses.
 static const char* const kSvgKebab = R"(<svg viewBox="0 0 24 24" fill="#010101"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>)";
+// Repeat/loop: two arrows chasing each other (Feather "repeat").
+static const char* const kSvgRepeat = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>)";
 
 // Tab-strip glyphs (Feather set, same 24-grid and stroke as the rest,
 // except keys). One recognisable mark per section so the pill reads at
@@ -99,7 +101,8 @@ public:
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
-                       kebab, music, layers, activity, chat, mic, keys };
+                       kebab, music, layers, activity, chat, mic, keys,
+                       repeat };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -489,6 +492,7 @@ private:
             case Shape::chat:      return kSvgChat;
             case Shape::mic:       return kSvgMic;
             case Shape::keys:      return kSvgKeys;
+            case Shape::repeat:    return kSvgRepeat;
             default:              return nullptr;
         }
     }
