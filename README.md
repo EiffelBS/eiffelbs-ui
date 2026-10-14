@@ -3,10 +3,9 @@
 Shared JUCE library implementing the **EiffelBS design system**: the dark/light
 palette, typography helpers, the application-wide `LookAndFeel` and a small set
 of generic widgets — extracted from [OpenVoxTuner](https://github.com/EiffelBS/OpenVoxTuner)
-(origin) and [OpenTimbre](https://github.com/EiffelBS/OpenTimbre) so every new
-JUCE project consumes ONE versioned implementation instead of a per-app copy.
-Consumed today by OpenVoxTuner (with its OpenVoxKey companion), OpenTimbre and
-OpenVisuAI.
+so every new JUCE project consumes ONE versioned implementation instead of a
+per-app copy. Other EiffelBS applications consume the same tag; the public
+surface below is what they all share.
 
 ## Contents
 
@@ -176,7 +175,7 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   consumed side-by-side with the apps' local copies.
 - **v0.2** — `ColourIds` on `IconButton` / `StatusBar` with the three-level
   resolution contract (instance > theme hook > built-in); consumer cutover
-  done in OpenTimbre (local copies deleted, FetchContent pin).
+  done in the first consumer (local copies deleted, FetchContent pin).
   **v0.2.1** — `IconButton::Shape::lock` padlock glyph; semantics are
   app-defined.
 - **v0.3** — rotary `Knob` + painter, `MorphSlider`, `PowerToggle`
@@ -184,7 +183,7 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   palette tokens and chrome `ThemeChromeIds` (tab pill fill/text, bar rule,
   checkbox well) with built-ins frozen at their pre-v0.3 values; per-instance
   `TextButton::buttonColourId` chip fills under the shared hover rule.
-  First consumers of the tag: OpenVoxTuner and its OpenVoxKey companion.
+  First consumers of the tag: OpenVoxTuner and companion apps.
 - **v0.4** — theme-switch broadcast: `setTheme()` + `ThemeSubscriber`
   (subscribe/unsubscribe), LookAndFeel self-subscribed and auto-refreshed on
   switch. **v0.4.1** — theme-aware default checkbox well. **v0.4.2** —
@@ -229,5 +228,5 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 
 ## License
 
-AGPLv3 — see [LICENSE](LICENSE). Extracted from OpenVoxTuner / OpenTimbre
+AGPLv3 — see [LICENSE](LICENSE). Extracted from OpenVoxTuner
 (original copyright (C) 2026 EiffelBS).

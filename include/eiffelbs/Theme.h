@@ -3,7 +3,7 @@
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 //
-// Adapted from OpenTimbre source/ui/OTTheme.h, itself adapted from
+// Adapted from an in-house OTTheme.h, itself adapted from
 // OpenVoxTuner Source/ui/OVTTheme.h (original copyright (C) 2026 EiffelBS).
 //
 // Both palettes (Dark and Light) are self-contained inline functions, so

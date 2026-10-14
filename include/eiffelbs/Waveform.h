@@ -6,7 +6,7 @@
 //
 // A compact audio preview that answers three questions at a glance: how long
 // is it, where am I in it, and which part is selected. It replaces an
-// OpenTimbre-private component whose API could not tell "no audio" from
+// an in-house component whose API could not tell "no audio" from
 // "still loading" and could not tell "the transport finished" from "it is
 // still at zero" - both were one double with a sentinel, and both had to be
 // worked around by the hosts. Here they are explicit.

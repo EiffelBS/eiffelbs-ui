@@ -2,7 +2,7 @@
 // eiffelbs-ui - rounded framed panel body component.
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Adapted from OpenTimbre source/ui/GenerationPanel.h (struct FramedBody,
+// Adapted from an in-house generation panel (struct FramedBody,
 // original copyright (C) 2026 EiffelBS).
 //
 // A plain child component that paints the shared EiffelBS frame language

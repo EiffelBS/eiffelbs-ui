@@ -3,7 +3,7 @@
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 //
-// Adapted from OpenVoxTuner Source/ui/OVTFonts.h via OpenTimbre's
+// Adapted from OpenVoxTuner Source/ui/OVTFonts.h via an in-house
 // OTLookAndFeel.h font section (original copyright (C) 2026 EiffelBS).
 //
 // No embedded typeface: use the system default sans-serif on macOS so the

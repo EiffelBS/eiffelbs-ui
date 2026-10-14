@@ -6,7 +6,8 @@
 //
 // A tab bar for a JUCE TabbedComponent whose native strip stays hidden: a
 // rounded track with a sliding accent badge behind the active label. Ported
-// from OpenTimbre (itself ported from OpenVoxTuner's TabSwitch): the
+// from an in-house tab switch (itself ported from OpenVoxTuner's
+// TabSwitch): the
 // animation is NOT a ComponentAnimator but a 60 Hz Timer driving an
 // exponentially smoothed position, which settles in ~150-200 ms with a
 // natural ease-out.

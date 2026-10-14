@@ -2,7 +2,7 @@
 // eiffelbs-ui - shared vector icon button (EiffelBS design system).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Adapted from OpenTimbre source/ui/IconButton.h (original copyright
+// Adapted from an in-house icon button (original copyright
 // (C) 2026 EiffelBS); icon sources originally ported from OpenVoxTuner.
 //
 // undo / redo / settings / refresh are VECTOR icons ported from real SVG

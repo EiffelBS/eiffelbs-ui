@@ -1,7 +1,7 @@
-# Migrating to eiffelbs-ui v0.4.x — notes for OpenTimbre / OpenVisuAI / OpenVoxKey
+# Migrating to eiffelbs-ui v0.4.x
 
-This document targets consumer apps still pinned to **v0.2.x** (OpenTimbre,
-OpenVisuAI at the time of writing). It summarises what v0.3/v0.4 add and the
+This document targets consumer apps still pinned to **v0.2.x**. It summarises
+what v0.3/v0.4 add and the
 two contract fixes shipped in **v0.4.2**, so the next agent touching those
 projects can plan a cutover without re-deriving conventions.
 

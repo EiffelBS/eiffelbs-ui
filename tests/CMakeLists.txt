@@ -1,6 +1,6 @@
 # Standalone smoke test for eiffelbs-ui.
 #
-# Fetches JUCE 8.0.8 (same pin as OpenTimbre / OpenVoxTuner). To reuse an
+# Fetches JUCE 8.0.8 (the same pin the EiffelBS apps share). To reuse an
 # existing local checkout instead of downloading ~150 MB:
 #   cmake -B build -DEIFFELBS_UI_BUILD_SMOKE_TEST=ON \
 #         -DEIFFELBS_UI_JUCE_DIR="C:/path/to/JUCE"

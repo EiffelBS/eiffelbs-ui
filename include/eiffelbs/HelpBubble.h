@@ -2,7 +2,7 @@
 // eiffelbs-ui - shared "?" help bubble (EiffelBS design system).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Adapted from OpenTimbre source/ui/HelpBubble.h (original copyright
+// Adapted from an in-house HelpBubble (original copyright
 // (C) 2026 EiffelBS), where it is used by the Generation and TTS panels.
 //
 // A tiny 14x14 accent circle with a "?" glyph; hovering shows the tooltip

@@ -2,7 +2,7 @@
 // eiffelbs-ui - global bottom status bar + floating log window.
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Adapted from OpenTimbre source/ui/StatusBar.h (original copyright
+// Adapted from an in-house status bar (original copyright
 // (C) 2026 EiffelBS).
 //
 // GLOBAL bottom status bar (~24 px, full width, OUTSIDE every frame):

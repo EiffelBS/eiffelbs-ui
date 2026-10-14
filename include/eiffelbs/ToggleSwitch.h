@@ -66,7 +66,7 @@ namespace ebs
                 // alpha (asserting on the degenerate value a transparent
                 // theme colour produces). That made any DISABLED ToggleSwitch
                 // assert inside juce::Colour::withAlpha on the first repaint -
-                // OpenTimbre hit it the day it greyed this switch out with
+                // an in-house app hit it the day it greyed this switch out
                 // the control-API master switch.
                 trackCol = trackCol.withMultipliedAlpha (0.45f);
             }

@@ -4,7 +4,7 @@
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 //
-// Adapted from OpenTimbre source/ui/OTLookAndFeel.h (class OTLookAndFeel),
+// Adapted from an in-house OTLookAndFeel (class OTLookAndFeel),
 // itself adapted from OpenVoxTuner Source/ui/LookAndFeel.{h,cpp} and
 // Source/ui/OVTFonts.h (original copyright (C) 2026 EiffelBS).
 //
@@ -542,7 +542,7 @@ namespace ebs
             g.drawRect (0, 0, width, height, 1);
         }
 
-        // === Tabs (ported from OpenVoxTuner, OpenTimbre variant) =====
+        // === Tabs (ported from OpenVoxTuner, in-house variant) =======
 
         void drawTabbedButtonBarBackground (juce::TabbedButtonBar& bar,
                                             juce::Graphics& g) override

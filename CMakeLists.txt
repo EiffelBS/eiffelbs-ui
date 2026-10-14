@@ -37,7 +37,7 @@ target_link_libraries(eiffelbs-ui INTERFACE juce::juce_gui_extra)
 
 # ABI contract: every binary in a process MUST share these values with its
 # JUCE build (two juce::String ABIs in one process is an ODR violation ->
-# random crashes). Same doctrine as OpenTimbre / OpenVoxTuner, which set
+# random crashes). Same doctrine as OpenVoxTuner, which set
 # exactly these values project-wide.
 target_compile_definitions(eiffelbs-ui INTERFACE
     JUCE_WEB_BROWSER=0

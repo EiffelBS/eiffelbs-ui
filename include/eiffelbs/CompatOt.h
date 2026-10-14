@@ -1,6 +1,6 @@
 // CompatOt.h
 // eiffelbs-ui - TRANSITIONAL compatibility shim for codebases that still
-// spell the design system `ot::` (the old OpenTimbre port namespace).
+// spell the design system `ot::` (the old in-house port namespace).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 //

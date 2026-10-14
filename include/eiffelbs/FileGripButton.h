@@ -2,7 +2,7 @@
 // eiffelbs-ui - generic external-file drag handle (EiffelBS design system).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Ported from OpenTimbre source/ui/StemsPanel.h StemGripButton (original
+// Ported from an in-house stems panel StemGripButton (original
 // copyright (C) 2026 EiffelBS): open-hand cursor; once the drag passes
 // ~8 px from the mouse-down point it starts the NATIVE external file
 // drag of the resolved file (towards DAW/desktop). The path is resolved

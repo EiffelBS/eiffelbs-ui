@@ -305,7 +305,7 @@ int main()
 
         // v0.12.1 TextSanitize: C0/C1 controls must never reach the
         // HarfBuzz shaper (missing-glyph jassert -> __debugbreak crash in
-        // Debug, e.g. OpenTimbre standalone on a double-encoded en-dash).
+        // Debug, e.g. a standalone app on a double-encoded en-dash).
         {
             const auto hasControl = [] (const juce::String& s)
             {

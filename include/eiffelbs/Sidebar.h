@@ -2,7 +2,7 @@
 // eiffelbs-ui - collapsible/resizable side panel (EiffelBS design system).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
-// Promoted from OpenTimbre's take list column (source/ui/TakeListPanel.h),
+// Promoted from an in-house take-list column,
 // where a fixed 300 px right column needed collapse + width drag.
 //
 // A host-owned content component fills the body; the library owns only the
