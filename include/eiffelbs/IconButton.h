@@ -372,7 +372,7 @@ public:
             // body. The lips (defect 124) and the plain microphone both read
             // as something else at 24 px - a mouth, an input jack - and the
             // held mic is the shape a reader already knows without decoding
-            # it.
+            // it.
             const auto c = box.getCentre();
             const float headW = iconSide * 0.40f;
             const float headH = iconSide * 0.34f;
