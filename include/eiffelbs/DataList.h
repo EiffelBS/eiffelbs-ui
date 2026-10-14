@@ -121,6 +121,7 @@ public:
             juce::TableHeaderComponent::textColourId, text());
         // Right-click on the HEADER opens OUR column menu (functional
         // content-aware auto-size) - see mouseDown below.
+        table.getHeader().setPopupMenuActive (false);
         table.getHeader().addMouseListener (this, false);
         // Grip affordance lives in transparent overlays (see below), NOT
         // in a viewport mouse listener: JUCE's RowComponents sit on top
@@ -182,9 +183,18 @@ public:
         auto& header = table.getHeader();
         header.removeAllColumns();
         if (! actions.empty())
+        {
+            // Explicit flags, WITHOUT appearsOnColumnMenu: the built-in
+            // notResizableOrSortable INCLUDES it, and an action column with
+            // an empty title then shows up in JUCE's own header popup as a
+            // thin unlabelled row that hides the way into every row's
+            // features (defect 123). The caller's columns below keep their
+            // explicit flags; the action column is kept OUT of every menu.
+            const int actionFlags = juce::TableHeaderComponent::visible
+                                  | juce::TableHeaderComponent::draggable;
             header.addColumn ("", actionColumnId, actionWidth(),
-                              actionWidth(), actionWidth(),
-                              juce::TableHeaderComponent::notResizableOrSortable);
+                              actionWidth(), actionWidth(), actionFlags);
+        }
         for (const auto& c : columns)
             header.addColumn (c.title, c.id, c.defaultWidth,
                               c.minWidth, c.maxWidth,
