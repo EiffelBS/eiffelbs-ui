@@ -11,6 +11,7 @@
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/IconTextButton.h"
 #include "eiffelbs/MenuChevronButton.h"
+#include "eiffelbs/DisclosureChevron.h"
 #include "eiffelbs/Waveform.h"
 #include "eiffelbs/ThumbnailPool.h"
 #include "eiffelbs/FileGripButton.h"
