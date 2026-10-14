@@ -101,13 +101,13 @@ public:
      *  music, layers, activity (audio over time), chat (speech bubble),
      *  mic, keys (piano) - one per section so navigation reads at
      *  a glance; the Assistant reuses sparkle, the established AI mark.
-     *  repeat = loop toggle (two chasing arrows), lips = the mouth the
-     *  karaoke words come out of. */
+     *  repeat = loop toggle (two chasing arrows), micHand = the hand-held
+     *  microphone (karaoke). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
                        kebab, music, layers, activity, chat, mic, keys,
-                       repeat, lips };
+                       repeat, micHand };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -366,29 +366,32 @@ public:
             one (c - juce::Point<float> (r * 0.32f, r * 0.30f), r * 0.95f);
             one (c + juce::Point<float> (r * 0.52f, r * 0.46f), r * 0.46f);
         }
-        else if (s == Shape::lips)
+        else if (s == Shape::micHand)
         {
-            // A MOUTH: two arcs meeting at the corners and the line between
-            // them. The karaoke entry uses it because a microphone reads as
-            // "voice input" at 24 px, where what the reader wants is "the
-            // words on screen" - and a shape that has to be decoded is a
-            // shape that is wrong (defect 123).
+            // A HAND-HELD microphone: the capsule head, the collar, the
+            // body. The lips (defect 124) and the plain microphone both read
+            // as something else at 24 px - a mouth, an input jack - and the
+            // held mic is the shape a reader already knows without decoding
+            # it.
             const auto c = box.getCentre();
-            const float halfW = iconSide * 0.42f;
-            const float yUp   = c.y - iconSide * 0.14f;
-            const float yLow  = c.y + iconSide * 0.14f;
-            const float cup   = c.y - iconSide * 0.30f;   // upper lip's bow
-            const float clow  = c.y + iconSide * 0.30f;   // lower lip's bow
-            p.startNewSubPath (c.x - halfW, yUp);
-            p.quadraticTo (c.x, cup, c.x + halfW, yUp);
-            p.quadraticTo (c.x, clow, c.x - halfW, yLow);
-            p.lineTo (c.x + halfW, yLow);
-            p.quadraticTo (c.x, clow + (yLow - clow) * 0.35f, c.x + halfW, yUp);
-            p.closeSubPath();
-            p.addRectangle (juce::Rectangle<float> (c.x - halfW * 0.55f,
-                                                   c.y - iconSide * 0.045f,
-                                                   halfW * 1.1f,
-                                                   iconSide * 0.09f));
+            const float headW = iconSide * 0.40f;
+            const float headH = iconSide * 0.34f;
+            const float top   = c.y - iconSide * 0.5f;
+            // Head: a capsule (rounded top and bottom), the grille end.
+            p.addRoundedRectangle (c.x - headW * 0.5f, top, headW, headH,
+                                   headW * 0.5f);
+            // Collar: the ring between head and body, a touch wider.
+            const float colY = top + headH;
+            p.addRoundedRectangle (c.x - headW * 0.60f, colY,
+                                   headW * 1.20f, iconSide * 0.07f,
+                                   iconSide * 0.035f);
+            // Body: the handle, narrower and longer, running to the bottom.
+            const float bodyW = headW * 0.66f;
+            p.addRoundedRectangle (c.x - bodyW * 0.5f,
+                                   colY + iconSide * 0.07f,
+                                   bodyW, c.y + iconSide * 0.5f - colY
+                                            - iconSide * 0.07f,
+                                   bodyW * 0.35f);
         }
         else if (s == Shape::stop || playingToggle)
         {
