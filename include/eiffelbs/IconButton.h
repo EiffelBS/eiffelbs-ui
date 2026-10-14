@@ -13,7 +13,10 @@
 // systems). Icon centred in a 20..28 px button, configurable colour,
 // brighter on hover; tooltip shown by the host's TooltipWindow. Primary
 // actions keep their strong colours (play = accent blue, delete = red);
-// secondary icons default to quiet textDim.
+// secondary icons default to quiet textDim. A button TALLER than the
+// classic 20..28 px slot scales its glyph with its height (the karaoke
+// transport row runs 44 px buttons beside a waveform); the small sizes
+// keep the 10 px glyph unchanged.
 
 #pragma once
 
@@ -429,7 +432,16 @@ public:
             colour = accent();
         g.setColour (colour);
 
-        const float s = 10.0f;               // icon side
+        // A TALL button scales its glyph with it. The karaoke player's
+        // transport row asks for buttons the height of the waveform
+        // (44 px), and a 10 px glyph in a 44 px frame reads as an empty
+        // box with a dot in it. The ramp starts ABOVE the classic
+        // 20..30 px sizes, which keep the exact 10 px they have always
+        // drawn: a threshold, not a slope, so no existing host's pixels
+        // move.
+        float s = 10.0f;
+        if (const float h = (float) getHeight(); h >= 36.0f)
+            s = juce::jlimit (10.0f, 18.0f, h * 0.42f);
         const auto box = getLocalBounds().toFloat()
                              .withSizeKeepingCentre (s, s);
         juce::Path p = glyphPath (shape, box, filled, getToggleState(), s);
