@@ -58,6 +58,10 @@ public:
         int minWidth = 40;
         int maxWidth = -1;          // -1 = unlimited
         bool sortable = true;
+        bool hidden = false;        // added to the header already hidden: the
+                                   // column menu still offers it, so what is
+                                   // folded away stays one click away (the
+                                   // take list's Fav column, defect 124)
     };
 
     struct Row
@@ -182,6 +186,15 @@ public:
         columns = cols;
         auto& header = table.getHeader();
         header.removeAllColumns();
+        // A column may start HIDDEN: the data still carries it, the view
+        // still filters on it, and the column menu still offers it - only
+        // the header starts without it.
+        auto applyHidden = [&header, &cols]
+        {
+            for (const auto& c : cols)
+                if (c.hidden)
+                    header.setColumnVisible (c.id, false);
+        };
         if (! actions.empty())
         {
             // Explicit flags, WITHOUT appearsOnColumnMenu: the built-in
@@ -212,6 +225,7 @@ public:
                                   | (c.sortable
                                      ? (int) juce::TableHeaderComponent::sortable : 0));
         applyProxy();
+        applyHidden();
     }
 
     /** Content-aware auto-size: measures the widest CELL TEXT among the
