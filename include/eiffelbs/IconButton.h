@@ -101,13 +101,12 @@ public:
      *  music, layers, activity (audio over time), chat (speech bubble),
      *  mic, keys (piano) - one per section so navigation reads at
      *  a glance; the Assistant reuses sparkle, the established AI mark.
-     *  repeat = loop toggle (two chasing arrows), micHand = the hand-held
-     *  microphone (karaoke). */
+     *  repeat = loop toggle (two chasing arrows). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
                        kebab, music, layers, activity, chat, mic, keys,
-                       repeat, micHand };
+                       repeat };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -365,33 +364,6 @@ public:
 
             one (c - juce::Point<float> (r * 0.32f, r * 0.30f), r * 0.95f);
             one (c + juce::Point<float> (r * 0.52f, r * 0.46f), r * 0.46f);
-        }
-        else if (s == Shape::micHand)
-        {
-            // A HAND-HELD microphone: the capsule head, the collar, the
-            // body. The lips (defect 124) and the plain microphone both read
-            // as something else at 24 px - a mouth, an input jack - and the
-            // held mic is the shape a reader already knows without decoding
-            // it.
-            const auto c = box.getCentre();
-            const float headW = iconSide * 0.40f;
-            const float headH = iconSide * 0.34f;
-            const float top   = c.y - iconSide * 0.5f;
-            // Head: a capsule (rounded top and bottom), the grille end.
-            p.addRoundedRectangle (c.x - headW * 0.5f, top, headW, headH,
-                                   headW * 0.5f);
-            // Collar: the ring between head and body, a touch wider.
-            const float colY = top + headH;
-            p.addRoundedRectangle (c.x - headW * 0.60f, colY,
-                                   headW * 1.20f, iconSide * 0.07f,
-                                   iconSide * 0.035f);
-            // Body: the handle, narrower and longer, running to the bottom.
-            const float bodyW = headW * 0.66f;
-            p.addRoundedRectangle (c.x - bodyW * 0.5f,
-                                   colY + iconSide * 0.07f,
-                                   bodyW, c.y + iconSide * 0.5f - colY
-                                            - iconSide * 0.07f,
-                                   bodyW * 0.35f);
         }
         else if (s == Shape::stop || playingToggle)
         {
