@@ -380,6 +380,19 @@ public:
         to the DataList. */
     std::function<void (const juce::String& rowId, juce::Point<int> pos)> onRightClick;
 
+    /** Turns a row into a DRAG SOURCE.
+
+        Return the payload `rowId` should carry, or a void var to leave the
+        row un-draggable. The gesture is JUCE's own (see the
+        getDragSourceDescription override), so the platform threshold, the
+        selection rules and the drag image are the list's, not a
+        reimplementation of them.
+
+        The drag carries the SELECTED row, and a multi-row selection drags
+        nothing rather than silently narrowing to the first row - which is
+        the one behaviour a host cannot guess from this signature. */
+    std::function<juce::var (const juce::String& rowId)> rowDragSourceDescription;
+
     /** Full refresh (e.g. progress ticks): re-runs the proxy + repaints. */
     void refresh() { applyProxy(); }
 
@@ -685,6 +698,33 @@ private:
         const auto glyphBox = box.withSizeKeepingCentre (10.0f, 10.0f);
         g.fillPath (IconButton::glyphPath (shape, glyphBox, filledStar,
                                            false, 10.0f));
+    }
+
+    /** Row drag, by JUCE's own route (see rowDragSourceDescription).
+        One contiguous block = one row: juce::SparseSet has no iterators, it
+        is a list of ranges, so the row is the START of the first range. The
+        `rows.size() != 1` guard above has already refused any multi-row drag
+        whose payload the host could not represent. */
+    /** Row drag.
+
+        juce::TableListBox's RowComp inherits
+        ComponentWithListRowMouseBehaviours (juce_ListBox.cpp), which is what
+        turns a drag over a row into a call to this model virtual - the
+        TableListBox's own .cpp has no mouse code at all, which is what makes
+        it look dead when you grep for it. Overriding the virtual is therefore
+        the supported route: it keeps JUCE's threshold, its row selection
+        rules and its drag image.
+
+        One contiguous block = one row: juce::SparseSet has no iterators, it
+        is a list of ranges, so the row is the START of the first range. */
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override
+    {
+        if (rowDragSourceDescription == nullptr || rows.size() != 1)
+            return {};
+        const int row = rows.getRange (0).getStart();
+        if (row < 0 || row >= (int) visible.size())
+            return {};
+        return rowDragSourceDescription (visible[(size_t) row]->id);
     }
 
     juce::Component* refreshComponentForCell (int rowNumber, int columnId,
