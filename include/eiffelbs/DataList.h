@@ -145,8 +145,16 @@ public:
                           .setAction ([this] { autoSizeAllColumns(); }));
         // Show/hide chooser (restores the JUCE built-in entry that the
         // appearsOnColumnMenu flag used to provide).
+        // The ACTION column is NOT in it: those slots are the entry point to
+        // the row's features (play, favourite, menu, drag, and the karaoke
+        // player the take list grew), and hiding the column hides the way in
+        // - a chooser that can lock the user out of their own controls is a
+        // chooser that must not offer it.
         juce::PopupMenu showMenu;
         for (const auto& c : columns)
+        {
+            if (c.id == actionColumnId)
+                continue;
             showMenu.addItem (juce::PopupMenu::Item (c.title)
                                   .setTicked (header.isColumnVisible (c.id))
                                   .setAction ([this, c]
@@ -155,6 +163,7 @@ public:
                                           table.getHeader().isColumnVisible (c.id);
                                       table.getHeader().setColumnVisible (c.id, ! on);
                                   }));
+        }
         menu.addSubMenu ("Display columns", showMenu);
         menu.showMenuAsync (juce::PopupMenu::Options()
                                 .withTargetComponent (this)
