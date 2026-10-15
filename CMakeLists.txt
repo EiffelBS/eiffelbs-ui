@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.14.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.0 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.14.1 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.14.1)
+#       GIT_TAG        v0.15.0)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -49,6 +49,12 @@ project(eiffelbs-ui VERSION 0.14.1 LANGUAGES C CXX)
 # nearly-gone word, which reads as the outline being the text. Source
 # compatible: the parameter is defaulted, so a host that fades nothing paints
 # the same pixels as before.
+
+# v0.15.0: FrameBand gains a discreet scroll strip along its bottom edge - a hairline
+# track with a thumb as long as the share of the row the view shows, painted only
+# while content is hidden. Drag the thumb to move the row, press in the trough to
+# jump one view width toward that side. Additive API: trackWidth(), thumbLength(),
+# thumbX() and scrollTrack(), so a host can put a tooltip on the strip.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

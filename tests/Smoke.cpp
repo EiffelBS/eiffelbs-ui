@@ -1131,6 +1131,15 @@ int main()
                 return hi - lo;   // vertical extent of ink in one column
             };
 
+            auto colInk = [] (const juce::Image& img, int x)
+            {
+                int n = 0;
+                for (int y = 0; y < img.getHeight(); ++y)
+                    if (img.getPixelAt (x, y).getBlue() > 60)
+                        ++n;
+                return n;
+            };
+
             ebs::FrameBand band (10);
             ebs::FramedBody fa, fb, fc;
             band.addFrame (&fa, 100, 60, true);
@@ -1182,9 +1191,37 @@ int main()
             check (band.maxScroll() == 90,
                    "the scroll span counts the widths that were kept, not the floor");
 
+            // The strip appears only while content is hidden: its thumb is the share
+            // of the row the view shows, and it sits where the row currently is.
+            check (band.scrollTrack().isVisible() && band.trackWidth() == 242,
+                   "a scrollable band shows the strip, inset 4 px at each edge");
+            check (band.thumbLength() == 178,
+                   "the thumb is the share of the row the view shows, of the strip width");
+            check (band.thumbX() == 0, "at rest the thumb sits at the near end of the strip");
+
+            const auto stripImg = renderToImage (band.trackWidth(), 8, [&] (juce::Graphics& g)
+                { band.scrollTrack().paint (g); });
+            check (colInk (stripImg, 90) == 4 && colInk (stripImg, 235) == 0,
+                   "the strip paints a solid thumb at the near end and nothing past it");
+
+            band.snapScroll (45);
+            check (band.thumbX() == 32, "half way through the row the thumb is half way along");
+
+            band.snapScroll (90);
+            check (band.thumbX() == band.trackWidth() - band.thumbLength(),
+                   "at full scroll the thumb reaches the far end of the strip");
+
+            const auto endImg = renderToImage (band.trackWidth(), 8, [&] (juce::Graphics& g)
+                { band.scrollTrack().paint (g); });
+            check (colInk (endImg, 235) > colInk (endImg, 5),
+                   "the thumb moves with the row: at full scroll its ink is at the far end");
+            band.snapScroll (0);
+
             band.setBounds (0, 0, 500, 90);
             check (fa.getWidth() == 100 && fb.getWidth() == 120 && fc.getWidth() == 140,
                    "spare room is left empty: no block absorbs it");
+            check (! band.scrollTrack().isVisible() && band.thumbLength() == 0,
+                   "a band that shows everything keeps the scroll strip dark");
         }
 
 

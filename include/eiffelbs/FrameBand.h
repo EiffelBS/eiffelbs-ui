@@ -55,6 +55,19 @@
 // last and kept toFront: a parent paints before its children, so a cue
 // painted by the band itself would be covered by the frames it is supposed
 // to sit over.
+//
+// THE SCROLL STRIP
+//
+// A mouse user needs to SEE that the row has more in it, and to reach that
+// part without hunting with the wheel. So a hairline strip sits at the band's
+// bottom edge, painted ONLY while content is hidden: a thumb as long as the
+// share of the row the view shows, sitting where the row currently is. It is
+// a child component, never a painted region - a painted strip cannot catch the
+// press, and a press nobody catches is a press that lands on the frame under
+// it. Dragging the thumb maps pointer to row 1:1; a press in the trough away
+// from the thumb moves one view width toward that side, the same unit a cue
+// tap uses. The strip costs no height: it lies over the frames' own bottom
+// padding, so nothing below it has to make room.
 
 #pragma once
 
@@ -86,6 +99,9 @@ namespace ebs
             // Events from every nested child, so the pan gate can see who got
             // the press.
             addMouseListener (this, true);
+
+            // The strip goes in first, so the cues added after it stay in front.
+            addAndMakeVisible (track);
 
             leftCue.pointsLeft = true;   // the dissolve solidifies at the left edge
             leftCue.expanded = true;   // points LEFT: content is off-screen that way
@@ -175,6 +191,15 @@ namespace ebs
         int maxScroll() const noexcept { return juce::jmax (0, contentW - viewW); }
         int scrollPosition() const noexcept { return juce::roundToInt (scrollPos); }
 
+        /** The scroll strip: its width, the length of its thumb, and where that thumb
+         *  sits. Length and x are zero while the band has nothing to hide. */
+        int trackWidth()   const noexcept { return track.getWidth(); }
+        int thumbLength()  const noexcept { return computeThumbLength(); }
+        int thumbX()       const noexcept { return computeThumbX(); }
+
+        /** The strip, exposed so the host can put a tooltip on it. */
+        juce::Component& scrollTrack() noexcept { return track; }
+
         /** True when content is genuinely hidden past that edge - the same 4 px
          *  rule the cue paint uses. */
         bool canScrollLeft()  const noexcept { return scrollPos > kCueHiddenPx; }
@@ -196,7 +221,7 @@ namespace ebs
                                                       static_cast<float> (x)));
             targetScroll = scrollPos = static_cast<float> (want);
             applyScroll();
-            updateCues();
+            updateChrome();
         }
 
         /** Reveal a frame with the smallest move that brings it fully inside the
@@ -276,6 +301,90 @@ namespace ebs
             }
         };
 
+        /** The scroll strip at the band's bottom edge. A child component, never a
+         *  painted region: only a component can catch the press, and a press the
+         *  band cannot catch is a press that lands on the frame underneath. It is
+         *  a nested class, so it reads the band's own scroll state directly. */
+        struct Track : juce::Component
+        {
+            explicit Track (FrameBand& owner) : band (owner)
+            {
+                setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
+                setWantsKeyboardFocus (false);
+            }
+
+            void paint (juce::Graphics& g) override
+            {
+                const auto b = getLocalBounds().toFloat();
+
+                if (b.isEmpty() || band.maxScroll() <= 0)
+                    return;
+
+                const bool active = isMouseOverOrDragging() || dragging;
+                const auto col = active ? ebs::accent() : ebs::textDim();
+
+                // The trough is a hairline: the strip must read as a track the frames
+                // sit over, not as a bar laid on top of them.
+                g.setColour (col.withAlpha (0.30f));
+                g.fillRect (b.getX(), b.getCentreY() - 0.5f, b.getWidth(), 1.0f);
+
+                const int tl = band.computeThumbLength();
+                const int tx = band.computeThumbX();
+
+                g.setColour (col.withAlpha (active ? 0.95f : 0.70f));
+                g.fillRoundedRectangle (static_cast<float> (tx), b.getCentreY() - 2.0f,
+                                        static_cast<float> (tl), 4.0f, 2.0f);
+            }
+
+            void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+            void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+
+            void mouseDown (const juce::MouseEvent& e) override
+            {
+                const int x  = e.getEventRelativeTo (this).x;
+                const int tx = band.computeThumbX(), tl = band.computeThumbLength();
+
+                dragging        = true;
+                dragStartX      = x;
+                dragStartScroll = band.scrollPosition();
+
+                if (x >= tx && x <= tx + tl)
+                    return;   // the thumb was grabbed: the drag maps 1:1 below
+
+                // A press in the trough away from the thumb moves one view width
+                // toward that side - the same unit a cue tap moves by.
+                band.scrollTo (band.scrollPosition() + (x < tx ? -band.viewW : band.viewW));
+                dragStartScroll = band.targetScrollPosition();
+            }
+
+            void mouseDrag (const juce::MouseEvent& e) override
+            {
+                const int room = band.trackWidth() - band.computeThumbLength();
+
+                if (room <= 0 || band.maxScroll() <= 0)
+                    return;
+
+                const float scale = static_cast<float> (band.maxScroll()) / static_cast<float> (room);
+                const int   dx    = e.getEventRelativeTo (this).x - dragStartX;
+
+                band.scrollTo (dragStartScroll + juce::roundToInt (static_cast<float> (dx) * scale));
+                repaint();
+            }
+
+            void mouseUp (const juce::MouseEvent&) override
+            {
+                dragging = false;
+                repaint();
+            }
+
+        private:
+            FrameBand& band;
+            int dragStartX = 0, dragStartScroll = 0;
+            bool dragging = false;
+
+            JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Track)
+        };
+
         std::vector<Entry> entries;
         int bandGap = 10;
         int viewW = 0, contentW = 0;
@@ -288,6 +397,7 @@ namespace ebs
         std::vector<int> baseX, widths;
 
         Cue leftCue, rightCue;
+        Track track { *this };
 
         static constexpr float kSmoothing = 0.18f;   // ~150-200 ms settle at 60 Hz
         static constexpr float kHoverEdgePx = 30.0f;
@@ -297,6 +407,8 @@ namespace ebs
         static constexpr int kCueW = 30;
         static constexpr int kMinTapW = 22;          // a cue stays a touch target
         static constexpr int kPanSlopPx = 10;        // a press that barely moves is not a pan
+        static constexpr int kTrackH = 8;            // strip height, over the frames' padding
+        static constexpr int kMinThumbPx = 24;       // shorter than this is not grabbable
 
         int totalWidth (bool usePref) const noexcept
         {
@@ -308,6 +420,34 @@ namespace ebs
                 sum += usePref ? e.pref : e.minW;
 
             return sum + bandGap * (static_cast<int> (entries.size()) - 1);
+        }
+
+        /** Thumb length = the share of the row the view shows, of the strip width.
+         *  Zero when there is nothing to hide; never below the grabbable floor. */
+        int computeThumbLength() const noexcept
+        {
+            const int maxS = maxScroll();
+
+            if (maxS <= 0 || track.getWidth() <= 0)
+                return 0;
+
+            const double frac = static_cast<double> (viewW) / static_cast<double> (contentW);
+            const int len = juce::roundToInt (frac * static_cast<double> (track.getWidth()));
+
+            return juce::jlimit (kMinThumbPx, track.getWidth(), len);
+        }
+
+        /** Thumb x inside the strip: 0 at rest, the far end at full scroll. */
+        int computeThumbX() const noexcept
+        {
+            const int maxS = maxScroll();
+
+            if (maxS <= 0)
+                return 0;
+
+            const int room = track.getWidth() - computeThumbLength();
+            return juce::roundToInt (static_cast<double> (scrollPos) / static_cast<double> (maxS)
+                                     * static_cast<double> (room));
         }
 
         /** Band-local x for an event handed to this band by the dispatcher. The
@@ -434,7 +574,7 @@ namespace ebs
             scrollPos    = juce::jlimit (0.0f, static_cast<float> (maxScroll()), scrollPos);
 
             applyScroll();
-            placeCues (area);
+            placeChrome (area);
         }
 
         void applyScroll()
@@ -446,7 +586,7 @@ namespace ebs
                     entries[i].frame->setBounds (baseX[i] - juce::roundToInt (scrollPos), 0, widths[i], h);
         }
 
-        void placeCues (juce::Rectangle<int> area)
+        void placeChrome (juce::Rectangle<int> area)
         {
             const int w = juce::jmax (kMinTapW, juce::jmin (kCueW, static_cast<int> (area.getWidth() * 0.2f)));
 
@@ -456,10 +596,14 @@ namespace ebs
             leftCue.setBounds  (area.withWidth (w).reduced (0, 4));
             rightCue.setBounds (area.withX (area.getRight() - w).withWidth (w).reduced (0, 4));
 
-            updateCues();
+            // The strip keeps 4 px at each edge so it never runs under a cue, and it
+            // lies over the frames' bottom padding: no frame has to give height for it.
+            track.setBounds (area.reduced (4, 0).withY (area.getBottom() - kTrackH).withHeight (kTrackH));
+
+            updateChrome();
         }
 
-        void updateCues()
+        void updateChrome()
         {
             const bool showL = canScrollLeft(), showR = canScrollRight();
 
@@ -468,6 +612,14 @@ namespace ebs
 
             if (rightCue.isVisible() != showR)
                 rightCue.setVisible (showR);
+
+            const bool showTrack = maxScroll() > 0;
+
+            if (track.isVisible() != showTrack)
+                track.setVisible (showTrack);
+
+            if (showTrack)
+                track.repaint();   // the thumb moved, so its ink has to move with it
         }
 
         void timerCallback() override
@@ -492,7 +644,7 @@ namespace ebs
                 {
                     scrollPos = targetScroll;
                     applyScroll();
-                    updateCues();
+                    updateChrome();
                 }
 
                 return;
@@ -500,7 +652,7 @@ namespace ebs
 
             scrollPos += (targetScroll - scrollPos) * kSmoothing;
             applyScroll();
-            updateCues();
+            updateChrome();
         }
 
         //==============================================================================
