@@ -1280,7 +1280,8 @@ int main()
         // On a WHITE background so dark backing ink is countable and the
         // opaque white fill is not.
         const auto renderBacking = [&] (ebs::Readability mode, float size,
-                                        bool drawBacking = true)
+                                        bool drawBacking = true,
+                                        float fade = 1.0f)
         {
             const auto font = ebs::createFont (size, true);
             return renderToImage (300, 80, [&] (juce::Graphics& g)
@@ -1289,10 +1290,26 @@ int main()
                 const auto path = ebs::glyphPathForText (
                     font, word, box, juce::Justification::centred, false);
                 if (drawBacking)
-                    ebs::drawReadabilityBacking (g, path, font, mode, 1.0f);
+                    ebs::drawReadabilityBacking (g, path, font, mode, 1.0f,
+                                                 fade);
                 g.setColour (juce::Colours::white);
                 g.fillPath (path);
             });
+        };
+
+        // How much ink the backing left, alpha-agnostic: the fill is opaque
+        // white, so every dark pixel is the backing, and a faded contour
+        // composites to a LIGHTER grey over the white rather than to a
+        // narrower one. Total darkness is what a fade moves - `alpha` x the
+        // area it covers - which is why it, and not a thresholded pixel
+        // count, can tell an opacity change from a width change.
+        const auto totalDarkness = [] (const juce::Image& img)
+        {
+            double sum = 0.0;
+            for (int y = 0; y < img.getHeight(); ++y)
+                for (int x = 0; x < img.getWidth(); ++x)
+                    sum += 1.0 - (double) img.getPixelAt (x, y).getBrightness();
+            return sum;
         };
 
         // Dark, opaque ink: the white fill never makes any.
@@ -1340,6 +1357,35 @@ int main()
                     if (withOff.getPixelAt (x, y) != without.getPixelAt (x, y))
                         same = false;
             check (same, "readability off is a no-op next to the plain fill");
+        }
+
+        // v0.14.1 the backing carries the caller's own fade for a run: a
+        // lyric roll dims the rows away from the centre, and a full-strength
+        // contour around a nearly-gone word reads as the outline being the
+        // text. The fade multiplies OPACITY only - the width stays the
+        // caller's `strength` - so a faded contour must touch the SAME
+        // pixels, more faintly, and never a thinner ring.
+        {
+            const auto full = renderBacking (ebs::Readability::outline, 48.0f,
+                                             true, 1.0f);
+            const auto half = renderBacking (ebs::Readability::outline, 48.0f,
+                                             true, 0.5f);
+            const auto none = renderBacking (ebs::Readability::outline, 48.0f,
+                                             true, 0.0f);
+            check (totalDarkness (half) > 0.0
+                       && totalDarkness (half) < totalDarkness (full) * 0.75,
+                   "readability fade dims the contour");
+            check (totalDarkness (none) == 0.0,
+                   "readability fade 0 draws no backing");
+            // A width that followed the fade would SQUARE the drop: the ink's
+            // total darkness is alpha x area, so an opacity-only fade lands
+            // near 0.5 at `fade` 0.5 where a fade that also thinned the stroke
+            // lands near 0.25 - measured by mass, never by a threshold, which
+            // cannot compare two composites drawn at different alphas.
+            const auto ratio = totalDarkness (half) / totalDarkness (full);
+            std::printf ("[INFO] readability fade 0.5 ink ratio: %.3f\n", ratio);
+            check (ratio > 0.4 && ratio < 0.6,
+                   "readability fade scales the contour's opacity, not its width");
         }
 
         // The scrim darkens the band on a mid background, and a strength of

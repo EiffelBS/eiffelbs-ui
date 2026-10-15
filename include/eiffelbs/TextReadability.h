@@ -25,6 +25,13 @@
 // with its own colour; `drawReadabilityScrim()` paints the band and is called
 // BEFORE the text. `off` is a no-op, so a host that adds the library paints
 // byte-identical pixels until it opts into a mode.
+//
+// The backing also carries the caller's own opacity for the run, as `fade`:
+// a host that fades its rows (a lyric roll dims the far ones) needs the
+// backing to fade with them, or the contour becomes the last thing visible
+// around a word that is nearly gone. `fade` multiplies OPACITY only - the
+// stroke width stays the caller's `strength` - and it defaults to 1, so a
+// host that fades nothing is byte-identical to before this parameter existed.
 
 #pragma once
 
@@ -98,13 +105,28 @@ inline juce::Path glyphPathForText (const juce::Font& font, const juce::String& 
 /** Draw the backing for ONE already-built glyph path (shadow and/or contour).
     The caller fills that same path afterwards: the backing is neutral, the
     fill carries the meaning. `strength` is 0..1; `off` and a strength at or
-    below 0.05 are no-ops. */
+    below 0.05 are no-ops.
+
+    `fade` (0..1, default 1) is the caller's own OPACITY for this run, and it
+    multiplies the backing's ALPHA while leaving its WIDTH to `strength`. A
+    roll fades its rows with the distance to the centre (the largest line at
+    full opacity, the far ones dimmer), and a backing held at full strength
+    under a faded word is the loudest thing on screen exactly where the text
+    is quietest - a dark outline the eye reads as the word, around a word it
+    can no longer read. Width stays the caller's: a contour that thinned as
+    well as faded would stop being a contour on the far rows instead of
+    becoming a quieter one. */
 inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPath,
                                     const juce::Font& font, Readability mode,
-                                    float strength)
+                                    float strength, float fade = 1.0f)
 {
     const auto s = juce::jlimit (0.0f, 1.0f, strength);
-    if (mode == Readability::off || s <= 0.05f)
+    const auto f = juce::jlimit (0.0f, 1.0f, fade);
+    // The opacity this run's backing is drawn with: `strength` (how strong
+    // the reader asked for it) times `fade` (how present this ROW is), one
+    // value, so the shadow and the contour cannot disagree about either.
+    const auto alpha = s * f;
+    if (mode == Readability::off || alpha <= 0.05f)
         return;
     const auto fontH = font.getHeight();
 
@@ -116,7 +138,7 @@ inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPa
         // letters. Gated by size like the contour: the blur allocates an image
         // per call and the smallest rows do not need it.
         juce::DropShadow shadow (
-            juce::Colour (0xB0000000).withMultipliedAlpha (s),
+            juce::Colour (0xB0000000).withMultipliedAlpha (alpha),
             (int) juce::jlimit (2.0f, 8.0f, fontH * 0.10f),
             { 0, (int) juce::jmax (1.0f, fontH * 0.06f) });
         shadow.drawForPath (g, glyphPath);
@@ -129,10 +151,13 @@ inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPa
                               juce::PathStrokeType::curved,
                               juce::PathStrokeType::rounded)
             .createStrokedPath (outline, glyphPath);
-        // The contour's job is contrast, so the caller must NOT dim it with
-        // the fill: a word faded to 0.4 would otherwise lose its backing
-        // exactly where the background is busiest.
-        g.setColour (juce::Colour (0xE6000000).withMultipliedAlpha (s));
+        // The contour's opacity FOLLOWS THE FILL's (the caller's `fade`): the
+        // rule the roll already applies to the words applies to what backs
+        // them, so a row that is fading out takes its contour with it instead
+        // of leaving an outline around nothing. Its WIDTH does not follow -
+        // that is the caller's `strength`, and thinning it too would delete
+        // the contour rather than quiet it.
+        g.setColour (juce::Colour (0xE6000000).withMultipliedAlpha (alpha));
         g.fillPath (outline);
     }
 }

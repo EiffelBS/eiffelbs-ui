@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.14.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.14.1 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.14.0 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.14.0)
+#       GIT_TAG        v0.14.1)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -41,6 +41,14 @@ project(eiffelbs-ui VERSION 0.14.0 LANGUAGES C CXX)
 # has a layout that no longer matches its content. growable now means only "may be
 # shrunk toward its floor before the row scrolls", so a host can open an advanced
 # zone: a block that used to be squeezed shut keeps its full width.
+
+# v0.14.1: drawReadabilityBacking() takes the caller's own `fade` for the run
+# (0..1, default 1) and multiplies the backing's ALPHA by it, leaving the
+# stroke width to `strength`. A host that fades its rows - a lyric roll dims
+# the lines away from the centre - had a full-strength contour around a
+# nearly-gone word, which reads as the outline being the text. Source
+# compatible: the parameter is defaulted, so a host that fades nothing paints
+# the same pixels as before.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
