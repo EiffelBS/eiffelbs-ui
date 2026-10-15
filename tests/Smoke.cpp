@@ -253,7 +253,8 @@ int main()
             ebs::IconButton::Shape::chevronLeft, ebs::IconButton::Shape::chevronRight,
             ebs::IconButton::Shape::grid,    ebs::IconButton::Shape::step,
             ebs::IconButton::Shape::power,   ebs::IconButton::Shape::trash,
-            ebs::IconButton::Shape::save
+            ebs::IconButton::Shape::save,    ebs::IconButton::Shape::expand,
+            ebs::IconButton::Shape::compress
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
