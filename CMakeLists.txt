@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.12.28 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.12.29 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.12.28 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.12.28)
+#       GIT_TAG        v0.12.29)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -21,6 +21,11 @@ project(eiffelbs-ui VERSION 0.12.28 LANGUAGES C CXX)
 # <juce_audio_utils> and that compiles the whole juce_audio_devices module inside
 # every consumer TU. A host that uses them includes the header directly and links
 # juce::juce_audio_utils.
+#
+# v0.12.29: ebs::Readability (include/eiffelbs/TextReadability.h) backs a glyph
+# run so it reads over an arbitrary background (drop shadow, contour, scrim),
+# for text painted over a video or an animation. It needs only juce_gui_basics,
+# so it IS in the umbrella.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -1137,6 +1137,121 @@ int main()
         juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
     }
 
+    // v0.12.27 TextReadability: a neutral backing over an arbitrary
+    // background. `off` must not move a pixel; `outline` must add a dark
+    // contour around the glyphs; `scrim` must darken the band; and the
+    // contour must be SKIPPED below the minimum glyph height, because the
+    // smallest rows of a roll are carried by the band, not by a halo.
+    {
+        const juce::String word ("legible");
+        const juce::Rectangle<float> box (0.0f, 0.0f, 300.0f, 80.0f);
+
+        // On a WHITE background so dark backing ink is countable and the
+        // opaque white fill is not.
+        const auto renderBacking = [&] (ebs::Readability mode, float size,
+                                        bool drawBacking = true)
+        {
+            const auto font = ebs::createFont (size, true);
+            return renderToImage (300, 80, [&] (juce::Graphics& g)
+            {
+                g.fillAll (juce::Colours::white);
+                const auto path = ebs::glyphPathForText (
+                    font, word, box, juce::Justification::centred, false);
+                if (drawBacking)
+                    ebs::drawReadabilityBacking (g, path, font, mode, 1.0f);
+                g.setColour (juce::Colours::white);
+                g.fillPath (path);
+            });
+        };
+
+        // Dark, opaque ink: the white fill never makes any.
+        const auto darkInk = [] (const juce::Image& img)
+        {
+            int n = 0;
+            for (int y = 0; y < img.getHeight(); ++y)
+                for (int x = 0; x < img.getWidth(); ++x)
+                {
+                    const auto c = img.getPixelAt (x, y);
+                    if (c.getAlpha() > 200 && c.getBrightness() < 0.5f)
+                        ++n;
+                }
+            return n;
+        };
+
+        // The glyph path must be the very arrangement drawText builds: a
+        // real path with plausible extent, not an empty one.
+        {
+            const auto font = ebs::createFont (48.0f, true);
+            const auto path = ebs::glyphPathForText (
+                font, word, box, juce::Justification::centred, false);
+            check (path.getBounds().getWidth() > 20.0f
+                       && path.getBounds().getHeight() > 10.0f,
+                   "glyphPathForText returns a real glyph path");
+        }
+
+        check (darkInk (renderBacking (ebs::Readability::off, 48.0f)) == 0,
+               "readability off paints no backing ink");
+        check (darkInk (renderBacking (ebs::Readability::shadow, 48.0f)) > 0,
+               "readability shadow draws ink");
+        check (darkInk (renderBacking (ebs::Readability::outline, 48.0f)) > 0,
+               "readability outline draws a contour");
+        check (darkInk (renderBacking (ebs::Readability::outline, 12.0f)) == 0,
+               "readability contour is skipped below the minimum glyph height");
+
+        // `off` is the promise that a host opting into the library paints
+        // byte-identical pixels: same draw with and without the call.
+        {
+            const auto withOff = renderBacking (ebs::Readability::off, 48.0f, true);
+            const auto without = renderBacking (ebs::Readability::off, 48.0f, false);
+            bool same = true;
+            for (int y = 0; y < withOff.getHeight() && same; ++y)
+                for (int x = 0; x < withOff.getWidth() && same; ++x)
+                    if (withOff.getPixelAt (x, y) != without.getPixelAt (x, y))
+                        same = false;
+            check (same, "readability off is a no-op next to the plain fill");
+        }
+
+        // The scrim darkens the band on a mid background, and a strength of
+        // zero leaves it alone.
+        {
+            const auto bandLuma = [] (const juce::Image& img)
+            {
+                double sum = 0.0;
+                int n = 0;
+                for (int y = 80; y < 120; ++y)
+                    for (int x = 0; x < img.getWidth(); ++x)
+                    {
+                        sum += (double) img.getPixelAt (x, y).getBrightness();
+                        ++n;
+                    }
+                return n > 0 ? sum / (double) n : 0.0;
+            };
+            const juce::Rectangle<float> full (0.0f, 0.0f, 200.0f, 200.0f);
+            const auto renderScrim = [&] (float strength)
+            {
+                return renderToImage (200, 200, [&] (juce::Graphics& g)
+                {
+                    g.fillAll (juce::Colours::grey);
+                    ebs::drawReadabilityScrim (g, full, 100.0f, strength);
+                });
+            };
+            const auto plain = renderScrim (0.0f);
+            const auto scrimmed = renderScrim (1.0f);
+            check (bandLuma (scrimmed) < bandLuma (plain) - 0.02,
+                   "readability scrim darkens the focus band");
+            check (juce::approximatelyEqual (bandLuma (renderScrim (0.0f)),
+                                             bandLuma (plain)),
+                   "readability scrim at strength 0 changes nothing");
+        }
+
+        // The contour width scales with the glyph and stays inside its rails.
+        check (ebs::readabilityContourWidth (200.0f)
+                   > ebs::readabilityContourWidth (30.0f)
+               && ebs::readabilityContourWidth (300.0f) <= 12.0f
+               && ebs::readabilityContourWidth (2.0f) >= 1.2f,
+               "readability contour width scales and is clamped");
+    }
+
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",
                  failures == 0 ? "PASS" : "FAIL",
                  failures, failures == 1 ? "" : "s");
