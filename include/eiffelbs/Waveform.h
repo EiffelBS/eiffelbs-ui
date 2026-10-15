@@ -44,6 +44,15 @@
 // many rows (a take list) may inject one cache with setCache so the rows share
 // a bounded slot pool instead of each keeping its own.
 
+// NOT IN THE UMBRELLA eiffelbs.h, ON PURPOSE. This header pulls
+// <juce_audio_utils> for juce::AudioThumbnail, so it compiles the whole
+// juce_audio_devices module inside every TU that includes the umbrella. In a
+// plugin tree whose TUs include <windows.h> without NOMINMAX (the ARA SDK and
+// the VST3 plugin-client chain), that drags in JUCE calls to std::min WITHOUT
+// parentheses which the Windows min/max macros expand into std::(...) and MSVC
+// fails (C2589 + C2059). Include this header directly and link
+// juce::juce_audio_utils. See the note at the top of eiffelbs.h.
+
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>

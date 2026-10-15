@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.12.7 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.12.27 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,13 +9,18 @@ project(eiffelbs-ui VERSION 0.12.7 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.12.7)
+#       GIT_TAG        v0.12.27)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
 # The INTERFACE target carries the include directory and the ABI-critical
 # JUCE compile definitions; it pulls no JUCE of its own except the
 # juce_gui_extra link below - consumers link their own JUCE modules.
+# The two audio widgets (Waveform.h, ThumbnailPool.h) are deliberately NOT in the
+# umbrella eiffelbs.h: they need juce::AudioThumbnail, so they pull
+# <juce_audio_utils> and that compiles the whole juce_audio_devices module inside
+# every consumer TU. A host that uses them includes the header directly and links
+# juce::juce_audio_utils.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -29,6 +29,8 @@ surface below is what they all share.
 | `DataList.h` | `ebs::DataList`: filterable/sortable table list over `juce::TableListBox` — `Row`/`Column`/`View` model, view+search+sort proxy, stable-id selection, per-row action column, progress cells (bar or percent), content-aware auto-size, show/hide column menu, native file-drag grips |
 | `Sidebar.h` | `ebs::Sidebar`: collapsible/resizable side panel — the library owns only the chrome (edge rail: collapse chevron + width drag, `onWidthChanged`); the host owns the content and the width policy |
 | `BandGrip.h` | `ebs::BandGrip`: vertical resize strip for a bottom band — the host owns the geometry, the grip owns the interaction (drag, clamping, reset, relayout) |
+| `Waveform.h` | `ebs::Waveform`: compact audio preview with time labels (`m:ss`, remaining-count mode), a draggable and resizable selection band, explicit playhead state (Stopped / Playing / Finished), shared thumbnail cache via `setCache`. **NOT in the umbrella** - include it directly and link `juce::juce_audio_utils` |
+| `ThumbnailPool.h` | `ebs::ThumbnailPool`: bounded pool of `juce::AudioThumbnail`s sharing one cache, uid-keyed, evicted by least-recently-used, destruction order correct by construction. **NOT in the umbrella** - include it directly and link `juce::juce_audio_utils` |
 | `CompatOt.h` | Transitional `namespace ot = ebs;` alias for codebases mid-migration |
 
 ## Colour overrides
@@ -112,6 +114,14 @@ override `checkboxFillColourId` per instance (or through
   (the log window's `LogView` lives there). Provide that module in your own
   JUCE setup, or configuration fails with
   `target juce::juce_gui_extra not found`.
+- Since **v0.12.27** the two audio widgets (`Waveform.h`, `ThumbnailPool.h`) are
+  deliberately kept OUT of the umbrella `eiffelbs.h`: they need
+  `juce::AudioThumbnail` / `juce::AudioThumbnailCache`, so an umbrella include
+  compiles the whole `juce_audio_devices` module in every consumer TU. Include
+  them directly and link `juce::juce_audio_utils`. On Windows, define
+  `NOMINMAX` on any target whose TUs reach `<windows.h>` bare (the ARA SDK and
+  the VST3 plugin-client chain do): JUCE's `juce_UMPEndpoint.h` calls
+  `std::min` WITHOUT parentheses, which the Windows min/max macros break.
 
 ## Consumption (FetchContent, pinned tag)
 

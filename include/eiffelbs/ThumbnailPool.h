@@ -24,6 +24,12 @@
 // bound. A host that knows which clips are visible may also call remove() to
 // drop one on purpose.
 
+// NOT IN THE UMBRELLA eiffelbs.h, ON PURPOSE. This header pulls
+// <juce_audio_utils> for juce::AudioThumbnailCache, so it compiles the whole
+// juce_audio_devices module inside every TU that includes the umbrella - the
+// same cost Waveform.h carries. Include this header directly and link
+// juce::juce_audio_utils. See the note at the top of eiffelbs.h.
+
 #pragma once
 
 #include <juce_audio_utils/juce_audio_utils.h>
