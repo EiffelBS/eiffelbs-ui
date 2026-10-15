@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.1 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.15.0 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.0)
+#       GIT_TAG        v0.15.1)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -55,6 +55,11 @@ project(eiffelbs-ui VERSION 0.15.0 LANGUAGES C CXX)
 # while content is hidden. Drag the thumb to move the row, press in the trough to
 # jump one view width toward that side. Additive API: trackWidth(), thumbLength(),
 # thumbX() and scrollTrack(), so a host can put a tooltip on the strip.
+
+# v0.15.1: the strip is pushed to the front of the child list by addFrame. JUCE z-order
+# is the child index, where 0 is the BACK and the last entry is the front, so adding the
+# strip before the frames left it painted UNDER them - invisible in a real host, which no
+# headless paint test can see. The cues are re-fronted after it, so they stay on top.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -100,7 +100,9 @@ namespace ebs
             // the press.
             addMouseListener (this, true);
 
-            // The strip goes in first, so the cues added after it stay in front.
+            // Z-order in JUCE is the child index: 0 is the BACK, the last entry is
+            // the front. The strip is added first here and pushed to the front by
+            // addFrame below, so it always paints over the frames it belongs to.
             addAndMakeVisible (track);
 
             leftCue.pointsLeft = true;   // the dissolve solidifies at the left edge
@@ -138,7 +140,10 @@ namespace ebs
             entries.push_back (Entry { frame, juce::jmax (1, preferredW), juce::jmax (1, minW), growable });
             addAndMakeVisible (*frame);
 
-            // The cues must stay in front of every frame added after them.
+            // The strip and the cues must stay in front of every frame added after
+            // them: the last child index is the front, so re-front in the order the
+            // layers should read - strip under the cues.
+            track.toFront (false);
             leftCue.toFront (false);
             rightCue.toFront (false);
 

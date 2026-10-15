@@ -1146,6 +1146,16 @@ int main()
             band.addFrame (&fb, 120, 70, true);
             band.addFrame (&fc, 140, 80, false);   // fixed: never given spare room
 
+            // Z-order is the child index: 0 is the back, the last entry is the front.
+            // The strip paints over the frames, so it must be in front of them, and
+            // the cues must stay in front of the strip.
+            check (band.getIndexOfChildComponent (& band.scrollTrack())
+                       > band.getIndexOfChildComponent (& fa),
+                   "the scroll strip is in front of the frames it draws over");
+            check (band.getIndexOfChildComponent (& band.rightCueStrip())
+                       > band.getIndexOfChildComponent (& band.scrollTrack()),
+                   "the cues stay in front of the scroll strip");
+
             check (band.preferredWidth() == 380 && band.minWidth() == 230,
                    "preferred and minimum widths count the gaps once");
 
