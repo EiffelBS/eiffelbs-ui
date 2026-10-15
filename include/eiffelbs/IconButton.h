@@ -104,6 +104,12 @@ static const char* const kSvgPower       = R"(<svg viewBox="0 0 24 24" fill="non
 static const char* const kSvgTrash       = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>)";
 static const char* const kSvgSave        = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>)";
 
+// Feather "maximize-2" / "minimize-2" (verbatim): the fullscreen enter /
+// exit pair - four corners pointing out / in. One glyph for both states
+// would read as a single meaning; the pair names the direction of travel.
+static const char* const kSvgExpand      = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>)";
+static const char* const kSvgCompress    = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>)";
+
 class IconButton : public juce::Button
 {
 public:
@@ -121,14 +127,16 @@ public:
      *  a glance; the Assistant reuses sparkle, the established AI mark.
      *  repeat = loop toggle (two chasing arrows). Viewer toolbar: zoomIn /
      *  zoomOut, the four chevrons (scroll and prev / next), grid, step
-     *  (staircase quantise), power, trash (clear-all) and save. */
+     *  (staircase quantise), power, trash (clear-all) and save.
+     *  expand / compress = fullscreen enter / exit pair (four corners
+     *  pointing out / in - one glyph for both would name no direction). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
                        kebab, music, layers, activity, chat, mic, keys,
                        repeat, zoomIn, zoomOut, chevronUp, chevronDown,
                        chevronLeft, chevronRight, grid, step, power, trash,
-                       save };
+                       save, expand, compress };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -594,6 +602,8 @@ private:
             case Shape::power:       return kSvgPower;
             case Shape::trash:       return kSvgTrash;
             case Shape::save:        return kSvgSave;
+            case Shape::expand:      return kSvgExpand;
+            case Shape::compress:    return kSvgCompress;
             default:              return nullptr;
         }
     }
