@@ -86,6 +86,24 @@ static const char* const kSvgMic = R"(<svg viewBox="0 0 24 24" fill="none" strok
 // black keys. Mixed like the rest of the set (kebab is fill-only).
 static const char* const kSvgKeys = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="8" y1="6" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="18"/><path d="M6.4 6h3.2v6.5H6.4z" fill="#010101" stroke="none"/><path d="M14.4 6h3.2v6.5h-3.2z" fill="#010101" stroke="none"/></svg>)";
 
+// Viewer-toolbar glyphs, ported VERBATIM from OpenVoxTuner Source/PluginEditor.cpp
+// (the same Feather set the gear, undo and redo came from): zoom in / zoom out
+// (magnifier with a plus / minus), the four chevrons (scroll up / down and
+// prev / next), grid (snap-to-grid), step (staircase = the quantise mode),
+// power (the same mark ebs::PowerToggle draws, as an icon button), trash
+// (clear-all) and save (write to disk).
+static const char* const kSvgZoomIn      = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>)";
+static const char* const kSvgZoomOut     = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>)";
+static const char* const kSvgChevronUp   = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>)";
+static const char* const kSvgChevronDown = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>)";
+static const char* const kSvgChevronLeft = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>)";
+static const char* const kSvgChevronRight= R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>)";
+static const char* const kSvgGrid        = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>)";
+static const char* const kSvgStep        = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20v-5h6v-6h6V4h4"/></svg>)";
+static const char* const kSvgPower       = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>)";
+static const char* const kSvgTrash       = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>)";
+static const char* const kSvgSave        = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>)";
+
 class IconButton : public juce::Button
 {
 public:
@@ -101,12 +119,16 @@ public:
      *  music, layers, activity (audio over time), chat (speech bubble),
      *  mic, keys (piano) - one per section so navigation reads at
      *  a glance; the Assistant reuses sparkle, the established AI mark.
-     *  repeat = loop toggle (two chasing arrows). */
+     *  repeat = loop toggle (two chasing arrows). Viewer toolbar: zoomIn /
+     *  zoomOut, the four chevrons (scroll and prev / next), grid, step
+     *  (staircase quantise), power, trash (clear-all) and save. */
     enum class Shape { play, stop, cross, refresh, folder, grip,
                        undo, redo, settings, star, wand, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
                        kebab, music, layers, activity, chat, mic, keys,
-                       repeat };
+                       repeat, zoomIn, zoomOut, chevronUp, chevronDown,
+                       chevronLeft, chevronRight, grid, step, power, trash,
+                       save };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -214,6 +236,61 @@ public:
         {
             setTooltip ("Generate with AI");
             icon = accent();     // the accent is what this button is FOR here
+        }
+        else if (s == Shape::zoomIn)
+        {
+            setTooltip ("Zoom in");
+            icon = textDim();   // viewer toolbar: secondary, never the main action
+        }
+        else if (s == Shape::zoomOut)
+        {
+            setTooltip ("Zoom out");
+            icon = textDim();
+        }
+        else if (s == Shape::chevronUp)
+        {
+            setTooltip ("Scroll up");
+            icon = textDim();
+        }
+        else if (s == Shape::chevronDown)
+        {
+            setTooltip ("Scroll down");
+            icon = textDim();
+        }
+        else if (s == Shape::chevronLeft)
+        {
+            setTooltip ("Previous");
+            icon = textDim();
+        }
+        else if (s == Shape::chevronRight)
+        {
+            setTooltip ("Next");
+            icon = textDim();
+        }
+        else if (s == Shape::grid)
+        {
+            setTooltip ("Grid");
+            icon = textDim();   // the ON state is carried by the toggle, as elsewhere
+        }
+        else if (s == Shape::step)
+        {
+            setTooltip ("Step");
+            icon = textDim();
+        }
+        else if (s == Shape::power)
+        {
+            setTooltip ("Power");
+            icon = textDim();   // OFF is the quiet state; the host tints it on
+        }
+        else if (s == Shape::trash)
+        {
+            setTooltip ("Clear");
+            icon = textDim();   // clear-all, NOT the red per-item delete cross
+        }
+        else if (s == Shape::save)
+        {
+            setTooltip ("Save");
+            icon = textDim();
         }
         else
         {
@@ -506,6 +583,17 @@ private:
             case Shape::mic:       return kSvgMic;
             case Shape::keys:      return kSvgKeys;
             case Shape::repeat:    return kSvgRepeat;
+            case Shape::zoomIn:      return kSvgZoomIn;
+            case Shape::zoomOut:     return kSvgZoomOut;
+            case Shape::chevronUp:   return kSvgChevronUp;
+            case Shape::chevronDown: return kSvgChevronDown;
+            case Shape::chevronLeft: return kSvgChevronLeft;
+            case Shape::chevronRight:return kSvgChevronRight;
+            case Shape::grid:        return kSvgGrid;
+            case Shape::step:        return kSvgStep;
+            case Shape::power:       return kSvgPower;
+            case Shape::trash:       return kSvgTrash;
+            case Shape::save:        return kSvgSave;
             default:              return nullptr;
         }
     }

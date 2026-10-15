@@ -14,7 +14,7 @@ surface below is what they all share.
 | `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger`; always-dark viz-chrome tokens (`grid`, `scaleLine`, `rulerBg`, `curveGrid`, `vizHeaderBg`, `vizHeaderAccent`, `vizLegendBg`, `cpuBg`, `cpuText`) |
 | `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
 | `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, rotary knobs, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` + shared `widgetColour()` three-level resolver + chrome `ThemeChromeIds` |
-| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff and the transport pair + rewind), framed chrome mode, play/stop toggle state, grey disabled transport glyphs, `ColourIds` overrides |
+| `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff and the transport pair + rewind), viewer-toolbar set (zoom in / out, four chevrons, grid, step, power, trash, save), framed chrome mode, play/stop toggle state, grey disabled transport glyphs, `ColourIds` overrides |
 | `FileGripButton.h` | `ebs::FileGripButton`: external-file drag handle — resolves the file AT DRAG TIME (a recycled row can never drag a stale path), open-hand cursor, native drag-out towards DAW/desktop |
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
 | `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
@@ -129,7 +129,7 @@ override `checkboxFillColourId` per instance (or through
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.12.7)              # pin tags; behaviour changes bump minor
+    GIT_TAG        v0.12.28)              # pin tags; behaviour changes bump minor
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -232,6 +232,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   **v0.12.7** — `LogWindow` becomes append-only, alive (live appends) and
   honest (visible truncation, native title-bar buttons); the INTERFACE
   target links `juce_gui_extra`.
+  **v0.12.28** â€” `IconButton` viewer-toolbar glyph set: zoomIn / zoomOut, the four
+  chevrons, grid, step, power, trash, save (ported from OpenVoxTuner); the smoke ink
+  gate now covers the WHOLE enum.
 - **Next** — extend ColourIds coverage (`FramedBody`, favourite gold,
   LogWindow chrome); keep the smoke green as the gate for every
   consumer-facing tag.

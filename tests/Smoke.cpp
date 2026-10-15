@@ -233,6 +233,7 @@ int main()
         // (catches broken SVG parsing as well as painting regressions).
         const ebs::IconButton::Shape shapes[] =
         {
+            // The WHOLE enum: a new shape cannot ship without an ink check.
             ebs::IconButton::Shape::play,    ebs::IconButton::Shape::stop,
             ebs::IconButton::Shape::cross,   ebs::IconButton::Shape::refresh,
             ebs::IconButton::Shape::folder,  ebs::IconButton::Shape::grip,
@@ -241,7 +242,18 @@ int main()
             ebs::IconButton::Shape::wand,    ebs::IconButton::Shape::tool,
             ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock,
             ebs::IconButton::Shape::download, ebs::IconButton::Shape::eye,
-            ebs::IconButton::Shape::eyeOff,  ebs::IconButton::Shape::rewind
+            ebs::IconButton::Shape::eyeOff,  ebs::IconButton::Shape::rewind,
+            ebs::IconButton::Shape::copy,    ebs::IconButton::Shape::sparkle,
+            ebs::IconButton::Shape::kebab,   ebs::IconButton::Shape::music,
+            ebs::IconButton::Shape::layers,  ebs::IconButton::Shape::activity,
+            ebs::IconButton::Shape::chat,    ebs::IconButton::Shape::mic,
+            ebs::IconButton::Shape::keys,    ebs::IconButton::Shape::repeat,
+            ebs::IconButton::Shape::zoomIn,  ebs::IconButton::Shape::zoomOut,
+            ebs::IconButton::Shape::chevronUp,   ebs::IconButton::Shape::chevronDown,
+            ebs::IconButton::Shape::chevronLeft, ebs::IconButton::Shape::chevronRight,
+            ebs::IconButton::Shape::grid,    ebs::IconButton::Shape::step,
+            ebs::IconButton::Shape::power,   ebs::IconButton::Shape::trash,
+            ebs::IconButton::Shape::save
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
