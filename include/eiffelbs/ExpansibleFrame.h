@@ -15,6 +15,10 @@
 // onExpandedChanged when the fold flips so it can re-lay out. Children
 // added to the frame clip and paint inside it, so a folded zone is a
 // setVisible() away from gone, never an overwritten one.
+// One thing the host must not forget: when the frame MOVES, JUCE repaints
+// only the rectangles the frame's own widgets vacated. A host that paints
+// its background behind the frame - blocks drawn in paint(), not components
+// - has to repaint those regions itself in answer to onExpandedChanged.
 
 #pragma once
 
@@ -46,7 +50,7 @@ namespace ebs
             if (open == shouldOpen)
                 return;
             open = shouldOpen;
-            chevron.expanded = open;
+            chevron.setExpanded (open);
             if (onExpandedChanged != nullptr)
                 onExpandedChanged();
         }

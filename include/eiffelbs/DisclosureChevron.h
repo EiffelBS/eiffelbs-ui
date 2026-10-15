@@ -46,6 +46,17 @@ namespace ebs
         /** True when the zone is OPEN (the chevron points LEFT, back). */
         bool expanded = false;
 
+        /** Set the fold state AND repaint. Writing `expanded` directly
+         *  changes the flag only: a host that moves the strip gets its
+         *  repaint from setBounds, a host that keeps it in place gets none. */
+        void setExpanded (bool isOpen)
+        {
+            if (expanded == isOpen)
+                return;
+            expanded = isOpen;
+            repaint();
+        }
+
         void paint (juce::Graphics& g) override
         {
             const auto b = getLocalBounds().toFloat();

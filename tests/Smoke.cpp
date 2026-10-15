@@ -1067,6 +1067,51 @@ int main()
                    "unsubscribed listener stops receiving; palette restored");
         }
 
+        // === DisclosureChevron + ExpansibleFrame (v0.12.29) ==============
+        // The fold must be VISIBLE: setExpanded repaints the strip, so a
+        // host that never moves it still sees the glyph flip. Direction is
+        // read from ink columns: the two arm tips carry more ink than the
+        // vertex, so closed (points right) has its heavy column on the left
+        // (x 8) and open (points back left) has it on the right (x 13).
+        {
+            auto colInk = [] (const juce::Image& img, int x)
+            {
+                int n = 0;
+                for (int y = 0; y < img.getHeight(); ++y)
+                    if (img.getPixelAt (x, y).getBlue() > 60)
+                        ++n;
+                return n;
+            };
+
+            ebs::DisclosureChevron strip;
+            strip.setSize (22, 40);
+            const auto closedImg = renderToImage (22, 40, [&] (juce::Graphics& g)
+                { strip.paint (g); });
+            strip.setExpanded (true);
+            const auto openImg = renderToImage (22, 40, [&] (juce::Graphics& g)
+                { strip.paint (g); });
+            check (colInk (closedImg, 13) > 0 && colInk (openImg, 8) > 0,
+                   "the disclosure strip paints ink in both fold states");
+            check (colInk (closedImg, 8) > colInk (closedImg, 13)
+                       && colInk (openImg, 13) > colInk (openImg, 8),
+                   "setExpanded flips the chevron to point back left");
+
+            ebs::ExpansibleFrame frame;
+            frame.setSize (120, 60);
+            int relayouts = 0;
+            frame.onExpandedChanged = [&] { ++relayouts; };
+            frame.setExpanded (true);
+            check (frame.expanded() && relayouts == 1,
+                   "setExpanded opens the frame and tells the host once");
+            frame.setExpanded (true);
+            check (relayouts == 1, "a repeat setExpanded is silent");
+            check (frame.interior().getWidth() == 120
+                       - ebs::ExpansibleFrame::chevronWidth()
+                       - ebs::ExpansibleFrame::chevronGap(),
+                   "interior() excludes the chevron slot");
+        }
+
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
