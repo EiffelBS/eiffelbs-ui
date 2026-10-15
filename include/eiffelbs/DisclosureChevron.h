@@ -27,6 +27,40 @@
 
 namespace ebs
 {
+    /** The shared chevron glyph, drawn inside an area. One tip direction, two
+     *  users: this fold strip and FrameBand's scroll cues. pointsLeft is the same
+     *  flag as DisclosureChevron::expanded - open means pointing back. The caller
+     *  sets the stroke colour; the glyph itself never carries a colour. */
+    inline void drawChevronGlyph (juce::Graphics& g, juce::Rectangle<float> area, bool pointsLeft)
+    {
+        const float arm = 5.0f, half = 3.6f;
+        const auto c = area.getCentre();
+        juce::Path v;
+
+        if (pointsLeft)
+        {
+            v.startNewSubPath (c.x + arm * 0.5f, c.y - half);
+            v.lineTo (c.x - arm * 0.5f, c.y);
+            v.lineTo (c.x + arm * 0.5f, c.y + half);
+        }
+        else
+        {
+            v.startNewSubPath (c.x - arm * 0.5f, c.y - half);
+            v.lineTo (c.x + arm * 0.5f, c.y);
+            v.lineTo (c.x - arm * 0.5f, c.y + half);
+        }
+
+        g.strokePath (v, juce::PathStrokeType (1.8f,
+                                               juce::PathStrokeType::mitered,
+                                               juce::PathStrokeType::rounded));
+    }
+
+    //==============================================================================
+    /** A small left/right chevron strip that reports a toggle.
+     *
+     *  It is the fold control used by ExpansibleFrame, and the same glyph the band
+     *  scroll cues draw. The host sets its tooltip: this class sets none.
+     */
     class DisclosureChevron : public juce::Component,
                               public juce::SettableTooltipClient
     {
@@ -69,24 +103,7 @@ namespace ebs
                 g.fillRoundedRectangle (b.reduced (1.0f), 4.0f);
             }
             g.setColour (hot ? ebs::accent().brighter (0.20f) : ebs::accent());
-            const float arm = 5.0f, half = 3.6f;
-            const auto c = b.getCentre();
-            juce::Path v;
-            if (expanded)
-            {
-                v.startNewSubPath (c.x + arm * 0.5f, c.y - half);
-                v.lineTo (c.x - arm * 0.5f, c.y);
-                v.lineTo (c.x + arm * 0.5f, c.y + half);
-            }
-            else
-            {
-                v.startNewSubPath (c.x - arm * 0.5f, c.y - half);
-                v.lineTo (c.x + arm * 0.5f, c.y);
-                v.lineTo (c.x - arm * 0.5f, c.y + half);
-            }
-            g.strokePath (v, juce::PathStrokeType (1.8f,
-                                                   juce::PathStrokeType::mitered,
-                                                   juce::PathStrokeType::rounded));
+            drawChevronGlyph (g, b, expanded);
         }
 
         void mouseEnter (const juce::MouseEvent&) override { setHovered (true); }

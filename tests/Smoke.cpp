@@ -1111,13 +1111,76 @@ int main()
                    "interior() excludes the chevron slot");
         }
 
+        // === FrameBand (v0.13.0) ===========================================
+        // A row of frames that keeps each block at the width its own content asks
+        // for, hands spare room to the blocks that can use it, and scrolls only
+        // below the hard floor. Widths are read back from the bounds the band set;
+        // cue direction is read from the VERTICAL SPREAD of accent ink per column:
+        // a cue dissolve band is bgPanel (blue 62), so only glyph ink passes the probe;
+        // the spread, not the count, says which side the chevron vertex sits on.
+        {
+            auto colSpan = [] (const juce::Image& img, int x)
+            {
+                int lo = -1, hi = -1;
+                for (int y = 0; y < img.getHeight(); ++y)
+                    if (img.getPixelAt (x, y).getBlue() > 150)
+                    {
+                        if (lo < 0) lo = y;
+                        hi = y;
+                    }
+                return hi - lo;   // vertical extent of ink in one column
+            };
+
+            ebs::FrameBand band (10);
+            ebs::FramedBody fa, fb, fc;
+            band.addFrame (&fa, 100, 60, true);
+            band.addFrame (&fb, 120, 70, true);
+            band.addFrame (&fc, 140, 80, false);   // fixed: never given spare room
+
+            check (band.preferredWidth() == 380 && band.minWidth() == 230,
+                   "preferred and minimum widths count the gaps once");
+
+            band.setBounds (0, 0, 500, 90);
+            check (band.maxScroll() == 0, "a band that fits does not scroll");
+            check (fa.getWidth() == 160 && fb.getWidth() == 180 && fc.getWidth() == 140,
+                   "spare room goes to the growable blocks only");
+            check (! band.canScrollLeft() && ! band.canScrollRight(),
+                   "a band that shows everything keeps both cues dark");
+
+            band.setBounds (0, 0, 250, 90);
+            check (fa.getWidth() == 60 && fb.getWidth() == 70 && fc.getWidth() == 140,
+                   "below the floor a growable block stops at its minimum");
+            check (band.maxScroll() == 40,
+                   "the scroll span is the widths that were computed, not the floor");
+
+            band.snapScroll (100);
+            check (band.scrollPosition() == 40 && band.canScrollLeft() && ! band.canScrollRight(),
+                   "snapScroll clamps to the span and arms the cue that has room");
+
+            band.snapScroll (0);
+            check (! band.canScrollLeft() && band.canScrollRight(),
+                   "back at rest the right cue is armed and the left goes dark");
+
+            band.revealFrame (&fc);
+            check (band.targetScrollPosition() == 40,
+                   "revealFrame asks for the smallest move, clamped to what the band can show");
+
+            const auto leftImg = renderToImage (30, 82, [&] (juce::Graphics& g)
+                { band.leftCueStrip().paint (g); });
+            const auto rightImg = renderToImage (30, 82, [&] (juce::Graphics& g)
+                { band.rightCueStrip().paint (g); });
+            check (colSpan (leftImg, 12) < colSpan (leftImg, 17)
+                       && colSpan (rightImg, 17) < colSpan (rightImg, 12),
+                   "each cue keeps its vertex on the side where content is hidden");
+        }
+
 
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
         // parenting (clip + per-child translation) exactly like on screen.
         juce::Component canvas;
-        canvas.setSize (260, 210);
+        canvas.setSize (260, 280);
 
         canvas.addAndMakeVisible (primary);
         primary.setBounds (20, 18, 70, 28);
@@ -1166,7 +1229,17 @@ int main()
         canvas.addAndMakeVisible (bubble);
         bubble.setBounds (236, 20, 14, 14);
 
-        juce::Image receipt (juce::Image::ARGB, 260, 210, true);
+        // v0.13.0: the frame band on the receipt - three frames in a width that
+        // forces them to their floors, at rest, so the right cue shows its glyph.
+        ebs::FramedBody bandA, bandB, bandC;
+        ebs::FrameBand band;
+        canvas.addAndMakeVisible (band);
+        band.setBounds (10, 200, 240, 60);   // resized() lays the frames out
+        band.addFrame (&bandA, 90, 55, true);
+        band.addFrame (&bandB, 90, 55, true);
+        band.addFrame (&bandC, 90, 55, false);
+
+        juce::Image receipt (juce::Image::ARGB, 260, 280, true);
         {
             juce::Graphics g (receipt);
             g.fillAll (ebs::bgDark());

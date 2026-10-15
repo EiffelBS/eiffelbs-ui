@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.12.30 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.13.0 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.12.30 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.12.30)
+#       GIT_TAG        v0.13.0)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -26,6 +26,11 @@ project(eiffelbs-ui VERSION 0.12.30 LANGUAGES C CXX)
 # run so it reads over an arbitrary background (drop shadow, contour, scrim),
 # for text painted over a video or an animation. It needs only juce_gui_basics,
 # so it IS in the umbrella.
+
+# v0.13.0: ebs::FrameBand (include/eiffelbs/FrameBand.h) - a horizontal row of
+# frames that keeps each block at the width its content asks for, gives spare room
+# to the blocks that can use it, and scrolls only below the hard floor. The scroll
+# cues share the chevron glyph, now factored out as ebs::drawChevronGlyph.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

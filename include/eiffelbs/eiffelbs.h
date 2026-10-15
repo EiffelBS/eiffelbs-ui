@@ -45,4 +45,5 @@
 #include "eiffelbs/Avatar.h"
 #include "eiffelbs/ChatBubble.h"
 #include "eiffelbs/PillTabSwitch.h"
+#include "eiffelbs/FrameBand.h"
 #include "eiffelbs/TextReadability.h"
