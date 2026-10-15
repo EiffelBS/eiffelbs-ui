@@ -1111,10 +1111,10 @@ int main()
                    "interior() excludes the chevron slot");
         }
 
-        // === FrameBand (v0.13.0) ===========================================
+        // === FrameBand (v0.13.0, fixed widths since v0.14.0) ==============
         // A row of frames that keeps each block at the width its own content asks
-        // for, hands spare room to the blocks that can use it, and scrolls only
-        // below the hard floor. Widths are read back from the bounds the band set;
+        // for, leaves spare room empty at the right edge, and scrolls only below
+        // the hard floor. Widths are read back from the bounds the band set;
         // cue direction is read from the VERTICAL SPREAD of accent ink per column:
         // a cue dissolve band is bgPanel (blue 62), so only glyph ink passes the probe;
         // the spread, not the count, says which side the chevron vertex sits on.
@@ -1142,8 +1142,8 @@ int main()
 
             band.setBounds (0, 0, 500, 90);
             check (band.maxScroll() == 0, "a band that fits does not scroll");
-            check (fa.getWidth() == 160 && fb.getWidth() == 180 && fc.getWidth() == 140,
-                   "spare room goes to the growable blocks only");
+            check (fa.getWidth() == 100 && fb.getWidth() == 120 && fc.getWidth() == 140,
+                   "a frame keeps exactly the width its content asks for");
             check (! band.canScrollLeft() && ! band.canScrollRight(),
                    "a band that shows everything keeps both cues dark");
 
@@ -1173,12 +1173,18 @@ int main()
                        && colSpan (rightImg, 17) < colSpan (rightImg, 12),
                    "each cue keeps its vertex on the side where content is hidden");
 
-            // A block whose width is fixed by its content must not absorb the slack,
-            // even when the band has room to give.
+            // A frame is never stretched, and a block whose width is fixed by its
+            // content is never squeezed below it: only growable blocks give.
             band.setFrameWidths (&fb, 120, 70, false);
+            band.setBounds (0, 0, 250, 90);
+            check (fa.getWidth() == 60 && fb.getWidth() == 120 && fc.getWidth() == 140,
+                   "a non-growable block keeps its preferred width when the row shrinks");
+            check (band.maxScroll() == 90,
+                   "the scroll span counts the widths that were kept, not the floor");
+
             band.setBounds (0, 0, 500, 90);
-            check (fa.getWidth() == 220 && fb.getWidth() == 120 && fc.getWidth() == 140,
-                   "setFrameWidths keeps a block non-growable when asked");
+            check (fa.getWidth() == 100 && fb.getWidth() == 120 && fc.getWidth() == 140,
+                   "spare room is left empty: no block absorbs it");
         }
 
 

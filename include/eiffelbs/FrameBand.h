@@ -9,10 +9,12 @@
 // A row of frames squeezed into a shrinking width dies two ways: the last
 // block gets stretched to fill, or every block is compressed until its
 // widgets collide. Both are the same failure - the row has no notion of a
-// floor. This band keeps each frame at the width its own content asks for,
-// hands the spare room to the blocks that can use it, and only when the
-// floors are breached does the row start to scroll. Scroll is the escape
-// valve below the hard floor, never the primary mechanism.
+// floor. This band keeps each frame at the width its own content asks for:
+// spare room is left empty at the right edge and never handed to a block,
+// because a stretched frame is a frame whose layout no longer matches its
+// content. "Growable" therefore means ONLY "may be shrunk toward its floor
+// before the row scrolls". Scroll is the escape valve below the hard floor,
+// never the primary mechanism.
 //
 // SCROLL VOCABULARY, BORROWED FROM THE PILL
 //
@@ -109,8 +111,9 @@ namespace ebs
          *  every widget already inside it stays where it is.
          *
          *  preferredW is the width its content asks for, minW the floor below which
-         *  the widgets collide, and growable says whether spare room may be given
-         *  to this block at all. */
+         *  the widgets collide. A frame is laid out at preferredW. growable says
+         *  whether this block may be shrunk toward minW when the row runs out of
+         *  room, before it starts to scroll; spare room is never given to a block. */
         void addFrame (juce::Component* frame, int preferredW, int minW, bool growable = true)
         {
             if (frame == nullptr)
@@ -144,7 +147,8 @@ namespace ebs
         /** Re-state a frame's widths after its own state changed - an
          *  ExpansibleFrame that just opened is the case this exists for. The band
          *  re-lays out immediately. Pass growable = false for a block whose width
-         *  is fixed by its content, so it never absorbs spare room. */
+         *  is fixed by its content, so it keeps its preferred width and is never
+         *  squeezed below it. */
         void setFrameWidths (juce::Component* frame, int preferredW, int minW, bool growable = true)
         {
             for (auto& e : entries)
@@ -372,47 +376,30 @@ namespace ebs
             }
 
             const int gaps = bandGap * (n - 1);
-            int prefSum = 0, minSum = 0, growRange = 0, growables = 0;
+            int prefSum = 0, growRange = 0;
 
             for (const auto& e : entries)
             {
                 prefSum += e.pref;
-                minSum  += e.minW;
 
                 if (e.growable && e.pref > e.minW)
-                {
                     growRange += e.pref - e.minW;
-                    ++growables;
-                }
             }
 
             widths.assign (static_cast<size_t> (n), 1);
 
-            if (viewW >= prefSum + gaps)
+            // A frame gets exactly the width its content asks for. Spare room is left
+            // empty at the right edge: stretching a block makes that block's own
+            // layout lie about its content, which is the failure this band exists to end.
+            for (int i = 0; i < n; ++i)
+                widths[i] = entries[i].pref;
+
+            if (viewW < prefSum + gaps)
             {
-                // Everything fits: everyone at preferred, and the spare room goes to
-                // the blocks that can use it so the band fills its width.
-                int slack = viewW - (prefSum + gaps);
-
-                for (int i = 0; i < n; ++i)
-                    widths[i] = entries[i].pref;
-
-                if (slack > 0 && growables > 0)
-                {
-                    const int share = slack / growables, extra = slack % growables;
-                    int idx = 0;
-
-                    for (int i = 0; i < n; ++i)
-                        if (entries[i].growable && entries[i].pref > entries[i].minW)
-                            widths[i] += share + (idx++ < extra ? 1 : 0);
-                }
-
-            }
-            else
-            {
-                // Not enough room: shrink the growable blocks toward their floor,
-                // each giving in proportion to how much it can give. Non-growable
-                // blocks keep their preferred width - that is what "growable" means.
+                // Not enough room: shrink the growable blocks toward their floor, each
+                // giving in proportion to how much it can give. Non-growable blocks
+                // keep their preferred width - that is all "growable" means, and once
+                // every block sits at its floor the row scrolls.
                 const int need = prefSum + gaps - viewW;
 
                 for (int i = 0; i < n; ++i)
@@ -422,7 +409,6 @@ namespace ebs
                         ? (static_cast<long long> (need) * range) / growRange : 0;
                     widths[i] = entries[i].pref - static_cast<int> (juce::jmin (static_cast<long long> (range), give));
                 }
-
             }
 
             // The span that can scroll is what the widths actually add up to, not the
