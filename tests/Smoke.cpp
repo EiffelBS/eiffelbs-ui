@@ -1434,6 +1434,84 @@ int main()
             std::printf ("[INFO] readability fade 0.5 ink ratio: %.3f\n", ratio);
             check (ratio > 0.4 && ratio < 0.6,
                    "readability fade scales the contour's opacity, not its width");
+
+            // v0.15.3 the contour takes a tint (the shadow stays black). The
+            // defaulted colour must paint the HISTORIC pixels: same call with
+            // and without the seventh argument, byte for byte.
+            {
+                const auto viaDefault = renderToImage (300, 80, [&] (juce::Graphics& g)
+                {
+                    const auto font = ebs::createFont (48.0f, true);
+                    g.fillAll (juce::Colours::white);
+                    const auto path = ebs::glyphPathForText (
+                        font, word, box, juce::Justification::centred, false);
+                    ebs::drawReadabilityBacking (g, path, font,
+                                                 ebs::Readability::outline, 1.0f, 1.0f);
+                    g.setColour (juce::Colours::white);
+                    g.fillPath (path);
+                });
+                const auto viaBlack = renderToImage (300, 80, [&] (juce::Graphics& g)
+                {
+                    const auto font = ebs::createFont (48.0f, true);
+                    g.fillAll (juce::Colours::white);
+                    const auto path = ebs::glyphPathForText (
+                        font, word, box, juce::Justification::centred, false);
+                    ebs::drawReadabilityBacking (g, path, font,
+                                                 ebs::Readability::outline, 1.0f, 1.0f,
+                                                 juce::Colours::black);
+                    g.setColour (juce::Colours::white);
+                    g.fillPath (path);
+                });
+                bool same = true;
+                for (int y = 0; y < viaDefault.getHeight() && same; ++y)
+                    for (int x = 0; x < viaDefault.getWidth() && same; ++x)
+                        if (viaDefault.getPixelAt (x, y) != viaBlack.getPixelAt (x, y))
+                            same = false;
+                check (same, "readability default contour is the historic black");
+            }
+
+            // And the tint must ARRIVE: a red contour leaves reddish ink where
+            // the black one leaves neutral grey.
+            {
+                const auto redness = [&] (ebs::Readability mode, juce::Colour contour)
+                {
+                    const auto font = ebs::createFont (48.0f, true);
+                    const auto img = renderToImage (300, 80, [&] (juce::Graphics& g)
+                    {
+                        g.fillAll (juce::Colours::white);
+                        const auto path = ebs::glyphPathForText (
+                            font, word, box, juce::Justification::centred, false);
+                        ebs::drawReadabilityBacking (g, path, font, mode, 1.0f,
+                                                     1.0f, contour);
+                        g.setColour (juce::Colours::white);
+                        g.fillPath (path);
+                    });
+                    // Distance from white, NEVER getBrightness: JUCE's
+                    // brightness is the max channel, so a saturated red reads
+                    // as bright as the white around it and a darkness meter
+                    // cannot see it at all.
+                    double red = 0.0, total = 0.0;
+                    for (int y = 0; y < img.getHeight(); ++y)
+                        for (int x = 0; x < img.getWidth(); ++x)
+                        {
+                            const auto c = img.getPixelAt (x, y);
+                            const auto offWhite = (765.0 - (double) c.getRed()
+                                                   - (double) c.getGreen()
+                                                   - (double) c.getBlue()) / 765.0;
+                            red += offWhite * ((double) c.getRed() / 255.0);
+                            total += offWhite;
+                        }
+                    return total > 0.0 ? red / total : 0.0;
+                };
+                const auto blackInk = redness (ebs::Readability::outline,
+                                               juce::Colours::black);
+                const auto redInk = redness (ebs::Readability::outline,
+                                             juce::Colours::red);
+                std::printf ("[INFO] readability contour redness black=%.3f red=%.3f\n",
+                             blackInk, redInk);
+                check (redInk > blackInk + 0.2,
+                       "readability contour carries the caller's tint");
+            }
         }
 
         // The scrim darkens the band on a mid background, and a strength of

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.2 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.3 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.15.2 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.2)
+#       GIT_TAG        v0.15.3)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -63,6 +63,12 @@ project(eiffelbs-ui VERSION 0.15.2 LANGUAGES C CXX)
 # v0.15.2: IconButton shapes `expand` / `compress` (Feather maximize-2 /
 # minimize-2, verbatim): the fullscreen enter / exit pair, four corners
 # pointing out / in.
+
+# v0.15.3: drawReadabilityBacking() takes the caller's `contour` colour for
+# the outline (7th parameter, default opaque black). The shadow stays
+# neutral black whatever it says; the historic 0xE6 base opacity is kept
+# for every colour, so a host that passes nothing paints the same pixels
+# as before.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -115,10 +115,18 @@ inline juce::Path glyphPathForText (const juce::Font& font, const juce::String& 
     is quietest - a dark outline the eye reads as the word, around a word it
     can no longer read. Width stays the caller's: a contour that thinned as
     well as faded would stop being a contour on the far rows instead of
-    becoming a quieter one. */
+    becoming a quieter one.
+
+    `contour` (default opaque black) tints the CONTOUR only: the shadow stays
+    neutral black whatever it says, because a coloured blur is a glow, not a
+    shadow. Its own alpha composes with the run's (an opaque pick behaves
+    exactly like the historic black), and the designed 0xE6 base opacity is
+    kept for every colour, so a host that passes nothing paints the same
+    pixels as before this parameter existed. */
 inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPath,
                                     const juce::Font& font, Readability mode,
-                                    float strength, float fade = 1.0f)
+                                    float strength, float fade = 1.0f,
+                                    juce::Colour contour = juce::Colour (0xFF000000))
 {
     const auto s = juce::jlimit (0.0f, 1.0f, strength);
     const auto f = juce::jlimit (0.0f, 1.0f, fade);
@@ -157,7 +165,17 @@ inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPa
         // of leaving an outline around nothing. Its WIDTH does not follow -
         // that is the caller's `strength`, and thinning it too would delete
         // the contour rather than quiet it.
-        g.setColour (juce::Colour (0xE6000000).withMultipliedAlpha (alpha));
+        //
+        // The tint keeps the historic 0xE6 base opacity explicitly: the old
+        // line read `0xE6000000 times alpha`, so an opaque black must land on
+        // exactly that - and an opaque pick of any hue lands beside it, same
+        // strength, same fade, only the hue moved.
+        g.setColour (juce::Colour::fromRGB (contour.getRed(),
+                                              contour.getGreen(),
+                                              contour.getBlue())
+                         .withMultipliedAlpha (0xE6 / 255.0f
+                                               * contour.getFloatAlpha()
+                                               * alpha));
         g.fillPath (outline);
     }
 }
