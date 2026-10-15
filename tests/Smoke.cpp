@@ -1172,6 +1172,13 @@ int main()
             check (colSpan (leftImg, 12) < colSpan (leftImg, 17)
                        && colSpan (rightImg, 17) < colSpan (rightImg, 12),
                    "each cue keeps its vertex on the side where content is hidden");
+
+            // A block whose width is fixed by its content must not absorb the slack,
+            // even when the band has room to give.
+            band.setFrameWidths (&fb, 120, 70, false);
+            band.setBounds (0, 0, 500, 90);
+            check (fa.getWidth() == 220 && fb.getWidth() == 120 && fc.getWidth() == 140,
+                   "setFrameWidths keeps a block non-growable when asked");
         }
 
 

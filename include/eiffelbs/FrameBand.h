@@ -143,15 +143,16 @@ namespace ebs
 
         /** Re-state a frame's widths after its own state changed - an
          *  ExpansibleFrame that just opened is the case this exists for. The band
-         *  re-lays out immediately. */
-        void setFrameWidths (juce::Component* frame, int preferredW, int minW)
+         *  re-lays out immediately. Pass growable = false for a block whose width
+         *  is fixed by its content, so it never absorbs spare room. */
+        void setFrameWidths (juce::Component* frame, int preferredW, int minW, bool growable = true)
         {
             for (auto& e : entries)
                 if (e.frame == frame)
                 {
-                    e.pref  = juce::jmax (1, preferredW);
-                    e.minW  = juce::jmax (1, minW);
-                    e.growable = true;
+                    e.pref     = juce::jmax (1, preferredW);
+                    e.minW     = juce::jmax (1, minW);
+                    e.growable = growable;
                 }
 
             relayout();
