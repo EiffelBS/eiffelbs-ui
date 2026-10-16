@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.6 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.7 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.15.6 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.6)
+#       GIT_TAG        v0.15.7)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -75,8 +75,6 @@ project(eiffelbs-ui VERSION 0.15.6 LANGUAGES C CXX)
 # host-supplied captions. It takes three numbers (peak linear, gain reduction in dB,
 # trim in dB) and computes nothing, so the audio code stays the single source of truth.
 # Needs only juce_gui_basics, so it IS in the umbrella.
-# NB the pushed tag v0.15.4 carries the TextReadability weight instead: two lines of
-# work merged the same hour, and a pushed tag is never rewritten (see v0.15.6).
 
 # v0.15.5: the LevelMeter gain-reduction segment is sized by the reduction itself, on a
 # 12 dB scale, drawn from the right edge inwards OVER the peak fill. The v0.15.4 segment
@@ -92,6 +90,13 @@ project(eiffelbs-ui VERSION 0.15.6 LANGUAGES C CXX)
 # nothing on the smallest rows, which is exactly where a reader who asks for
 # a heavier contour is looking. The rail is 0.25..4, and 1 is byte-identical
 # to v0.15.3.
+
+# v0.15.7: nothing moves but a note. v0.15.6 shipped an NB claiming the pushed
+# v0.15.4 tag carried the TextReadability weight - it does not: the remote's
+# v0.15.4 is 0c9c13c, the LevelMeter bar. Two lines of work landed the same hour
+# and a local tag that was refused its push never left that checkout, so v0.15.4
+# is exactly what its own entry says. This version is that correction and
+# nothing else.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
