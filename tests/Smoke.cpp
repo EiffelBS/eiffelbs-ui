@@ -1260,18 +1260,26 @@ int main()
         checkPixel (litMeter, { 10, 3 }, ebs::outputColour(),
                     "meter fills the bar to the level that left the stage");
         checkPixel (litMeter, { 50, 3 }, ebs::danger(),
-                    "meter draws the gain-reduction segment past the peak");
-        checkPixel (litMeter, { 72, 3 }, ebs::vizBg(),
-                    "meter leaves the untouched part of the bar on the meter background");
+                    "meter draws the gain-reduction segment from the right edge inwards");
 
         // A meter that is not limiting must show no red at all.
         const auto idleMeter = renderMeter (0.5f, 0.0f);
+        checkPixel (idleMeter, { 72, 3 }, ebs::vizBg(),
+                    "meter leaves the untouched part of the bar on the meter background");
         int dangerPixels = 0;
         for (int y = 0; y < idleMeter.getHeight(); ++y)
             for (int x = 0; x < idleMeter.getWidth(); ++x)
                 if (idleMeter.getPixelAt (x, y) == ebs::danger())
                     ++dangerPixels;
         check (dangerPixels == 0, "a meter with zero gain reduction shows no red segment");
+
+        // The segment is sized by the reduction: half the reduction covers half as much
+        // of the bar, so a smaller reduction cannot reach into the peak's territory.
+        const auto halfRed = renderMeter (0.5f, 3.0f);
+        checkPixel (halfRed, { 60, 3 }, ebs::danger(),
+                    "a smaller gain reduction still paints its segment");
+        checkPixel (halfRed, { 50, 3 }, ebs::vizBg(),
+                    "a smaller gain reduction covers less of the bar");
 
         // The bar must FALL with the feed: a meter holding a block peak would show a
         // frozen bar long after the sound stopped. Same pixel, quieter feed.

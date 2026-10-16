@@ -12,6 +12,9 @@
 // written by the audio thread and read by the editor timer; nothing here paints from
 // the audio thread.
 //
+// The bar shows the peak, and the gain reduction is drawn over it as a red segment
+// measured from the right edge inwards on a 12 dB scale: 6 dB covers half the bar.
+//
 // Captions are supplied by the host: translations belong to the application, not to
 // this library.
 //
@@ -99,25 +102,28 @@ public:
         if (w <= 0.0f)
             return;
 
-        // Gain reduction first: the level the signal asked for, minus what it got.
-        // The segment spans from the level that left the stage up to the level that
-        // was caught, so a falling peak shows a shrinking red tail.
-        if (gr > 0.0f)
-        {
-            const float wanted = juce::jlimit (0.0f, 1.0f, peak * std::pow (10.0f, gr / 20.0f));
-            const int xPeak   = left + static_cast<int> (peak * w);
-            const int xWanted = left + static_cast<int> (wanted * w);
-            g.setColour (danger());
-            g.fillRect (juce::Rectangle<int> (xPeak, bar.getY() + 1,
-                                              juce::jmax (0, xWanted - xPeak), barH - 2));
-        }
-
         // Then the level that actually left the stage.
         const int fillW = static_cast<int> (peak * w);
         if (fillW > 0)
         {
             g.setColour (outputColour());
             g.fillRect (juce::Rectangle<int> (left, bar.getY() + 1, fillW, barH - 2));
+        }
+
+        // Gain reduction last, so it stays visible over the peak: a segment measured from
+        // the right edge inwards, sized by the reduction on a 12 dB scale. Sizing it by
+        // "wanted minus got" would be exact arithmetic and invisible, because a limiter
+        // working at its ceiling leaves only a sliver of that difference inside a bar
+        // normalised to full scale. 6 dB covers half the bar, 12 dB all of it.
+        if (gr > 0.0f)
+        {
+            const int redW = static_cast<int> (juce::jlimit (0.0f, 1.0f, gr / grScaleDb) * w);
+            if (redW > 0)
+            {
+                g.setColour (danger());
+                g.fillRect (juce::Rectangle<int> (left + static_cast<int> (w) - redW,
+                                                  bar.getY() + 1, redW, barH - 2));
+            }
         }
 
         if (area.isEmpty())
@@ -135,6 +141,10 @@ public:
     }
 
 private:
+    /** Full-scale range of the gain-reduction segment, in dB. 12 dB is the trim range an
+        output stage normally covers, so a limiter pulling 6 dB reads as half the bar. */
+    static constexpr float grScaleDb = 12.0f;
+
     float peak = 0.0f;
     float gr = 0.0f;
     float trim = 0.0f;
