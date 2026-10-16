@@ -33,6 +33,7 @@
 #include <eiffelbs/eiffelbs.h>
 
 #include <cstdio>
+#include <optional>
 
 namespace
 {
@@ -1606,6 +1607,50 @@ int main()
                 check (redInk > blackInk + 0.2,
                        "readability contour carries the caller's tint");
             }
+
+            // v0.15.4 the weight ARRIVES as a stroke, and a weight of 1 is the
+            // historic pixels: the eighth parameter is additive, never a
+            // silent reshuffle of a width a host already tuned.
+            {
+                const auto renderWeight = [&] (std::optional<float> weight)
+                {
+                    const auto font = ebs::createFont (48.0f, true);
+                    return renderToImage (300, 80, [&] (juce::Graphics& g)
+                    {
+                        g.fillAll (juce::Colours::white);
+                        const auto path = ebs::glyphPathForText (
+                            font, word, box, juce::Justification::centred, false);
+                        if (weight.has_value())
+                            ebs::drawReadabilityBacking (g, path, font,
+                                                         ebs::Readability::outline, 1.0f,
+                                                         1.0f, juce::Colours::black, *weight);
+                        else
+                            ebs::drawReadabilityBacking (g, path, font,
+                                                         ebs::Readability::outline, 1.0f,
+                                                         1.0f, juce::Colours::black);
+                        g.setColour (juce::Colours::white);
+                        g.fillPath (path);
+                    });
+                };
+                const auto inkW1 = totalDarkness (renderWeight (1.0f));
+                const auto inkW2 = totalDarkness (renderWeight (2.0f));
+                std::printf ("[INFO] readability contour ink w1=%.0f w2=%.0f\n",
+                             inkW1, inkW2);
+                // Mass, not a threshold: twice the stroke width is roughly
+                // twice the ink, and no pixel count can compare two composites
+                // drawn at different widths over the same fill.
+                check (inkW2 > inkW1 * 1.5 && inkW2 < inkW1 * 2.5,
+                       "readability contour weight thickens the stroke");
+
+                const auto viaDefault = renderWeight (std::nullopt);
+                const auto viaOne = renderWeight (1.0f);
+                bool same = true;
+                for (int y = 0; y < viaDefault.getHeight() && same; ++y)
+                    for (int x = 0; x < viaDefault.getWidth() && same; ++x)
+                        if (viaDefault.getPixelAt (x, y) != viaOne.getPixelAt (x, y))
+                            same = false;
+                check (same, "readability contour weight 1 is the historic pixels");
+            }
         }
 
         // The scrim darkens the band on a mid background, and a strength of
@@ -1647,6 +1692,28 @@ int main()
                && ebs::readabilityContourWidth (300.0f) <= 12.0f
                && ebs::readabilityContourWidth (2.0f) >= 1.2f,
                "readability contour width scales and is clamped");
+
+        // v0.15.4 the reader's own WEIGHT multiplies that width, and it
+        // multiplies AFTER the clamp: on the smallest rows the designed width
+        // already sits on the 1.2 px floor, so a weight folded INTO the clamp
+        // is a control that does nothing exactly where a reader who cannot
+        // read the words is looking.
+        {
+            check (juce::approximatelyEqual (ebs::readabilityContourWidth (48.0f, 1.0f),
+                                             ebs::readabilityContourWidth (48.0f)),
+                   "readability contour weight 1 is the designed width");
+            const auto floorW = ebs::readabilityContourWidth (16.0f, 1.0f);
+            const auto floorHeavy = ebs::readabilityContourWidth (16.0f, 2.0f);
+            std::printf ("[INFO] readability contour floor w1=%.2f w2=%.2f\n",
+                         floorW, floorHeavy);
+            check (floorHeavy > floorW * 1.9f,
+                   "readability contour weight multiplies after the clamp");
+            check (juce::approximatelyEqual (ebs::readabilityContourWidth (48.0f, 0.01f),
+                                             ebs::readabilityContourWidth (48.0f, 0.25f))
+                       && juce::approximatelyEqual (ebs::readabilityContourWidth (48.0f, 99.0f),
+                                                    ebs::readabilityContourWidth (48.0f, 4.0f)),
+                   "readability contour weight is railed at 0.25..4");
+        }
     }
 
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",

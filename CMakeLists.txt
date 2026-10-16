@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.5 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.6 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.15.5 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.5)
+#       GIT_TAG        v0.15.6)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -75,6 +75,8 @@ project(eiffelbs-ui VERSION 0.15.5 LANGUAGES C CXX)
 # host-supplied captions. It takes three numbers (peak linear, gain reduction in dB,
 # trim in dB) and computes nothing, so the audio code stays the single source of truth.
 # Needs only juce_gui_basics, so it IS in the umbrella.
+# NB the pushed tag v0.15.4 carries the TextReadability weight instead: two lines of
+# work merged the same hour, and a pushed tag is never rewritten (see v0.15.6).
 
 # v0.15.5: the LevelMeter gain-reduction segment is sized by the reduction itself, on a
 # 12 dB scale, drawn from the right edge inwards OVER the peak fill. The v0.15.4 segment
@@ -82,6 +84,14 @@ project(eiffelbs-ui VERSION 0.15.5 LANGUAGES C CXX)
 # nothing on screen: a limiter at its ceiling leaves only a sliver of that difference
 # inside a bar normalised to full scale, so the red tail the smoke test proved at 6 dB
 # was 1-2 px wide in a real cell. 6 dB now covers half the bar, 12 dB all of it.
+
+# v0.15.6: the contour's WIDTH is the reader's to set.
+# readabilityContourWidth (fontH, weight = 1) and drawReadabilityBacking()'s
+# 8th parameter `contourWeight` (default 1) multiply the designed stroke
+# width, AFTER its relative clamp - a weight folded INTO the clamp would do
+# nothing on the smallest rows, which is exactly where a reader who asks for
+# a heavier contour is looking. The rail is 0.25..4, and 1 is byte-identical
+# to v0.15.3.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -77,10 +77,19 @@ inline bool readabilityHasScrim (Readability r) noexcept
     is mush on the smallest rows and a hairline on the biggest. The stroke is
     centred on the glyph outline, so only half of it shows outside the letter -
     the effective contour is ~0.04 of the glyph, the discreet subtitle
-    weight. */
-inline float readabilityContourWidth (float fontH) noexcept
+    weight.
+
+    `weight` (default 1) is the reader's own multiplier on that designed
+    width, and it multiplies AFTER the relative clamp: a weight that was
+    folded into the clamp would do nothing on the smallest rows (their width
+    already sits on the 1.2 px floor), which is exactly where a reader who
+    asks for a heavier contour is looking. The rail is 0.25..4 - a host
+    cannot ask for a 100x stroke by accident - and 1 is byte-identical to
+    before this parameter existed. */
+inline float readabilityContourWidth (float fontH, float weight = 1.0f) noexcept
 {
-    return juce::jlimit (1.2f, 12.0f, fontH * 0.08f);
+    return juce::jlimit (1.2f, 12.0f, fontH * 0.08f)
+           * juce::jlimit (0.25f, 4.0f, weight);
 }
 
 /** The glyph outline of ONE run of text, placed EXACTLY where
@@ -122,11 +131,19 @@ inline juce::Path glyphPathForText (const juce::Font& font, const juce::String& 
     shadow. Its own alpha composes with the run's (an opaque pick behaves
     exactly like the historic black), and the designed 0xE6 base opacity is
     kept for every colour, so a host that passes nothing paints the same
-    pixels as before this parameter existed. */
+    pixels as before this parameter existed.
+
+    `contourWeight` (default 1) is the reader's multiplier on the contour's
+    WIDTH alone - the tint stays the tint, the fade stays the fade - because
+    a contour that is too thin to read is a readability complaint with one
+    cause and one cure. `strength` still scales both (it is how strong the
+    backing is as a whole); the weight is what the reader sets once and keeps.
+    Default 1 keeps every existing caller byte-identical. */
 inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPath,
                                     const juce::Font& font, Readability mode,
                                     float strength, float fade = 1.0f,
-                                    juce::Colour contour = juce::Colour (0xFF000000))
+                                    juce::Colour contour = juce::Colour (0xFF000000),
+                                    float contourWeight = 1.0f)
 {
     const auto s = juce::jlimit (0.0f, 1.0f, strength);
     const auto f = juce::jlimit (0.0f, 1.0f, fade);
@@ -155,7 +172,7 @@ inline void drawReadabilityBacking (juce::Graphics& g, const juce::Path& glyphPa
     if (readabilityHasContour (mode) && fontH >= kReadabilityMinFontH)
     {
         juce::Path outline;
-        juce::PathStrokeType (readabilityContourWidth (fontH) * s,
+        juce::PathStrokeType (readabilityContourWidth (fontH, contourWeight) * s,
                               juce::PathStrokeType::curved,
                               juce::PathStrokeType::rounded)
             .createStrokedPath (outline, glyphPath);
