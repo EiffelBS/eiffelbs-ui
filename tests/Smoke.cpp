@@ -1236,6 +1236,75 @@ int main()
         }
 
 
+        // v0.15.3 LevelMeter: a peak bar, a gain-reduction segment past the peak,
+        // and one dB text line. The bar is drawn from numbers the host hands it, so
+        // every check below is on the geometry those readings imply.
+        // Bar interior is x 1..72 (the 1 px border sits on the edges), so a peak of
+        // 0.5 fills to x = 1 + int(0.5 * 72) = 36, and a 6 dB reduction asks for
+        // 0.5 * 10^(6/20) = 0.998, i.e. the red segment runs from x 37 to x 71.
+        ebs::LevelMeter meter;
+        meter.setBounds (0, 0, 74, 18);
+        meter.setBarHeight (5);
+
+        const auto renderMeter = [&] (float peak, float gr)
+        {
+            meter.setPeak (peak);
+            meter.setGainReduction (gr);
+            return renderToImage (74, 18, [&] (juce::Graphics& g)
+            {
+                meter.paintEntireComponent (g, false);
+            });
+        };
+
+        const auto litMeter = renderMeter (0.5f, 6.0f);
+        checkPixel (litMeter, { 10, 3 }, ebs::outputColour(),
+                    "meter fills the bar to the level that left the stage");
+        checkPixel (litMeter, { 50, 3 }, ebs::danger(),
+                    "meter draws the gain-reduction segment past the peak");
+        checkPixel (litMeter, { 72, 3 }, ebs::vizBg(),
+                    "meter leaves the untouched part of the bar on the meter background");
+
+        // A meter that is not limiting must show no red at all.
+        const auto idleMeter = renderMeter (0.5f, 0.0f);
+        int dangerPixels = 0;
+        for (int y = 0; y < idleMeter.getHeight(); ++y)
+            for (int x = 0; x < idleMeter.getWidth(); ++x)
+                if (idleMeter.getPixelAt (x, y) == ebs::danger())
+                    ++dangerPixels;
+        check (dangerPixels == 0, "a meter with zero gain reduction shows no red segment");
+
+        // The bar must FALL with the feed: a meter holding a block peak would show a
+        // frozen bar long after the sound stopped. Same pixel, quieter feed.
+        const auto quietMeter = renderMeter (0.25f, 0.0f);
+        checkPixel (quietMeter, { 30, 3 }, ebs::vizBg(),
+                    "the bar shrinks when the peak falls");
+
+        // The reading line is what the user reads, so it has to carry glyph ink.
+        // Counted BELOW the bar: an 8 pt glyph never lands on its exact colour (every
+        // pixel is a partial coverage), so ink is any pixel that is neither the black
+        // pre-fill nor the meter background.
+        int lineInk = 0;
+        for (int y = 5; y < litMeter.getHeight(); ++y)
+            for (int x = 0; x < litMeter.getWidth(); ++x)
+            {
+                const auto c = litMeter.getPixelAt (x, y);
+                if (c != juce::Colours::black && c != ebs::vizBg())
+                    ++lineInk;
+            }
+        check (lineInk > 0, "the dB reading paints glyphs on the text line");
+
+        // A hot feed cannot draw past the bar, and a negative reduction is inactive.
+        meter.setPeak (1.5f);
+        check (meter.getPeak() == 1.0f, "peak is clamped to the top of the bar");
+        meter.setGainReduction (-3.0f);
+        check (meter.getGainReduction() == 0.0f, "negative gain reduction reads as inactive");
+
+        // The meter carries a tooltip, so it has to answer the tooltip query: Component
+        // alone does not give that interface, SettableTooltipClient does.
+        meter.setTooltip ("peak, reduction, trim");
+        check (meter.getTooltip() == "peak, reduction, trim",
+               "the meter answers a tooltip query");
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
@@ -1300,6 +1369,14 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
+        // v0.15.3: the level meter under the knob, in the SAME cell - the slot a host
+        // gives it inside an effects column, which costs the frame no width.
+        meter.setPeak (0.6f);
+        meter.setGainReduction (4.0f);
+        meter.setTrim (1.0f);
+        canvas.addAndMakeVisible (meter);
+        meter.setBounds (96, 152, 74, 18);
+
         juce::Image receipt (juce::Image::ARGB, 260, 280, true);
         {
             juce::Graphics g (receipt);
@@ -1307,6 +1384,15 @@ int main()
             canvas.paintEntireComponent (g, false);
         }
         writePngReceipt (receipt);
+
+        // The meter must survive real parenting: on the canvas it sits under the knob
+        // in the same cell, at (96,152) with a 74x18 slot. Bar interior is x 97..168,
+        // so peak 0.6 fills to x = 97 + int(0.6 * 72) = 140 and the 4 dB reduction
+        // (wanted clamped to full scale) draws red from x 140 to x 168.
+        checkPixel (receipt, { 120, 154 }, ebs::outputColour(),
+                    "the meter keeps its peak fill when parented on the canvas");
+        checkPixel (receipt, { 160, 154 }, ebs::danger(),
+                    "the meter keeps its gain-reduction segment when parented");
 
         // Detach children BEFORE stack unwind order gets tricky: canvas is
         // destroyed first (declared last among the parents here), while its

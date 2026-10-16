@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.3 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.4 LANGUAGES C CXX)
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +9,7 @@ project(eiffelbs-ui VERSION 0.15.3 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.3)
+#       GIT_TAG        v0.15.4)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -69,6 +69,12 @@ project(eiffelbs-ui VERSION 0.15.3 LANGUAGES C CXX)
 # neutral black whatever it says; the historic 0xE6 base opacity is kept
 # for every colour, so a host that passes nothing paints the same pixels
 # as before.
+
+# v0.15.4: ebs::LevelMeter (include/eiffelbs/LevelMeter.h) - a compact output meter:
+# a peak bar, a gain-reduction segment drawn past the peak, and one dB text line with
+# host-supplied captions. It takes three numbers (peak linear, gain reduction in dB,
+# trim in dB) and computes nothing, so the audio code stays the single source of truth.
+# Needs only juce_gui_basics, so it IS in the umbrella.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
