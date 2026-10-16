@@ -24,6 +24,7 @@
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
+#include "eiffelbs/IconButton.h"   // the shared glyph paths (an optional menu icon)
 
 namespace ebs
 {
@@ -34,6 +35,18 @@ namespace ebs
         MenuChevronButton() : juce::Button ("MenuChevron")
         {
             setMouseCursor (juce::MouseCursor::PointingHandCursor);
+        }
+
+        /** The optional GLYPH the menu carries, drawn at the left of the label.
+         *  Built by the SAME `IconButton::glyphPath`, so a shape means exactly
+         *  what it means on an IconButton, and measured into
+         *  `widthNeededFor (text, withIcon)`. Absent by default: a menu with no
+         *  glyph is the button this class shipped, pixel for pixel. */
+        void setShape (IconButton::Shape s)
+        {
+            shape = s;
+            hasShape = true;
+            repaint();
         }
 
         void paintButton (juce::Graphics& g, bool over, bool down) override
@@ -47,11 +60,23 @@ namespace ebs
                 g.setColour (ebs::accent().withAlpha (down ? 0.28f : 0.16f));
                 g.fillRoundedRectangle (b, 5.0f);
             }
-            g.setColour (! isEnabled() ? ebs::textDim().withAlpha (0.35f)
-                                       : ebs::text());
+            const auto ink = ! isEnabled() ? ebs::textDim().withAlpha (0.35f)
+                                           : ebs::text();
+            auto textArea = b.withTrimmedLeft (pad()).withTrimmedRight (chevronSlot());
+            if (hasShape)
+            {
+                // The glyph owns the left of the text area, at the height of
+                // the hint font: one box, one centre, so the label and the
+                // shape share a baseline whatever the button's height.
+                const auto box = textArea.removeFromLeft (iconSlot()).toFloat()
+                                    .withSizeKeepingCentre (iconSide(), iconSide());
+                g.setColour (ink);
+                g.fillPath (IconButton::glyphPath (shape, box, false, false,
+                                                   iconSide()));
+            }
+            g.setColour (ink);
             g.setFont (ebs::fontHint());
-            g.drawText (getButtonText(),
-                        b.withTrimmedLeft (pad()).withTrimmedRight (chevronSlot()),
+            g.drawText (getButtonText(), textArea,
                         juce::Justification::centredLeft, true);
             const float cx = b.getRight() - pad() - 5.0f;
             const float cy = b.getCentreY();
@@ -71,22 +96,35 @@ namespace ebs
          *  button's own chrome instead of copying the constants. */
         static constexpr int pad()        { return 8; }
         static constexpr int chevronSlot() { return 18; }
+        /** The glyph's slot and its side, when the button carries one. */
+        static constexpr int iconSlot()    { return 22; }
+        static constexpr int iconSide()    { return 14; }
 
         /** The width this label needs AT THIS FONT. A layout that sizes the
          *  button to a guess either cuts the text mid-word or leaves a dead
          *  band the pointer crosses before the click counts, so the width is
          *  measured, never assumed - the same rule IconTextButton follows for
-         *  its icon-plus-label row. */
-        static int widthNeededFor (const juce::String& text)
+         *  its icon-plus-label row. `withIcon` adds the glyph's slot: a caller
+         *  that measures only the text of a button that HAS one is the layout
+         *  that cuts it. */
+        static int widthNeededFor (const juce::String& text,
+                                   bool withIcon = false)
         {
             return pad()
+                 + (withIcon ? iconSlot() : 0)
                  + (int) std::ceil (ebs::fontHint().getStringWidth (text))
                  + chevronSlot() + pad();
         }
 
-        int widthForLabel() const { return widthNeededFor (getButtonText()); }
+        int widthForLabel() const
+        {
+            return widthNeededFor (getButtonText(), hasShape);
+        }
 
     private:
+        IconButton::Shape shape = IconButton::Shape::play;
+        bool hasShape = false;
+
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MenuChevronButton)
     };
 

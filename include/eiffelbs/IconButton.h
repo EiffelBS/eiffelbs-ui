@@ -73,6 +73,12 @@ static const char* const kSvgHand = R"(<svg viewBox="0 0 24 24" fill="#010101"><
 static const char* const kSvgKebab = R"(<svg viewBox="0 0 24 24" fill="#010101"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>)";
 // Repeat/loop: two arrows chasing each other (Feather "repeat").
 static const char* const kSvgRepeat = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>)";
+// Typography (Feather "type"): the A-shaped mark a typeface control carries.
+static const char* const kSvgType = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>)";
+// A picture (Feather "image"): the frame, a sun and a horizon.
+static const char* const kSvgImage = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>)";
+// A film strip (Feather "film"): the VIDEO a backing mode is judged against.
+static const char* const kSvgFilm = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/></svg>)";
 
 // Tab-strip glyphs (Feather set, same 24-grid and stroke as the rest,
 // except keys). One recognisable mark per section so the pill reads at
@@ -136,7 +142,14 @@ public:
                        kebab, music, layers, activity, chat, mic, keys,
                        repeat, zoomIn, zoomOut, chevronUp, chevronDown,
                        chevronLeft, chevronRight, grid, step, power, trash,
-                       save, expand, compress };
+                       save, expand, compress,
+                       // The three a MENU can name: a typeface, a picture, and
+                       // the video a backing mode is judged against. Added
+                       // rather than borrowed - `layers` means Stems, `keys`
+                       // means MIDI and `eye` is a show/hide pair, so reusing
+                       // one would hang a second meaning on a shape this app
+                       // already reads.
+                       type, image, film };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -591,6 +604,9 @@ private:
             case Shape::mic:       return kSvgMic;
             case Shape::keys:      return kSvgKeys;
             case Shape::repeat:    return kSvgRepeat;
+            case Shape::type:      return kSvgType;
+            case Shape::image:     return kSvgImage;
+            case Shape::film:      return kSvgFilm;
             case Shape::zoomIn:      return kSvgZoomIn;
             case Shape::zoomOut:     return kSvgZoomOut;
             case Shape::chevronUp:   return kSvgChevronUp;

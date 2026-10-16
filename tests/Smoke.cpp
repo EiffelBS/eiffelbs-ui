@@ -232,6 +232,39 @@ int main()
 
         // Every IconButton shape must construct AND leave ink on screen
         // (catches broken SVG parsing as well as painting regressions).
+        // A MENU BUTTON carries its label and its chevron - and, when the host
+        // asks, a GLYPH. The three are one control, so the check is a
+        // comparison: the same label with an icon leaves MORE ink (the glyph is
+        // drawn) and asks for MORE width (the slot is measured), while the
+        // label-only button keeps painting its label. A glyph that never
+        // reached the drawing would pass a "the button paints" check and fail
+        // this one.
+        {
+            ebs::MenuChevronButton plain, iconed;
+            plain.setButtonText ("Words: Outline + scrim");
+            iconed.setButtonText ("Words: Outline + scrim");
+            iconed.setShape (ebs::IconButton::Shape::film);
+            plain.setSize (plain.widthForLabel(), 32);
+            iconed.setSize (iconed.widthForLabel(), 32);
+            check (iconed.getWidth() > plain.getWidth(),
+                   "a menu button with a glyph asks for the glyph's slot");
+            const auto renderMenu = [] (ebs::MenuChevronButton& b)
+            {
+                juce::Image img (juce::Image::ARGB, b.getWidth(), 32, true);
+                juce::Graphics g (img);
+                g.fillAll (juce::Colours::black);
+                b.paintEntireComponent (g, true);
+                return img;
+            };
+            const auto plainInk = inkPixels (renderMenu (plain));
+            const auto iconedInk = inkPixels (renderMenu (iconed));
+            std::printf ("[INFO] menu button ink: label %d, label+glyph %d\n",
+                         plainInk, iconedInk);
+            check (plainInk > 0, "a menu button with no glyph still paints its label");
+            check (iconedInk > plainInk + 20,
+                   "the menu glyph reaches the drawing");
+        }
+
         const ebs::IconButton::Shape shapes[] =
         {
             // The WHOLE enum: a new shape cannot ship without an ink check.
@@ -249,6 +282,8 @@ int main()
             ebs::IconButton::Shape::layers,  ebs::IconButton::Shape::activity,
             ebs::IconButton::Shape::chat,    ebs::IconButton::Shape::mic,
             ebs::IconButton::Shape::keys,    ebs::IconButton::Shape::repeat,
+            ebs::IconButton::Shape::type,    ebs::IconButton::Shape::image,
+            ebs::IconButton::Shape::film,
             ebs::IconButton::Shape::zoomIn,  ebs::IconButton::Shape::zoomOut,
             ebs::IconButton::Shape::chevronUp,   ebs::IconButton::Shape::chevronDown,
             ebs::IconButton::Shape::chevronLeft, ebs::IconButton::Shape::chevronRight,
