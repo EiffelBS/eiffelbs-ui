@@ -1465,7 +1465,7 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
-        // v0.15.11: two frames on the receipt carry a left vertical title spine, at the width
+        // v0.15.12: two frames on the receipt carry a left vertical title spine, at the width
         // the component asks for and the full frame height - what a host in a tight bottom row pays.
         ebs::FrameTitleBand titleA, titleC;
         bandA.addAndMakeVisible (titleA);
@@ -1813,7 +1813,7 @@ int main()
         }
     }
 
-    // v0.15.11: FrameTitleBand - a left vertical spine naming the frame, clipping to the
+    // v0.15.12: FrameTitleBand - a left vertical spine naming the frame, clipping to the
     // frame's own rounded corners and shrinking the title until it fits the band height.
     {
         const int w = 120, tallH = 170, shortH = 84;
@@ -1858,19 +1858,47 @@ int main()
         checkPixel (tall, { 1, 1 }, plainFrame.getPixelAt (1, 1),
                     "the title band hugs the frame's rounded corner instead of squaring it off");
 
-        // Glyph ink: solid cores of the rotated text inside the strip.
-        auto countTextInk = [&] (const juce::Image& img)
+        // The text is drawn at 60 % alpha, so no pixel of the strip can be the full-strength
+        // palette colour; and ink cannot be counted against a palette colour any more. The reference
+        // is the SAME band with an empty title: tint, separator and corner clip are identical there,
+        // so every pixel that differs from it is glyph ink.
+        auto renderBareBand = [&] (int height)
+        {
+            ebs::FramedBody frame;
+            frame.setSize (w, height);
+            ebs::FrameTitleBand band;
+            frame.addAndMakeVisible (band);
+            band.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), height);
+
+            juce::Image img (juce::Image::ARGB, w, height, true);
+            juce::Graphics g (img);
+            g.fillAll (juce::Colours::black);
+            frame.paintEntireComponent (g, false);
+            return img;
+        };
+
+        auto countTextInk = [&] (const juce::Image& img, const juce::Image& bare)
         {
             int n = 0;
-            for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+            for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)   // the separator column stays out
                 for (int y = 4; y < img.getHeight() - 4; ++y)
-                    if (img.getPixelAt (x, y) == ebs::text())
+                    if (img.getPixelAt (x, y) != bare.getPixelAt (x, y))
                         ++n;
             return n;
         };
-        const int tallInk = countTextInk (tall);
-        std::printf ("[INFO] title band ink in a %d px spine: %d\n", tallH, tallInk);
-        check (tallInk > 40, "the vertical title paints solid glyph cores");
+
+        const auto tallBare = renderBareBand (tallH);
+        int fullStrength = 0;
+        for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+            for (int y = 4; y < tallH - 4; ++y)
+                if (tall.getPixelAt (x, y) == ebs::text())
+                    ++fullStrength;
+
+        const int tallInk = countTextInk (tall, tallBare);
+        std::printf ("[INFO] title band in a %d px spine: ink=%d pixels of the full-strength text colour\n",
+                     tallH, tallInk, fullStrength);
+        check (tallInk > 40 && fullStrength == 0,
+               "the vertical title paints readable glyph cores at reduced strength, never the bright palette colour");
 
         // The separator is the frame's own trim, drawn on the band's inner edge.
         int sepPixels = 0;
@@ -1894,20 +1922,41 @@ int main()
 
         // The shrunk render keeps ink inside the spine: nothing clipped away to an empty band.
         const auto shortImg = renderFrameTitle (longTitle, shortH);
-        const int shortInk = countTextInk (shortImg);
+        const int shortInk = countTextInk (shortImg, renderBareBand (shortH));
         std::printf ("[INFO] title band ink in a %d px spine with a long title: %d\n",
                      shortH, shortInk);
         check (shortInk > 40 && ebs::bandTextLength (longTitle, ebs::kBandFontSize) > shortH - 6,
                "the band shrinks the font and keeps the whole title readable");
 
-        // Width is locale-independent by construction: the text runs along the height.
-        check (ebs::bandTextLength ("Effet", ebs::kBandFontSize) < longLen
-               && ebs::FrameTitleBand::bandWidth() == 26,
+        // Width is locale-independent by construction: the text runs along the height. The spine width is
+        // now measured from the UPPERCASE bold glyphs themselves, so a narrow column is provably cleared.
+        const juce::StringArray spineTitles = { "Correction", "Key & Scale", "Effects", "Reverb", "Harmony", longTitle };
+
+        int widest13 = 0, widest9 = 0;
+        for (int i = 0; i < spineTitles.size(); ++i)
+        {
+            const auto t = spineTitles[i];
+            std::printf ("[INFO] spine title %d: length@13pt=%d thickness@13pt=%d thickness@9pt=%d\n",
+                         i + 1, ebs::bandTextLength (t, ebs::kBandFontSize),
+                         ebs::bandGlyphThickness (t, ebs::kBandFontSize),
+                         ebs::bandGlyphThickness (t, ebs::kBandMinFontSize));
+            widest13 = juce::jmax (widest13, ebs::bandGlyphThickness (t, ebs::kBandFontSize));
+            widest9  = juce::jmax (widest9,  ebs::bandGlyphThickness (t, ebs::kBandMinFontSize));
+        }
+
+        std::printf ("[INFO] widest uppercase bold glyphs: %d px at 13pt, %d px at 9pt; band asks %d px\n",
+                     widest13, widest9, ebs::FrameTitleBand::bandWidth());
+        check (widest13 + 2 <= ebs::FrameTitleBand::bandWidth()
+                   && ebs::FrameTitleBand::bandWidth() <= widest13 + 6
+                   && widest13 < 26,
+               "the spine is measured from its own glyphs: at least one pixel clear at each edge, and no wider than the old band");
+
+        check (ebs::bandTextLength ("Effet", ebs::kBandFontSize) < longLen,
                "a longer locale costs length along the spine, never more band width");
 
         // A title-less band is a quiet strip: tint and separator, no glyph ink.
         const auto bare = renderFrameTitle (juce::String(), tallH);
-        check (countTextInk (bare) == 0 && bare.getPixelAt (10, 3) == tint,
+        check (countTextInk (bare, tallBare) == 0 && bare.getPixelAt (10, 3) == tint,
                "an empty title leaves the strip without glyphs");
 
         // Disabled reads dimmed, not invisible.
@@ -1935,11 +1984,17 @@ int main()
                 if (disImg.getPixelAt (x, y) != disPlain.getPixelAt (x, y))
                     ++anyInk;
 
+        int disBright = 0;
+        for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+            for (int y = 4; y < tallH - 4; ++y)
+                if (disImg.getPixelAt (x, y) == ebs::text())
+                    ++disBright;
+
         std::printf ("[INFO] disabled band: dimmed-exact %d, bright %d, changed %d\n",
-                     dimInk, countTextInk (disImg), anyInk);
+                     dimInk, disBright, anyInk);
         // A faded component is rendered through a transparency layer, so an exact palette colour never
         // survives: what proves the state is ink present with NO pixel of the bright text colour.
-        check (anyInk > 120 && countTextInk (disImg) == 0,
+        check (anyInk > 120 && disBright == 0,
                "a disabled band reads dimmed, never bright");
 
          // The locales OpenVoxTuner ships are the real stress test: French is long accented Latin, Japanese and
@@ -1950,19 +2005,20 @@ int main()
          const int spineH = tallH - 6;   // the height budget the band's own shrink loop compares against
 
          for (int i = 0; i < localeTitles.size(); ++i)
-         {
-             const juce::String t = localeTitles[i];
-             const int len13 = ebs::bandTextLength (t, ebs::kBandFontSize);
-             const int len9  = ebs::bandTextLength (t, ebs::kBandMinFontSize);
-             const auto img = renderFrameTitle (t, tallH);
-             const int ink = countTextInk (img);
-             std::printf ("[INFO] locale title %d: length@13pt=%d length@9pt=%d budget=%d ink=%d\n",
-                          i + 1, len13, len9, spineH, ink);
-             check (len9 <= spineH && ink > 40,
-                    "every shipped locale title fits the fixed band height and paints readable glyphs");
-         }
+        {
+            const juce::String t = localeTitles[i];
+            const int len13 = ebs::bandTextLength (t, ebs::kBandFontSize);
+            const int len9  = ebs::bandTextLength (t, ebs::kBandMinFontSize);
+            const int thick13 = ebs::bandGlyphThickness (t, ebs::kBandFontSize);
+            const auto img = renderFrameTitle (t, tallH);
+            const int ink = countTextInk (img, tallBare);
+            std::printf ("[INFO] locale title %d: length@13pt=%d length@9pt=%d budget=%d thickness@13pt=%d ink=%d\n",
+                         i + 1, len13, len9, spineH, thick13, ink);
+            check (len9 <= spineH && ink > 40 && thick13 + 2 <= ebs::FrameTitleBand::bandWidth(),
+                   "every shipped locale title fits the fixed band height, clears both spine edges and paints readable glyphs");
+        }
 
-        // v0.15.11 receipt slot for the spine: three frames at the height a bottom row gives them, each
+        // v0.15.12 receipt slot for the spine: three frames at the height a bottom row gives them, each
         // named along its left edge. The pixel checks above say the band hugs the curve; this is the
         // picture a human eye reads.
         juce::Image spineProof (juce::Image::ARGB, 300, 190, true);

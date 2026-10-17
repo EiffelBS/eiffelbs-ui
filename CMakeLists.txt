@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.11 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.12 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS

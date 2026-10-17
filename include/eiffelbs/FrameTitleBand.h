@@ -15,6 +15,11 @@
 // Scale Detection" cost the same column of pixels, which keeps a host's frame-width
 // model locale-independent.
 //
+// The label is drawn UPPERCASE and bold at ebs::kBandTextAlpha (60 %): a frame name
+// is a caption, not an instrument. Casing a Chinese or Japanese title changes nothing,
+// so the same rule serves every locale; upper casing is also what the width constant
+// was measured against (uppercase glyphs are the widest that ever stand in this column).
+//
 // It is a sibling of ebs::DisclosureChevron in shape (a strip inside a frame) and it
 // shares ebs::frameCornerRadius with ebs::drawGroupFrame, so band corners, frame
 // corners and group corners cannot drift apart.
@@ -33,17 +38,37 @@ namespace ebs
     inline constexpr float kBandFontSize = 13.0f;
     inline constexpr float kBandMinFontSize = 9.0f;
 
-    /** The width a title band asks for - fixed across locales by design. */
-    inline constexpr int kBandWidth = 26;
+    /** The width a title band asks for - fixed across locales by design.
+        Measured, not guessed: uppercase bold glyphs at the largest size the band can pick
+        (13 pt) are 13 px thick, so the spine is that thickness plus two pixels clear at each
+        edge = 17 px, and nothing more. A long translated name shrinks its glyphs (and therefore
+        its thickness), it never asks for a wider column. */
+    inline constexpr int kBandWidth = 17;
 
     /* Glyph padding kept clear at both ends of the spine: the fit check measures against
        the band height minus this much space top and bottom, never the bare height. */
     inline constexpr float kBandPad = 3.0f;
 
+    /** Text strength on the spine. A frame name is read, not looked at: 60 % alpha keeps it
+        legible against the strip tint without pulling the eye off the knobs. */
+    inline constexpr float kBandTextAlpha = 0.60f;
+
     /** Measured length of a title along the band, at one glyph size (in pixels). */
     inline int bandTextLength (const juce::String& text, float fontSize)
     {
         return juce::roundToInt (juce::GlyphArrangement::getStringWidth (createFont (fontSize, true), text));
+    }
+
+    /** Measured thickness a title needs ACROSS the band at one glyph size (in pixels): the
+        bounding box of the drawn line, uppercase, bold. This is what a spine width has to clear. */
+    inline int bandGlyphThickness (const juce::String& text, float fontSize)
+    {
+        const auto font = createFont (fontSize, true);
+        const auto caps = text.toUpperCase();
+
+        juce::GlyphArrangement glyphs;
+        glyphs.addLineOfText (font, caps, 0.0f, 0.0f);
+        return juce::roundToInt (glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), false).getHeight());
     }
 
     /** A left vertical title spine for a frame.
@@ -122,20 +147,26 @@ namespace ebs
             const auto w = float (strip.getWidth());
             const auto h = float (strip.getHeight());
 
+            // The name is set in its own locale's casing, but a spine is read at a glance from the corner of
+            // an eye: draw it UPPERCASE. Upper casing a CJK string is a no-op, so this is safe for every locale
+            // the host ships, and the fit check below measures exactly the text that will be drawn.
+            const auto caps = titleText.toUpperCase();
+
             // Shrink the glyphs from 13pt until the name fits the band height. A locale
-            // that runs long gets smaller text, never a wider column.
+            // that runs long gets smaller text, never a wider column - and smaller glyphs are
+            // thinner across the spine, so the fixed width stays cleared at every size.
             float size = kBandFontSize;
-            int length = bandTextLength (titleText, size);
+            int length = bandTextLength (caps, size);
 
             while (length > juce::roundToInt (h - 2.0f * kBandPad) && size > kBandMinFontSize)
             {
                 size -= 1.0f;
-                length = bandTextLength (titleText, size);
+                length = bandTextLength (caps, size);
             }
 
             const auto font = createFont (size, true);
             juce::GlyphArrangement glyphs;
-            glyphs.addLineOfText (font, titleText, 0.0f, 0.0f);
+            glyphs.addLineOfText (font, caps, 0.0f, 0.0f);
 
             const auto bb = glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), false);   // measured, not estimated
 
@@ -143,11 +174,13 @@ namespace ebs
             // spine on the LEFT edge reads bottom-to-top with its glyphs facing left, like a book spine. The
             // glyph box is bb.getRight() - bb.getX() long along its baseline; after rotation that length
             // stands vertically and ty centres it. Across the band the box spans tx + bb.getY() to
-            // tx + bb.getBottom(), and the matching midline centres it in the 26 px strip.
+            // tx + bb.getBottom(), and the matching midline centres it in the spine width.
             const auto ty = h * 0.5f + (bb.getX() + bb.getRight()) * 0.5f;
             const auto tx = w * 0.5f - (bb.getY() + bb.getBottom()) * 0.5f;
 
-            g.setColour (isEnabled() ? ebs::text() : ebs::textDim());
+            // 60 % alpha: a name is read, not looked at. At full strength the spine competes with the knobs.
+            g.setColour (isEnabled() ? ebs::text().withMultipliedAlpha (kBandTextAlpha)
+                                     : ebs::textDim());
             glyphs.draw (g, juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi)
                                    .translated (tx, ty));
         }
