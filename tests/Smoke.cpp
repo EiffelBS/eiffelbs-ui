@@ -1942,6 +1942,26 @@ int main()
         check (anyInk > 120 && countTextInk (disImg) == 0,
                "a disabled band reads dimmed, never bright");
 
+         // The locales OpenVoxTuner ships are the real stress test: French is long accented Latin, Japanese and
+         // Chinese are ideograph runs. A standalone launched from patched settings does not apply the persisted
+         // language on this machine, so locale rendering CANNOT be proven through a live screenshot - it has to be
+         // proven here, in the component itself, at the height the bottom row gives a frame (170 px).
+         const juce::StringArray localeTitles = { "Tonalité et gamme", "Réverbération", "キーとスケール", "根音与音阶" };
+         const int spineH = tallH - 6;   // the height budget the band's own shrink loop compares against
+
+         for (int i = 0; i < localeTitles.size(); ++i)
+         {
+             const juce::String t = localeTitles[i];
+             const int len13 = ebs::bandTextLength (t, ebs::kBandFontSize);
+             const int len9  = ebs::bandTextLength (t, ebs::kBandMinFontSize);
+             const auto img = renderFrameTitle (t, tallH);
+             const int ink = countTextInk (img);
+             std::printf ("[INFO] locale title %d: length@13pt=%d length@9pt=%d budget=%d ink=%d\n",
+                          i + 1, len13, len9, spineH, ink);
+             check (len9 <= spineH && ink > 40,
+                    "every shipped locale title fits the fixed band height and paints readable glyphs");
+         }
+
         // v0.15.11 receipt slot for the spine: three frames at the height a bottom row gives them, each
         // named along its left edge. The pixel checks above say the band hugs the curve; this is the
         // picture a human eye reads.
@@ -1987,6 +2007,41 @@ int main()
             out->flush();
         }
         std::printf ("[INFO] title spine receipt: %s\n", spineFile.getFullPathName().toRawUTF8());
+
+        // Locale receipt: the same spine geometry carrying the four longest titles a locale can hand it. This is
+        // the picture that proves "the band stays 26 px, the language pays in height" on paper, because the live
+        // app cannot be driven into a foreign language on this machine.
+        juce::Image localeProof (juce::Image::ARGB, 400, 190, true);
+        {
+            juce::Component localeCanvas;
+            localeCanvas.setSize (400, 190);
+
+            ebs::FramedBody lframe[4];
+            ebs::FrameTitleBand lspine[4];
+
+            for (int i = 0; i < 4; ++i)
+            {
+                localeCanvas.addAndMakeVisible (lframe[i]);
+                lframe[i].setBounds (5 + i * 100, 10, 90, 170);
+                lspine[i].setTitle (localeTitles[i]);
+                lframe[i].addAndMakeVisible (lspine[i]);
+                lspine[i].setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), 170);
+            }
+
+            juce::Graphics lg (localeProof);
+            lg.fillAll (ebs::bgDark());
+            localeCanvas.paintEntireComponent (lg, false);
+        }
+
+        const juce::File localeFile (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                        .getChildFile ("eiffelbs-title-band-locales.png"));
+
+        if (auto out = localeFile.createOutputStream())
+        {
+            juce::PNGImageFormat().writeImageToStream (localeProof, *out);
+            out->flush();
+        }
+        std::printf ("[INFO] locale spine receipt: %s\n", localeFile.getFullPathName().toRawUTF8());
     }
 
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",
