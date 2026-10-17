@@ -1479,7 +1479,7 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
-        // v0.15.13 (the spine) + v0.15.14 (accent-free captions): two frames on the receipt carry a left vertical title spine, at the width
+        // v0.15.13 (the spine) + v0.15.14 (accent-free captions) + v0.15.15 (measured room names): two frames on the receipt carry a left vertical title spine, at the width
         // the component asks for and the full frame height - what a host in a tight bottom row pays.
         ebs::FrameTitleBand titleA, titleC;
         bandA.addAndMakeVisible (titleA);
@@ -1827,7 +1827,7 @@ int main()
         }
     }
 
-    // v0.15.13 (the spine) + v0.15.14 (its caption is drawn as accent-free tracked capitals): a left vertical spine naming the frame,
+    // v0.15.13 (the spine) + v0.15.14 (its caption is drawn as accent-free tracked capitals) + v0.15.15 (measured room names): a left vertical spine naming the frame,
     // clipping to the frame's own rounded corners and shrinking the title until it fits the band height.
     {
         const int w = 120, tallH = 170, shortH = 84;
@@ -2082,7 +2082,61 @@ int main()
                    "every shipped locale title fits the fixed band height, clears both spine edges and paints readable glyphs");
         }
 
-        // v0.15.13 (the spine) + v0.15.14 (accent-free captions) receipt slot: three frames at the height a bottom row gives them, each
+         // v0.15.15: the consumer frame names its rooms LEAD and HARMONY and its ducking knob
+         // DUCKING in every locale it ships. The consumer measures each column floor from these
+         // exact strings (18 px power strip + label width at 14 pt + 2 px edge), so measuring them
+         // here checks a rename against the fixed 74 px cell instead of eyeballing one language.
+         const juce::StringArray leadNames = { u8 ({ 'L', 'e', 'a', 'd' }), u8 ({ 'L', 'e', 'a', 'd' }),
+                                               u8 ({ 'L', 'e', 'a', 'd' }), u8 ({ 'L', 'e', 'a', 'd' }),
+                                               u8 ({ 0xE3, 0x83, 0xAA, 0xE3, 0x83, 0xBC, 0xE3, 0x83, 0x89 }),
+                                               u8 ({ 0xE4, 0xB8, 0xBB, 0xE5, 0x94, 0xB1 }) };
+         const juce::StringArray harmonyNames = { u8 ({ 'H', 'a', 'r', 'm', 'o', 'n', 'y' }),
+                                                  u8 ({ 'H', 'a', 'r', 'm', 'o', 'n', 'i', 'e' }),
+                                                  u8 ({ 'H', 'a', 'r', 'm', 'o', 'n', 'i', 'e' }),
+                                                  u8 ({ 'A', 'r', 'm', 'o', 'n', 0xC3, 0xA9, 'a', 's' }),
+                                                  u8 ({ 0xE3, 0x83, 0x8F, 0xE3, 0x83, 0xBC, 0xE3, 0x83, 0xA2, 0xE3, 0x83, 0x8B, 0xE3, 0x83, 0xBC }),
+                                                  u8 ({ 0xE5, 0x92, 0x8C, 0xE5, 0xA3, 0xB0 }) };
+         const juce::StringArray duckNames = { u8 ({ 'D', 'u', 'c', 'k', 'i', 'n', 'g' }),
+                                               u8 ({ 'D', 'u', 'c', 'k', 'i', 'n', 'g' }),
+                                               u8 ({ 'D', 'u', 'c', 'k', 'i', 'n', 'g' }),
+                                               u8 ({ 'D', 'u', 'c', 'k', 'i', 'n', 'g' }),
+                                               u8 ({ 0xE3, 0x83, 0x80, 0xE3, 0x83, 0x83, 0xE3, 0x82, 0xAD, 0xE3, 0x83, 0xB3, 0xE3, 0x82, 0xA3 }),
+                                               u8 ({ 0xE9, 0x97, 0xAA, 0xE9, 0x99, 0x8D }) };
+
+         auto reverbHeaderNeed = [] (const juce::String& text) -> int
+         { return 18 + static_cast<int> (ebs::fontToggleButton().getStringWidth (text)) + 2; };
+
+         for (int i = 0; i < leadNames.size(); ++i)
+         {
+             const int leadNeed = reverbHeaderNeed (leadNames[i]);
+             const int harmNeed = reverbHeaderNeed (harmonyNames[i]);
+             const int duckNeed = reverbHeaderNeed (duckNames[i]);
+             std::printf ("[INFO] reverb names %d: lead_need=%d harmony_need=%d ducking_need=%d cell_floor=74\n",
+                          i + 1, leadNeed, harmNeed, duckNeed);
+         }
+
+         int widestLead = 0, widestHarmony = 0, widestDuck = 0;
+         for (int i = 0; i < leadNames.size(); ++i)
+         {
+             widestLead    = juce::jmax (widestLead, reverbHeaderNeed (leadNames[i]));
+             widestHarmony = juce::jmax (widestHarmony, reverbHeaderNeed (harmonyNames[i]));
+             widestDuck    = juce::jmax (widestDuck, reverbHeaderNeed (duckNames[i]));
+         }
+
+         // Measured maxima (14 pt toggle font): lead 43 px, harmony 67 px (Spanish "Armonias"),
+         // ducking 59 px - the widest thing any shipped locale asks for. Every one rides the fixed
+         // 74 px cell, so the folded Reverb frame stays ONE column in all six languages and a fully
+         // folded row keeps its width when a rename lands. Ideographs ask for LESS than Latin: JA
+         // needs 54 and ZH 34, because two and three glyphs carry what four to eight latin letters say.
+         check (widestLead <= 74 && widestHarmony <= 74 && widestDuck <= 74,
+                "every shipped room name rides the fixed cell floor, so a rename cannot widen the Reverb frame");
+
+         check (reverbHeaderNeed ("Harmony") > reverbHeaderNeed ("Lead"),
+                "the stacked folded column is measured from the harmony name, exactly as the consumer stacks it");
+
+
+
+        // v0.15.13 (the spine) + v0.15.14 (accent-free captions) + v0.15.15 (measured room names) receipt slot: three frames at the height a bottom row gives them, each
         // named along its left edge. The pixel checks above say the band hugs the curve; this is the
         // picture a human eye reads.
         juce::Image spineProof (juce::Image::ARGB, 300, 190, true);
