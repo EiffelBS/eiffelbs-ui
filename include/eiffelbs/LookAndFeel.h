@@ -46,10 +46,14 @@ namespace ebs
     // label fully INSIDE the frame on the internal top band (left padding
     // 10 px), on the same bgPanel surface as the body - so text never
     // overlaps the accent border.
+    /** ONE corner radius for every EiffelBS frame, so a component that clips
+     *  into a frame (FrameTitleBand) and the frame body itself agree on the curve. */
+    inline constexpr float frameCornerRadius = 6.0f;
+
     inline void drawGroupFrame (juce::Graphics& g,
                                 const juce::Rectangle<float>& bounds)
     {
-        constexpr float corner = 6.0f;
+        constexpr float corner = frameCornerRadius;
 
         // Raised body, clearly distinct from the window background layer.
         g.setColour (bgPanel());

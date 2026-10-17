@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.8 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.15.11 LANGUAGES C CXX)
+
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
 # design system (palette, fonts, LookAndFeel, generic widgets).
@@ -9,7 +10,7 @@ project(eiffelbs-ui VERSION 0.15.8 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.8)
+#       GIT_TAG        v0.15.11)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -97,6 +98,12 @@ project(eiffelbs-ui VERSION 0.15.8 LANGUAGES C CXX)
 # and a local tag that was refused its push never left that checkout, so v0.15.4
 # is exactly what its own entry says. This version is that correction and
 # nothing else.
+# v0.15.11: ebs::FrameTitleBand (include/eiffelbs/FrameTitleBand.h) - a left vertical title spine for a
+# frame, reading bottom-to-top, clipping to the frame's own rounded path so its corners hug the curve and
+# shrinking its font from 13 pt to 9 pt until the title fits the band height. It costs the frame WIDTH =
+# ebs::kBandWidth (26 px) fixed for every locale, since a locale's longer name eats the spare HEIGHT of the
+# row, not the width each frame is measured against. The shared curve became ebs::frameCornerRadius so the
+# band and drawGroupFrame can no longer drift apart. Additive: existing consumers paint the same pixels.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

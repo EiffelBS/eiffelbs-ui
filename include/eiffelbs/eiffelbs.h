@@ -30,6 +30,7 @@
 #include "eiffelbs/ExpansibleFrame.h"
 #include "eiffelbs/FileGripButton.h"
 #include "eiffelbs/FramedBody.h"
+#include "eiffelbs/FrameTitleBand.h"
 #include "eiffelbs/Knob.h"
 #include "eiffelbs/MorphSlider.h"
 #include "eiffelbs/PowerToggle.h"

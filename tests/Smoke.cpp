@@ -1465,6 +1465,16 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
+        // v0.15.11: two frames on the receipt carry a left vertical title spine, at the width
+        // the component asks for and the full frame height - what a host in a tight bottom row pays.
+        ebs::FrameTitleBand titleA, titleC;
+        bandA.addAndMakeVisible (titleA);
+        titleA.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), 60);
+        titleA.setTitle ("Key");
+        bandC.addAndMakeVisible (titleC);
+        titleC.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), 60);
+        titleC.setTitle ("Reverb");
+
         // v0.15.3: the level meter under the knob, in the SAME cell - the slot a host
         // gives it inside an effects column, which costs the frame no width.
         meter.setPeak (0.6f);
@@ -1801,6 +1811,182 @@ int main()
                                                     ebs::readabilityContourWidth (48.0f, 4.0f)),
                    "readability contour weight is railed at 0.25..4");
         }
+    }
+
+    // v0.15.11: FrameTitleBand - a left vertical spine naming the frame, clipping to the
+    // frame's own rounded corners and shrinking the title until it fits the band height.
+    {
+        const int w = 120, tallH = 170, shortH = 84;
+
+        auto renderFrameTitle = [&] (const juce::String& title, int height)
+        {
+            ebs::FramedBody frame;
+            frame.setSize (w, height);
+            ebs::FrameTitleBand band;
+            frame.addAndMakeVisible (band);
+            band.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), height);
+            band.setTitle (title);
+
+            juce::Image img (juce::Image::ARGB, w, height, true);
+            juce::Graphics g (img);
+            g.fillAll (juce::Colours::black);
+            frame.paintEntireComponent (g, false);
+            return img;
+        };
+
+        // Inside the band: the strip tint painted over the frame body, not a raw accent.
+        const auto tint = renderToImage (w, tallH, [&] (juce::Graphics& g) { g.setColour (ebs::bgPanel()); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); g.setColour (ebs::accent().withAlpha (0.10f)); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); }).getPixelAt (10, 3);
+        // The extreme corner is OUTSIDE the rounded path, so the square edge of the strip
+        // must never show: black means the band followed the frame curve.
+        // The SAME frame with no spine at all is the reference for what a frame paints by itself.
+        auto renderPlainFrame = [&] (int height)
+        {
+            ebs::FramedBody plain;
+            plain.setSize (w, height);
+            return renderToImage (w, height, [&] (juce::Graphics& g)
+            {
+                plain.paintEntireComponent (g, false);
+            });
+        };
+
+        const auto tall = renderFrameTitle ("Effects", tallH);
+        const auto plainFrame = renderPlainFrame (tallH);
+
+        checkPixel (tall, { 10, 3 }, tint, "the title band tints inside the frame body");
+        // At the extreme corner the spine adds nothing of its own: what sits there is exactly what a
+        // frame with no band puts there. A strip squaring off the curve would leave its own tint.
+        checkPixel (tall, { 1, 1 }, plainFrame.getPixelAt (1, 1),
+                    "the title band hugs the frame's rounded corner instead of squaring it off");
+
+        // Glyph ink: solid cores of the rotated text inside the strip.
+        auto countTextInk = [&] (const juce::Image& img)
+        {
+            int n = 0;
+            for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+                for (int y = 4; y < img.getHeight() - 4; ++y)
+                    if (img.getPixelAt (x, y) == ebs::text())
+                        ++n;
+            return n;
+        };
+        const int tallInk = countTextInk (tall);
+        std::printf ("[INFO] title band ink in a %d px spine: %d\n", tallH, tallInk);
+        check (tallInk > 40, "the vertical title paints solid glyph cores");
+
+        // The separator is the frame's own trim, drawn on the band's inner edge.
+        int sepPixels = 0;
+        for (int y = 8; y < tallH - 4; ++y)
+            for (int x = ebs::FrameTitleBand::bandWidth() - 3;
+                 x < ebs::FrameTitleBand::bandWidth(); ++x)
+                if (tall.getPixelAt (x, y) == ebs::panelBorder())
+                    ++sepPixels;
+        std::printf ("[INFO] separator pixels in the last columns: %d (band height %d)\n", sepPixels, tallH);
+        check (sepPixels > tallH / 2, "the band keeps its separator line over the frame trim");
+
+        // The fit is measured, not guessed: a long title costs length along the HEIGHT, never width.
+        const juce::String shortTitle ("Effects"), longTitle ("Key & Scale Detection");
+        const int shortLen = ebs::bandTextLength (shortTitle, ebs::kBandFontSize);
+        const int longLen  = ebs::bandTextLength (longTitle, ebs::kBandFontSize);
+        const int minLen   = ebs::bandTextLength (longTitle, ebs::kBandMinFontSize);
+        std::printf ("[INFO] measured band lengths: short=%d long@13pt=%d long@9pt=%d width=%d\n",
+                     shortLen, longLen, minLen, ebs::FrameTitleBand::bandWidth());
+        check (longLen > shortLen && longLen > shortH - 6 && minLen <= shortH - 6,
+               "a long title needs the shrink step in a short frame and fits at the minimum size");
+
+        // The shrunk render keeps ink inside the spine: nothing clipped away to an empty band.
+        const auto shortImg = renderFrameTitle (longTitle, shortH);
+        const int shortInk = countTextInk (shortImg);
+        std::printf ("[INFO] title band ink in a %d px spine with a long title: %d\n",
+                     shortH, shortInk);
+        check (shortInk > 40 && ebs::bandTextLength (longTitle, ebs::kBandFontSize) > shortH - 6,
+               "the band shrinks the font and keeps the whole title readable");
+
+        // Width is locale-independent by construction: the text runs along the height.
+        check (ebs::bandTextLength ("Effet", ebs::kBandFontSize) < longLen
+               && ebs::FrameTitleBand::bandWidth() == 26,
+               "a longer locale costs length along the spine, never more band width");
+
+        // A title-less band is a quiet strip: tint and separator, no glyph ink.
+        const auto bare = renderFrameTitle (juce::String(), tallH);
+        check (countTextInk (bare) == 0 && bare.getPixelAt (10, 3) == tint,
+               "an empty title leaves the strip without glyphs");
+
+        // Disabled reads dimmed, not invisible.
+        ebs::FramedBody disFrame;
+        disFrame.setSize (w, tallH);
+        ebs::FrameTitleBand disBand;
+        disFrame.addAndMakeVisible (disBand);
+        disBand.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), tallH);
+        disBand.setTitle ("Effects");
+        disBand.setEnabled (false);
+        juce::Image disImg (juce::Image::ARGB, w, tallH, true);
+        juce::Graphics dg (disImg);
+        dg.fillAll (juce::Colours::black);
+        disFrame.paintEntireComponent (dg, false);
+        int dimInk = 0;
+        for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+            for (int y = 4; y < tallH - 4; ++y)
+                if (disImg.getPixelAt (x, y) == ebs::textDim())
+                    ++dimInk;
+        // What a frame WITHOUT a spine puts at those pixels is the baseline; anything the band adds is ink.
+        const auto disPlain = renderPlainFrame (tallH);
+        int anyInk = 0;
+        for (int x = 1; x < ebs::FrameTitleBand::bandWidth() - 2; ++x)
+            for (int y = 4; y < tallH - 4; ++y)
+                if (disImg.getPixelAt (x, y) != disPlain.getPixelAt (x, y))
+                    ++anyInk;
+
+        std::printf ("[INFO] disabled band: dimmed-exact %d, bright %d, changed %d\n",
+                     dimInk, countTextInk (disImg), anyInk);
+        // A faded component is rendered through a transparency layer, so an exact palette colour never
+        // survives: what proves the state is ink present with NO pixel of the bright text colour.
+        check (anyInk > 120 && countTextInk (disImg) == 0,
+               "a disabled band reads dimmed, never bright");
+
+        // v0.15.11 receipt slot for the spine: three frames at the height a bottom row gives them, each
+        // named along its left edge. The pixel checks above say the band hugs the curve; this is the
+        // picture a human eye reads.
+        juce::Image spineProof (juce::Image::ARGB, 300, 190, true);
+        {
+            juce::Component spineCanvas;
+            spineCanvas.setSize (300, 190);
+
+            ebs::FramedBody frameA, frameB, frameC;
+            ebs::FrameTitleBand spineA, spineB, spineC;
+
+            spineCanvas.addAndMakeVisible (frameA);
+            frameA.setBounds (5, 10, 85, 170);
+            spineCanvas.addAndMakeVisible (frameB);
+            frameB.setBounds (105, 10, 85, 170);
+            spineCanvas.addAndMakeVisible (frameC);
+            frameC.setBounds (205, 10, 85, 170);
+
+            spineA.setTitle ("Key & Scale");
+            spineB.setTitle ("Effets");
+            spineC.setTitle ("Reverb");
+
+            for (int i = 0; i < 3; ++i)
+            {
+                auto* owner = (i == 0 ? &frameA : (i == 1 ? &frameB : &frameC));
+                auto* bandSlot = (i == 0 ? &spineA : (i == 1 ? &spineB : &spineC));
+
+                owner->addAndMakeVisible (*bandSlot);
+                bandSlot->setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), 170);
+            }
+
+            juce::Graphics sg (spineProof);
+            sg.fillAll (ebs::bgDark());
+            spineCanvas.paintEntireComponent (sg, false);
+        }
+
+        const juce::File spineFile (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                        .getChildFile ("eiffelbs-title-band.png"));
+
+        if (auto out = spineFile.createOutputStream())
+        {
+            juce::PNGImageFormat().writeImageToStream (spineProof, *out);
+            out->flush();
+        }
+        std::printf ("[INFO] title spine receipt: %s\n", spineFile.getFullPathName().toRawUTF8());
     }
 
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",
