@@ -15,10 +15,13 @@
 // Scale Detection" cost the same column of pixels, which keeps a host's frame-width
 // model locale-independent.
 //
-// The label is drawn UPPERCASE and bold at ebs::kBandTextAlpha (60 %): a frame name
-// is a caption, not an instrument. Casing a Chinese or Japanese title changes nothing,
-// so the same rule serves every locale; upper casing is also what the width constant
-// was measured against (uppercase glyphs are the widest that ever stand in this column).
+// The label is drawn UPPERCASE, bold and tracked apart at ebs::kBandTextAlpha (50 %): a frame name
+// is a caption, not an instrument. Tracked capitals at small size stay readable where tight text
+// would blur into a single grey stroke, and 50 % keeps the caption under the knobs' attention.
+// Casing a Chinese or Japanese title changes nothing, so the same rule serves every locale; upper
+// casing is also what the width constant was measured against (uppercase glyphs are the widest that
+// ever stand in this column). Tracking only ADDS length along the spine, never thickness across it,
+// so the fixed band width is cleared by the same measurement at every size.
 //
 // It is a sibling of ebs::DisclosureChevron in shape (a strip inside a frame) and it
 // shares ebs::frameCornerRadius with ebs::drawGroupFrame, so band corners, frame
@@ -49,14 +52,33 @@ namespace ebs
        the band height minus this much space top and bottom, never the bare height. */
     inline constexpr float kBandPad = 3.0f;
 
-    /** Text strength on the spine. A frame name is read, not looked at: 60 % alpha keeps it
+    /** Text strength on the spine. A frame name is read, not looked at: 50 % alpha keeps it
         legible against the strip tint without pulling the eye off the knobs. */
-    inline constexpr float kBandTextAlpha = 0.60f;
+    inline constexpr float kBandTextAlpha = 0.50f;
 
-    /** Measured length of a title along the band, at one glyph size (in pixels). */
+    /** Extra space put BETWEEN the letters of the caption, in pixels along the spine. Tracked
+        capitals read as a caption at small size where tight text blurs into one stroke; the value
+        is applied after every glyph except the last, so measured length = glyph widths + spacing * (n-1).
+        Tracking stretches the name ALONG the spine only: thickness across the spine is untouched,
+        which is what keeps kBandWidth a constant measured from glyphs. */
+    inline constexpr float kBandLetterSpacing = 1.2f;
+
+    /** Measured length a title takes ALONG the band at one glyph size, tracking included (in pixels).
+        This is the number the fit check compares against the spine height, and exactly what gets drawn. */
     inline int bandTextLength (const juce::String& text, float fontSize)
     {
-        return juce::roundToInt (juce::GlyphArrangement::getStringWidth (createFont (fontSize, true), text));
+        const auto font = createFont (fontSize, true);
+        float total = 0.0f;
+
+        for (int i = 0; i < text.length(); ++i)
+        {
+            total += font.getStringWidth (text.substring (i, i + 1));   // the advance JUCE gives this glyph
+
+            if (i < text.length() - 1)
+                total += kBandLetterSpacing;   // between letters only, never after the last one
+        }
+
+        return juce::roundToInt (total);
     }
 
     /** Measured thickness a title needs ACROSS the band at one glyph size (in pixels): the
@@ -166,7 +188,21 @@ namespace ebs
 
             const auto font = createFont (size, true);
             juce::GlyphArrangement glyphs;
-            glyphs.addLineOfText (font, caps, 0.0f, 0.0f);
+
+            // The caption is TRACKED: every glyph is placed at its own advance plus the extra space between
+            // letters. JUCE's addLineOfText applies only the font's kerning, with no gap, so tracking is added
+            // by hand here - and bandTextLength (the fit check above) sums the same advances + gaps, which is
+            // why the size chosen in that loop fits exactly what this draws. bb then measures the real extent.
+            float cursor = 0.0f;
+
+            for (int i = 0; i < caps.length(); ++i)
+            {
+                const auto ch = caps.substring (i, i + 1);
+                glyphs.addLineOfText (font, ch, cursor, 0.0f);   // one glyph per call, baseline at y = 0
+
+                if (i < caps.length() - 1)
+                    cursor += font.getStringWidth (ch) + kBandLetterSpacing;   // gap AFTER each interior glyph
+            }
 
             const auto bb = glyphs.getBoundingBox (0, glyphs.getNumGlyphs(), false);   // measured, not estimated
 
@@ -178,7 +214,8 @@ namespace ebs
             const auto ty = h * 0.5f + (bb.getX() + bb.getRight()) * 0.5f;
             const auto tx = w * 0.5f - (bb.getY() + bb.getBottom()) * 0.5f;
 
-            // 60 % alpha: a name is read, not looked at. At full strength the spine competes with the knobs.
+            // 50 % alpha, tracked capitals: a name is read, not looked at. At full strength the spine competes
+            // with the knobs, and tight small text blurs; tracking + half strength keeps it legible and quiet.
             g.setColour (isEnabled() ? ebs::text().withMultipliedAlpha (kBandTextAlpha)
                                      : ebs::textDim());
             glyphs.draw (g, juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi)

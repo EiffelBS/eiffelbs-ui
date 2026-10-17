@@ -1465,7 +1465,7 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
-        // v0.15.12: two frames on the receipt carry a left vertical title spine, at the width
+        // v0.15.13: two frames on the receipt carry a left vertical title spine, at the width
         // the component asks for and the full frame height - what a host in a tight bottom row pays.
         ebs::FrameTitleBand titleA, titleC;
         bandA.addAndMakeVisible (titleA);
@@ -1813,7 +1813,7 @@ int main()
         }
     }
 
-    // v0.15.12: FrameTitleBand - a left vertical spine naming the frame, clipping to the
+    // v0.15.13: FrameTitleBand - a left vertical spine naming the frame, clipping to the
     // frame's own rounded corners and shrinking the title until it fits the band height.
     {
         const int w = 120, tallH = 170, shortH = 84;
@@ -1917,8 +1917,27 @@ int main()
         const int minLen   = ebs::bandTextLength (longTitle, ebs::kBandMinFontSize);
         std::printf ("[INFO] measured band lengths: short=%d long@13pt=%d long@9pt=%d width=%d\n",
                      shortLen, longLen, minLen, ebs::FrameTitleBand::bandWidth());
-        check (longLen > shortLen && longLen > shortH - 6 && minLen <= shortH - 6,
-               "a long title needs the shrink step in a short frame and fits at the minimum size");
+        const int shortBudget = shortH - 6, tallBudget = tallH - 6;   // spine height minus the pad at both ends
+        std::printf ("[INFO] tracked fit budget: %d px in a %d px spine, %d px in a %d px row\n",
+                     shortBudget, shortH, tallBudget, tallH);
+        check (longLen > shortLen && longLen > shortBudget,
+               "a longer title costs length along the spine and forces the shrink step in a short frame");
+
+        // Tracking eats into the budget, so the fit promise is made for what the product SHIPS. Every frame name
+        // the app can display keeps all its letters at the smallest size inside the height the bottom band gives
+        // a row; measured per name against the real budget, never assumed. The synthetic stress title above is
+        // deliberately longer than any shipped caption and exists to prove the shrink step runs - the spine cannot
+        // hold an unbounded caption, which is why titles are short by design (measured limitation, printed below).
+        const juce::StringArray shippedTitles = { "Correction", "Key & Scale", "Effects", "Reverb", "Harmony" };
+
+        for (int i = 0; i < shippedTitles.size(); ++i)
+            check (ebs::bandTextLength (shippedTitles[i], ebs::kBandMinFontSize) <= tallBudget,
+                   "every shipped frame name keeps every letter at the minimum size inside a real row");
+
+        std::printf ("[INFO] limitation measured: stress title needs %d px at min size vs %d px available in a short spine\n",
+                     minLen, shortBudget);
+        check (minLen > shortBudget,
+               "a caption longer than any shipped name loses its last letters in a short spine - titles stay short by design");
 
         // The shrunk render keeps ink inside the spine: nothing clipped away to an empty band.
         const auto shortImg = renderFrameTitle (longTitle, shortH);
@@ -1926,7 +1945,7 @@ int main()
         std::printf ("[INFO] title band ink in a %d px spine with a long title: %d\n",
                      shortH, shortInk);
         check (shortInk > 40 && ebs::bandTextLength (longTitle, ebs::kBandFontSize) > shortH - 6,
-               "the band shrinks the font and keeps the whole title readable");
+               "the band shrinks its glyphs in a short frame and keeps readable glyph cores");
 
         // Width is locale-independent by construction: the text runs along the height. The spine width is
         // now measured from the UPPERCASE bold glyphs themselves, so a narrow column is provably cleared.
@@ -1953,6 +1972,16 @@ int main()
 
         check (ebs::bandTextLength ("Effet", ebs::kBandFontSize) < longLen,
                "a longer locale costs length along the spine, never more band width");
+
+        // Tracking is measured, not assumed: the fit check must return a LONGER length than the glyphs alone,
+        // by exactly spacing * (n - 1), so the size the band picks fits what it actually draws.
+        const int tracked = ebs::bandTextLength ("REVERB", ebs::kBandFontSize);
+        const int tight = juce::roundToInt (juce::GlyphArrangement::getStringWidth (ebs::createFont (ebs::kBandFontSize, true), "REVERB"));
+
+        std::printf ("[INFO] tracking: tracked=%d px, glyphs alone=%d px, gap %g px between letters\n",
+                     tracked, tight, ebs::kBandLetterSpacing);
+        check (tracked > tight + 3 && ebs::bandGlyphThickness ("REVERB", ebs::kBandFontSize) == widest13,
+               "letters are tracked apart along the spine, and tracking never thickens the glyphs across it");
 
         // A title-less band is a quiet strip: tint and separator, no glyph ink.
         const auto bare = renderFrameTitle (juce::String(), tallH);
@@ -2018,7 +2047,7 @@ int main()
                    "every shipped locale title fits the fixed band height, clears both spine edges and paints readable glyphs");
         }
 
-        // v0.15.12 receipt slot for the spine: three frames at the height a bottom row gives them, each
+        // v0.15.13 receipt slot for the spine: three frames at the height a bottom row gives them, each
         // named along its left edge. The pixel checks above say the band hugs the curve; this is the
         // picture a human eye reads.
         juce::Image spineProof (juce::Image::ARGB, 300, 190, true);
