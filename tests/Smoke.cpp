@@ -1858,7 +1858,7 @@ int main()
         checkPixel (tall, { 1, 1 }, plainFrame.getPixelAt (1, 1),
                     "the title band hugs the frame's rounded corner instead of squaring it off");
 
-        // The text is drawn at 60 % alpha, so no pixel of the strip can be the full-strength
+        // The text is drawn tracked apart at 50 % alpha, so no pixel of the strip can be the full-strength
         // palette colour; and ink cannot be counted against a palette colour any more. The reference
         // is the SAME band with an empty title: tint, separator and corner clip are identical there,
         // so every pixel that differs from it is glyph ink.
