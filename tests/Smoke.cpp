@@ -133,6 +133,20 @@ namespace
     }
 }
 
+#include <initializer_list>
+
+// A string spelled as raw UTF-8 BYTES. MSVC reads this source in the system code page and writes
+// literals in UTF-8, so every accented literal gets double-encoded on the way in: a French e-acute
+// reaches the component as TWO Latin-1 glyphs. Strings whose codepoints must match exactly are spelled
+// byte by byte here, where no compiler charset can touch them.
+static juce::String u8 (std::initializer_list<int> bytes)
+{
+    char buf[64]; int n = 0;
+    for (int b : bytes) buf[n++] = static_cast<char> (b);
+    buf[n] = 0;
+    return juce::String (juce::CharPointer_UTF8 (buf));
+}
+
 int main()
 {
     const juce::ScopedJuceInitialiser_GUI juceInit;
@@ -1465,7 +1479,7 @@ int main()
         band.addFrame (&bandB, 90, 55, true);
         band.addFrame (&bandC, 90, 55, false);
 
-        // v0.15.13: two frames on the receipt carry a left vertical title spine, at the width
+        // v0.15.13 (the spine) + v0.15.14 (accent-free captions): two frames on the receipt carry a left vertical title spine, at the width
         // the component asks for and the full frame height - what a host in a tight bottom row pays.
         ebs::FrameTitleBand titleA, titleC;
         bandA.addAndMakeVisible (titleA);
@@ -1813,8 +1827,8 @@ int main()
         }
     }
 
-    // v0.15.13: FrameTitleBand - a left vertical spine naming the frame, clipping to the
-    // frame's own rounded corners and shrinking the title until it fits the band height.
+    // v0.15.13 (the spine) + v0.15.14 (its caption is drawn as accent-free tracked capitals): a left vertical spine naming the frame,
+    // clipping to the frame's own rounded corners and shrinking the title until it fits the band height.
     {
         const int w = 120, tallH = 170, shortH = 84;
 
@@ -2030,24 +2044,45 @@ int main()
          // Chinese are ideograph runs. A standalone launched from patched settings does not apply the persisted
          // language on this machine, so locale rendering CANNOT be proven through a live screenshot - it has to be
          // proven here, in the component itself, at the height the bottom row gives a frame (170 px).
-         const juce::StringArray localeTitles = { "Tonalité et gamme", "Réverbération", "キーとスケール", "根音与音阶" };
+         // The caption is drawn WITHOUT accents: French and Spanish set all-caps headings without accent
+         // marks, so the spine follows that convention. Checked on the titles OVT really ships (French,
+         // Spanish), on German-style marks to prove the map covers them, and on ideographs to prove they
+         // keep every glyph they need - nothing is dropped from a language that has no marks.
+         
+         
+         
+         
+         check (ebs::bandCaps (u8 ({ 'R', 0xC3, 0xA9, 'v', 'e', 'r', 'b', 0xC3, 0xA9, 'r', 'a', 't', 'i', 'o', 'n' })) == "REVERBERATION"
+                && ebs::bandCaps (u8 ({ 'T', 'o', 'n', 'a', 'l', 'i', 't', 0xC3, 0xA9, ' ', 'e', 't', ' ', 'g', 'a', 'm', 'm', 'e' })) == "TONALITE ET GAMME"
+                && ebs::bandCaps (u8 ({ 'C', 'o', 'r', 'r', 'e', 'c', 'c', 'i', 0xC3, 0xB3, 'n' })) == "CORRECCION",
+                "an accented locale title draws its caption as accent-free capitals");
+
+         check (ebs::bandCaps (u8 ({ 'K', 0xC3, 0xBC, 'r' })) == "KUR" && ebs::bandCaps (u8 ({ 0xC3, 0x87, 'a' })) == "CA"
+                && ebs::bandCaps (u8 ({ 'A', 0xC3, 0xB1, 'o' })) == "ANO" && ebs::bandCaps (u8 ({ 's', 't', 'r', 'a', 0xC3, 0x9F, 'e' })) == "STRASSE",
+                "the drop covers the Latin marks a shipped locale can hand it, umlauts and cedilla included");
+
+         check (ebs::bandCaps (u8 ({ 0xE3, 0x82, 0xAD, 0xE3, 0x83, 0xBC, 0xE3, 0x81, 0xA8, 0xE3, 0x82, 0xB9, 0xE3, 0x82, 0xB1, 0xE3, 0x83, 0xBC, 0xE3, 0x83, 0xAB })) == u8 ({ 0xE3, 0x82, 0xAD, 0xE3, 0x83, 0xBC, 0xE3, 0x81, 0xA8, 0xE3, 0x82, 0xB9, 0xE3, 0x82, 0xB1, 0xE3, 0x83, 0xBC, 0xE3, 0x83, 0xAB })
+                && ebs::bandCaps (u8 ({ 0xE6, 0xA0, 0xB9, 0xE9, 0x9F, 0xB3, 0xE4, 0xB8, 0x8E, 0xE9, 0x9F, 0xB3, 0xE9, 0x98, 0xB6 })) == u8 ({ 0xE6, 0xA0, 0xB9, 0xE9, 0x9F, 0xB3, 0xE4, 0xB8, 0x8E, 0xE9, 0x9F, 0xB3, 0xE9, 0x98, 0xB6 }),
+                "an ideograph title keeps every glyph: casing and accent rules touch Latin only");
+
+         const juce::StringArray localeTitles = { u8 ({ 'T', 'o', 'n', 'a', 'l', 'i', 't', 0xC3, 0xA9, ' ', 'e', 't', ' ', 'g', 'a', 'm', 'm', 'e' }), u8 ({ 'R', 0xC3, 0xA9, 'v', 'e', 'r', 'b', 0xC3, 0xA9, 'r', 'a', 't', 'i', 'o', 'n' }), u8 ({ 0xE3, 0x82, 0xAD, 0xE3, 0x83, 0xBC, 0xE3, 0x81, 0xA8, 0xE3, 0x82, 0xB9, 0xE3, 0x82, 0xB1, 0xE3, 0x83, 0xBC, 0xE3, 0x83, 0xAB }), u8 ({ 0xE6, 0xA0, 0xB9, 0xE9, 0x9F, 0xB3, 0xE4, 0xB8, 0x8E, 0xE9, 0x9F, 0xB3, 0xE9, 0x98, 0xB6 }) };
          const int spineH = tallH - 6;   // the height budget the band's own shrink loop compares against
 
          for (int i = 0; i < localeTitles.size(); ++i)
         {
-            const juce::String t = localeTitles[i];
+            const juce::String t = ebs::bandCaps (localeTitles[i]);   // exactly what the spine draws, accents dropped
             const int len13 = ebs::bandTextLength (t, ebs::kBandFontSize);
             const int len9  = ebs::bandTextLength (t, ebs::kBandMinFontSize);
             const int thick13 = ebs::bandGlyphThickness (t, ebs::kBandFontSize);
-            const auto img = renderFrameTitle (t, tallH);
+            const auto img = renderFrameTitle (localeTitles[i], tallH);   // the band upper-cases and de-accents itself
             const int ink = countTextInk (img, tallBare);
-            std::printf ("[INFO] locale title %d: length@13pt=%d length@9pt=%d budget=%d thickness@13pt=%d ink=%d\n",
-                         i + 1, len13, len9, spineH, thick13, ink);
+            std::printf ("[INFO] locale title %d: caption=%s length@13pt=%d length@9pt=%d budget=%d thickness@13pt=%d ink=%d\n",
+                         i + 1, t.toRawUTF8(), len13, len9, spineH, thick13, ink);
             check (len9 <= spineH && ink > 40 && thick13 + 2 <= ebs::FrameTitleBand::bandWidth(),
                    "every shipped locale title fits the fixed band height, clears both spine edges and paints readable glyphs");
         }
 
-        // v0.15.13 receipt slot for the spine: three frames at the height a bottom row gives them, each
+        // v0.15.13 (the spine) + v0.15.14 (accent-free captions) receipt slot: three frames at the height a bottom row gives them, each
         // named along its left edge. The pixel checks above say the band hugs the curve; this is the
         // picture a human eye reads.
         juce::Image spineProof (juce::Image::ARGB, 300, 190, true);
@@ -2094,8 +2129,8 @@ int main()
         std::printf ("[INFO] title spine receipt: %s\n", spineFile.getFullPathName().toRawUTF8());
 
         // Locale receipt: the same spine geometry carrying the four longest titles a locale can hand it. This is
-        // the picture that proves "the band stays 26 px, the language pays in height" on paper, because the live
-        // app cannot be driven into a foreign language on this machine.
+        // the picture that proves "the band stays 17 px, the language pays in height and in accent-free capitals"
+        // on paper, because the live app cannot be driven into a foreign language on this machine.
         juce::Image localeProof (juce::Image::ARGB, 400, 190, true);
         {
             juce::Component localeCanvas;

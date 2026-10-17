@@ -18,10 +18,12 @@
 // The label is drawn UPPERCASE, bold and tracked apart at ebs::kBandTextAlpha (50 %): a frame name
 // is a caption, not an instrument. Tracked capitals at small size stay readable where tight text
 // would blur into a single grey stroke, and 50 % keeps the caption under the knobs' attention.
-// Casing a Chinese or Japanese title changes nothing, so the same rule serves every locale; upper
-// casing is also what the width constant was measured against (uppercase glyphs are the widest that
-// ever stand in this column). Tracking only ADDS length along the spine, never thickness across it,
-// so the fixed band width is cleared by the same measurement at every size.
+// The caption is also drawn WITHOUT accents: French typography sets all-caps words without accent
+// marks, so "Réverbération" reads REVERBERATION on the spine (see ebs::bandCaps). Casing a Chinese
+// or Japanese title changes nothing and ideographs have no marks to drop, so the same rule serves
+// every locale; upper casing is also what the width constant was measured against (uppercase glyphs
+// are the widest that ever stand in this column). Tracking only ADDS length along the spine, never
+// thickness across it, so the fixed band width is cleared by the same measurement at every size.
 //
 // It is a sibling of ebs::DisclosureChevron in shape (a strip inside a frame) and it
 // shares ebs::frameCornerRadius with ebs::drawGroupFrame, so band corners, frame
@@ -63,6 +65,72 @@ namespace ebs
         which is what keeps kBandWidth a constant measured from glyphs. */
     inline constexpr float kBandLetterSpacing = 1.2f;
 
+    /** The caption the spine draws from a title given in its own locale's casing: UPPERCASE, with the
+        accents dropped. French typography sets all-caps words WITHOUT accent marks - "Reverb" is written
+        REVERBERATION in an all-caps heading - and a spine read from the corner of an eye follows that
+        convention; accented capitals are heavier glyphs that blur at 9 pt. Only single-codepoint Latin
+        diacritics map to their base letter, so CJK, Cyrillic, Greek and ligatures (OE, AE) pass through
+        untouched: no locale loses a letter it needs to be readable. */
+    inline juce::String bandCaps (const juce::String& text)
+    {
+        const auto upper = text.toUpperCase();
+        juce::String out;
+
+        // A kept letter is appended as the UTF-8 bytes of its own codepoint, written out by hand. This
+        // avoids every JUCE single-character String constructor (they are the source of the mojibake this
+        // helper was first built to fix: one overload turned a codepoint into a run of digit glyphs).
+        auto appendCode = [&out] (int c)
+        {
+            char buf[4] = { 0, 0, 0, 0 };
+
+            if (c < 0x80)
+                buf[0] = static_cast<char> (c);
+            else if (c < 0x800)
+            {
+                buf[0] = static_cast<char> (0xC0 | (c >> 6));
+                buf[1] = static_cast<char> (0x80 | (c & 0x3F));
+            }
+            else
+            {
+                buf[0] = static_cast<char> (0xE0 | (c >> 12));
+                buf[1] = static_cast<char> (0x80 | ((c >> 6) & 0x3F));
+                buf[2] = static_cast<char> (0x80 | (c & 0x3F));
+            }
+
+            out << juce::String (juce::CharPointer_UTF8 (buf));
+        };
+
+        // Walk the UPPERCASED string with its own UTF-8 pointer: each step is one whole codepoint,
+        // so a two-byte accent never gets split into two half-letters. Indexing by position instead
+        // (substring on byte offsets) produced exactly that - mojibake glyphs in the drawn caption.
+        for (auto ptr = upper.getCharPointer(); ! ptr.isEmpty(); ++ptr)
+        {
+            const int code = static_cast<int> (*ptr);
+
+            switch (code)
+            {
+                // JUCE toUpperCase() only casing-changes ASCII letters, so an accented letter comes out of it
+                // UNCHANGED. French typography wants REVERBERATION from "Réverbération": the map covers BOTH cases.
+                case 0x00C0: case 0x00C1: case 0x00C2: case 0x00C3: case 0x00C4: case 0x00C5:
+                case 0x00E0: case 0x00E1: case 0x00E2: case 0x00E3: case 0x00E4: case 0x00E5: out << "A"; break;
+                case 0x00C8: case 0x00C9: case 0x00CA: case 0x00CB:
+                case 0x00E8: case 0x00E9: case 0x00EA: case 0x00EB: out << "E"; break;
+                case 0x00CC: case 0x00CD: case 0x00CE: case 0x00CF:
+                case 0x00EC: case 0x00ED: case 0x00EE: case 0x00EF: out << "I"; break;
+                case 0x00D2: case 0x00D3: case 0x00D4: case 0x00D5: case 0x00D6:
+                case 0x00F2: case 0x00F3: case 0x00F4: case 0x00F5: case 0x00F6: out << "O"; break;
+                case 0x00D9: case 0x00DA: case 0x00DB: case 0x00DC:
+                case 0x00F9: case 0x00FA: case 0x00FB: case 0x00FC: out << "U"; break;
+                case 0x00C7: case 0x00E7: out << "C"; break;
+                case 0x00D1: case 0x00F1: out << "N"; break;
+                case 0x1E9E: case 0x00DF: out << "SS"; break;   // capital sharp s, and the lower-case one JUCE leaves as it is
+                default: appendCode (code); break;   // everything else, kept as written
+            }
+        }
+
+        return out;
+    }
+
     /** Measured length a title takes ALONG the band at one glyph size, tracking included (in pixels).
         This is the number the fit check compares against the spine height, and exactly what gets drawn. */
     inline int bandTextLength (const juce::String& text, float fontSize)
@@ -86,7 +154,7 @@ namespace ebs
     inline int bandGlyphThickness (const juce::String& text, float fontSize)
     {
         const auto font = createFont (fontSize, true);
-        const auto caps = text.toUpperCase();
+        const auto caps = bandCaps (text);   // the caption as it will be drawn, accents dropped
 
         juce::GlyphArrangement glyphs;
         glyphs.addLineOfText (font, caps, 0.0f, 0.0f);
@@ -170,9 +238,10 @@ namespace ebs
             const auto h = float (strip.getHeight());
 
             // The name is set in its own locale's casing, but a spine is read at a glance from the corner of
-            // an eye: draw it UPPERCASE. Upper casing a CJK string is a no-op, so this is safe for every locale
-            // the host ships, and the fit check below measures exactly the text that will be drawn.
-            const auto caps = titleText.toUpperCase();
+            // an eye: draw it UPPERCASE, and without accents. Upper casing a CJK string is a no-op and dropping
+            // Latin marks follows the all-caps typographic convention (bandCaps), so this is safe for every
+            // locale the host ships - and the fit check below measures exactly the text that gets drawn here.
+            const auto caps = bandCaps (titleText);
 
             // Shrink the glyphs from 13pt until the name fits the band height. A locale
             // that runs long gets smaller text, never a wider column - and smaller glyphs are
