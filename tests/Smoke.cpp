@@ -94,6 +94,19 @@ namespace
         return img;
     }
 
+    /** Render into a CLEARED image: alpha marks what actually painted and
+     *  nothing else. The opaque variant above is fine for a colour comparison
+     *  but useless for "did the glyph paint", because its black fill is
+     *  opaque and every pixel counts as ink. */
+    template <typename Fn>
+    juce::Image renderOnClear (int w, int h, Fn&& draw)
+    {
+        juce::Image img (juce::Image::ARGB, w, h, true);
+        juce::Graphics g (img);
+        draw (g);
+        return img;
+    }
+
     /** Count pixels with meaningful alpha (did anything actually paint?). */
     int inkPixels (const juce::Image& img)
     {
@@ -290,19 +303,58 @@ int main()
             ebs::IconButton::Shape::grid,    ebs::IconButton::Shape::step,
             ebs::IconButton::Shape::power,   ebs::IconButton::Shape::trash,
             ebs::IconButton::Shape::save,    ebs::IconButton::Shape::expand,
-            ebs::IconButton::Shape::compress
+            ebs::IconButton::Shape::compress,
+            ebs::IconButton::Shape::pause
         };
         bool allShapesInk = true;
         for (const auto s : shapes)
         {
             PaintableIconButton ib (s);
             ib.setSize (28, 28);
-            const auto img = renderToImage (28, 28, [&] (juce::Graphics& g)
+            // On a CLEARED surface: the glyph is what leaves alpha behind, so
+            // this asks "did the shape paint" and not "is the background
+            // opaque" (the opaque renderer's black fill made this check true
+            // for a shape that painted nothing at all).
+            const auto img = renderOnClear (28, 28, [&] (juce::Graphics& g)
                 { ib.paint (g); });
             if (inkPixels (img) < 5)
+            {
                 allShapesInk = false;
+                std::printf ("       shape %d left no ink\n", (int) s);
+            }
         }
         check (allShapesInk, "every IconButton shape paints visible ink");
+
+        // The PAUSE glyph against the STOP one, by their CENTRE pixel: a stop
+        // is a solid square (its centre is inked) and a pause is two bars with
+        // a gap between them (its centre is not). The whole-enum check above
+        // proves a shape paints SOMETHING; only this one can see a pause that
+        // fell through to the stop branch, which is the mistake a transport
+        // button makes the moment someone edits the chain.
+        {
+            PaintableIconButton pauseBtn (ebs::IconButton::Shape::pause);
+            PaintableIconButton stopBtn (ebs::IconButton::Shape::stop);
+            pauseBtn.setSize (28, 28);
+            stopBtn.setSize (28, 28);
+            const auto pauseImg = renderOnClear (28, 28, [&] (juce::Graphics& g)
+                { pauseBtn.paint (g); });
+            const auto stopImg = renderOnClear (28, 28, [&] (juce::Graphics& g)
+                { stopBtn.paint (g); });
+            const auto centre = juce::Point<int> (14, 14);
+            // The bar is 60/255, not >10: a glyph EDGE is anti-aliased, so the
+            // pause's faint bleed reads 16 at the exact centre while the stop's
+            // solid square reads 255. Measuring "some ink" there would fail on
+            // every correct pause.
+            const int inkBar = 60;
+            const auto pauseCentre = (int) pauseImg.getPixelAt (centre.x, centre.y).getAlpha();
+            const auto stopCentre  = (int) stopImg.getPixelAt (centre.x, centre.y).getAlpha();
+            std::printf ("[INFO] glyph centre alpha: pause %d, stop %d (bar %d)\n",
+                         pauseCentre, stopCentre, inkBar);
+            check (stopCentre > inkBar,
+                   "the stop glyph inks its centre (it is a solid square)");
+            check (pauseCentre <= inkBar,
+                   "the pause glyph leaves its centre empty (two bars, one gap)");
+        }
 
         // FramedBody: paints the shared frame language.
         ebs::FramedBody body;

@@ -149,7 +149,15 @@ public:
                        // means MIDI and `eye` is a show/hide pair, so reusing
                        // one would hang a second meaning on a shape this app
                        // already reads.
-                       type, image, film };
+                       type, image, film,
+                       // The transport's own pair: `stop` is a SQUARE (and is
+                       // what a play/stop TOGGLE wears while it runs), while a
+                       // control that PAUSES asks for this one - two bars with
+                       // a gap. They look nothing alike on purpose, and the
+                       // smoke tells them apart by their centre pixel, because
+                       // "it painted something" cannot see a pause that fell
+                       // through to the stop shape.
+                       pause };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -329,6 +337,19 @@ public:
         repaint();
     }
 
+    /** The glyph itself, changeable: a transport button is one control whose
+     *  MEANING moves (play <-> pause) and the shape is the only thing that
+     *  says which way it points. It repaints, because a glyph that moved
+     *  without one is the "says one thing, does another" defect wearing
+     *  pixels. */
+    void setShape (Shape s)
+    {
+        if (s == shape)
+            return;
+        shape = s;
+        repaint();
+    }
+
     /** Icon colour (accent blue by default; grey for old runs, bright
         green for the playing line, red for Delete - see ctor defaults). */
     void setIconColour (juce::Colour c)
@@ -462,6 +483,20 @@ public:
 
             one (c - juce::Point<float> (r * 0.32f, r * 0.30f), r * 0.95f);
             one (c + juce::Point<float> (r * 0.52f, r * 0.46f), r * 0.46f);
+        }
+        else if (s == Shape::pause)
+        {
+            // Two bars with a gap between them: the universal pause, and
+            // deliberately not the stop square - a transport that KEEPS its
+            // position must not wear the glyph that says it threw it away.
+            const float bar = iconSide * 0.27f;
+            const float gap = iconSide * 0.18f;
+            const float h   = iconSide * 0.88f;
+            const float r   = bar * 0.25f;
+            const float x0  = box.getCentreX() - gap * 0.5f - bar;
+            const float y0  = box.getCentreY() - h * 0.5f;
+            p.addRoundedRectangle (x0, y0, bar, h, r);
+            p.addRoundedRectangle (x0 + bar + gap, y0, bar, h, r);
         }
         else if (s == Shape::stop || playingToggle)
         {

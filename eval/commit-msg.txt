@@ -1,0 +1,24 @@
+v0.12.9: ChatBubble reports its own growth, and IconButton hovers in accent
+
+A bubble is PLACED by its host, so a bubble that grew had no way to say so:
+nothing inside a component can move the neighbour under it. The answer
+overflowed the box that was meant to contain it, the transcript stopped
+showing the words as they arrived, and a folded block never gave its space
+back. `onHeightChanged` is that one channel, and it is the host's job to act
+on it.
+
+The measure is cached alongside the inputs that produce it - width, size,
+text, expansion, copy row, header - so a streamed delta costs one layout of
+ONE message instead of a re-layout of every message in the conversation.
+Sixty text layouts per delta is the earlier freeze wearing a new shape.
+
+`setBodyFontSize` and `setShowBubble` complete the component: a transcript
+is READ, so the host owns the size and every bubble re-measures when it
+moves, and the assistant's long answers sit on the panel's own background
+while the user's own message and a note keep their chrome.
+
+IconButton's unframed hover was a grey backdrop - and grey reads as disabled,
+which teaches the user that the affordance is dead while the pointer is on
+it. It is now an accent-tinted backdrop, with a blue glyph for the shapes
+whose ink carries no meaning of its own; a red delete, a gold favourite and
+a golden hidden eye keep the hue that means what it means.
