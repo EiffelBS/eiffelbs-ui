@@ -1654,8 +1654,9 @@ int main()
             }
         check (pointerInk > 0, "the knob still paints its white pointer line beside the dot");
 
-        // The disc is bounded by the knob's FACE: a squeezed dial shrinks the dot instead of
-        // letting it spill over the cap. The dot's own diameter is the cap, never a demand.
+        // The disc is bounded by the knob's FACE and by the pointer line: a squeezed dial shrinks
+        // the dot instead of letting it spill over the cap, and a dial too small for a readable
+        // dot shows none at all - an indicator that hides its own value is worse than none.
         const auto smallKnob = renderActKnob (20, 1.0f);
         int accentOutsideFace = 0;
         for (int y = 0; y < 20; ++y)
@@ -1664,6 +1665,19 @@ int main()
                     && (x < 7 || x > 12 || y < 7 || y > 12))
                     ++accentOutsideFace;
         check (accentOutsideFace == 0, "a small dial keeps its disc inside the cap");
+
+        // 31 px is the smallest knob in OpenVoxTuner's Effects row (the Delay column): its
+        // pointer tip stops 1.3 px from the centre, so the knob paints NO dot rather than
+        // covering the line that says where it is set.
+        const auto tinyKnob = renderActKnob (31, 1.0f);
+        check (countColour (tinyKnob, ebs::outputColour()) == 0,
+               "a dial too small for a clear dot paints none, never one over its pointer");
+
+        // And the boundary behaves: 42 px is the smallest dial that can carry the default 9 px
+        // dot clear of its pointer, so it draws one.
+        const auto smallOkKnob = renderActKnob (42, 1.0f);
+        check (countColour (smallOkKnob, ebs::outputColour()) > 0,
+               "a dial big enough for the dot clear of its pointer draws it");
 
         // It is still a knob: the slider contract is untouched, and the tooltip answers like
         // every other display in the library.

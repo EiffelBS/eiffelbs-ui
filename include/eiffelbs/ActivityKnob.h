@@ -20,6 +20,11 @@
 // and a dot on a panel can never drift apart. Feed setActivityLevel() from the host's timer
 // at ~30 Hz, never from the audio thread.
 //
+// The dot never covers the pointer line: ebs::drawKnob runs that line from 8 px inside the
+// rim towards the middle and stops it 0.6 x radius - 5.6 px short of the centre, so the disc
+// is capped to stay inside that clearance. A dial too small for a readable dot shows none -
+// the smallest knob in OpenVoxTuner's Effects row (31 px) is exactly that case.
+//
 // No slot background by default: on the knob's dark cap a dark disc would read as a hole,
 // so the unlit state is the ring and its dim pip, and the lit state is the accent disc.
 
@@ -97,11 +102,22 @@ public:
         if (area.getWidth() < 4 || area.getHeight() < 4)
             return;
 
-        // A dial smaller than the requested dot draws a dot that fits inside its cap, so a
-        // squeezed layout shrinks the indicator instead of letting it spill over the rim.
-        const float faceD = static_cast<float> (juce::jmin (area.getWidth(), area.getHeight())) - 8.0f;
-        const float dotD  = juce::jmin (static_cast<float> (activityDotDiameter),
-                                        juce::jmax (6.0f, faceD * 0.4f));
+        // How far the pointer line stops short of the centre: ebs::drawKnob runs it from
+        // (-radius + 8) towards the middle for 40 % of (radius - 6), so its tip sits
+        // 0.6 x radius - 5.6 px from the centre. The dot must stay INSIDE that, or it would
+        // paint over the very indicator that says what the knob is set to - and a knob too
+        // small for a readable dot simply shows none, because an indicator that hides its own
+        // control is worse than no indicator.
+        const float radius       = static_cast<float> (juce::jmin (area.getWidth(), area.getHeight())) * 0.5f - 4.0f;
+        const float pointerInner = 0.6f * radius - 5.6f;
+        if (pointerInner <= 3.0f)
+            return;
+
+        const float dotD = juce::jmin (static_cast<float> (activityDotDiameter),
+                                       static_cast<float> (juce::jmax (6, activityDotDiameter)),
+                                       2.0f * (pointerInner - 1.0f));
+        if (dotD < 6.0f)
+            return;
 
         paintActivityDisc (g, static_cast<float> (area.getCentreX()),
                            static_cast<float> (area.getCentreY()),
