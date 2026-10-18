@@ -22,9 +22,14 @@
 // cheap when nothing moves: the component repaints only when the disc it would draw
 // actually changed, which is what its sibling LevelMeter promises too.
 //
+// The LEVEL and the PAINTING are shared with ebs::ActivityKnob (a dial that carries
+// its own dot at its centre, for a component that owns exactly one knob), so the two
+// can never behave differently: one state, one painter, two places to show it.
+//
 // Captions are supplied by the host: what a path is called belongs to the
 // application and its locales, never to this library. The dot is deliberately
-// wordless - it is placed next to a name the host already paints.
+// wordless - it is placed next to a name the host already paints, or inside the
+// control it reports.
 //
 // Tooltip support comes from SettableTooltipClient, which is a separate interface
 // from Component: a plain component shows nothing until it carries this base,
@@ -38,6 +43,98 @@
 
 namespace ebs
 {
+
+/** The activity contract, shared by every widget that shows one: the level a host feeds, the
+    smoothed disc it draws, and the rule that says when the disc moved enough to repaint. */
+struct ActivityState
+{
+    /** Feed the freshest peak (linear 0 .. 1, clamped). Returns TRUE when the disc a painter
+        would draw moved enough to be worth a repaint, so an idle host repaints nothing. */
+    bool setLevel (float peakLinear)
+    {
+        level = juce::jlimit (0.0f, 1.0f, peakLinear);
+
+        const float target = fillForLevel (level);
+        const float before = fill;
+
+        // Attack in one call, release by a fixed step: the dot answers "did this path carry
+        // signal", so a peak it just saw must stay readable for a moment.
+        fill = (target > fill) ? target : juce::jmax (target, fill - releaseStep);
+
+        return std::abs (fill - before) >= repaintEpsilon;
+    }
+
+    /** Straight back to silence, ramps skipped. */
+    void reset()
+    {
+        level = 0.0f;
+        fill  = 0.0f;
+    }
+
+    float level = 0.0f;   // the last feed, clamped
+    float fill  = 0.0f;   // the smoothed disc, what a painter draws
+
+    /** The dB floor below which a path reads as silent: under any audible programme material
+        and over the noise a stopped path leaves behind. */
+    static constexpr float silenceFloorDb   = -45.0f;
+    static constexpr float silenceFloorGain = 0.0056234133f;   // 10 ^ (-45 / 20)
+    static constexpr float releaseStep      = 0.05f;   // ~20 ticks, i.e. ~0.6 s at 30 Hz
+    static constexpr float repaintEpsilon   = 0.004f;  // below this the disc did not move
+
+    static constexpr int minDiameter = 6;
+    static constexpr int maxDiameter = 24;
+
+    /** Map a linear peak onto the disc's travel: the floor is 0, full scale is 1. The dB
+        arithmetic uses <cmath> on purpose: juce::Decibels lives in juce_audio_basics, and a UI
+        library must not drag an audio module into every translation unit that includes it. */
+    static float fillForLevel (float peakLinear)
+    {
+        if (peakLinear <= silenceFloorGain)
+            return 0.0f;
+
+        const float db = 20.0f * std::log10 (peakLinear);
+        return juce::jlimit (0.0f, 1.0f, (db - silenceFloorDb) / (0.0f - silenceFloorDb));
+    }
+};
+
+/** Paint ONE activity disc of `diameter` px centred on (centreX, centreY), filled by `fill`
+    (0 .. 1). Shared by ActivityDot and ActivityKnob so both draw the same thing; the caller
+    decides whether the slot background is painted, because a standalone dot sits on a panel
+    while a dot inside a knob sits on the knob's cap, where a dark disc would read as a hole. */
+inline void paintActivityDisc (juce::Graphics& g, float centreX, float centreY,
+                               float diameter, float fill, bool drawSlotBackground)
+{
+    const float d = juce::jlimit (static_cast<float> (ActivityState::minDiameter),
+                                  static_cast<float> (ActivityState::maxDiameter), diameter);
+    const auto slot = juce::Rectangle<float> (d, d).withCentre ({ centreX, centreY });
+
+    if (drawSlotBackground)
+    {
+        g.setColour (vizBg());
+        g.fillEllipse (slot);
+    }
+
+    // The ring is always painted: an unlit dot must still read as a slot that exists, not as a
+    // hole in the panel (or in the knob's cap).
+    g.setColour (panelBorder());
+    g.drawEllipse (slot.reduced (0.5f), 1.0f);
+
+    const float innerD = d - 4.0f;
+    if (innerD <= 0.0f)
+        return;
+
+    if (fill <= 0.0f)
+    {
+        // Unlit: one dim pip keeps the centre from looking broken.
+        g.setColour (textDim().withAlpha (0.45f));
+        g.fillEllipse (slot.withSizeKeepingCentre (2.0f, 2.0f));
+        return;
+    }
+
+    const float discD = juce::jmax (2.0f, innerD * fill);
+    g.setColour (outputColour());
+    g.fillEllipse (slot.withSizeKeepingCentre (discD, discD));
+}
 
 class ActivityDot final : public juce::Component, public juce::SettableTooltipClient
 {
@@ -54,37 +151,23 @@ public:
         host that skips the call while its snapshot is still simply holds the dot. */
     void setLevel (float peakLinear)
     {
-        const float feed = juce::jlimit (0.0f, 1.0f, peakLinear);
-        level = feed;
-
-        const float target = fillForLevel (feed);
-
-        // Attack in one call, release by a fixed step: the dot answers "did this path
-        // carry signal", so a peak it just saw must stay readable for a moment.
-        const float before = fill;
-        if (target > fill)
-            fill = target;
-        else
-            fill = juce::jmax (target, fill - releaseStep);
-
-        if (std::abs (fill - before) >= repaintEpsilon)
+        if (state.setLevel (peakLinear))
             repaint();
     }
 
     /** The last feed, clamped - not the smoothed disc. Hosts and tests read this to
         know what the snapshot said without asking the audio thread again. */
-    float getLevel() const noexcept { return level; }
+    float getLevel() const noexcept { return state.level; }
 
     /** The size of the disc as drawn, 0 .. 1: 0 is a dark slot, 1 is a full disc. */
-    float getFill() const noexcept { return fill; }
+    float getFill() const noexcept { return state.fill; }
 
     /** Drop straight back to silence, ramps skipped. A host calls this when the dot
         stops being on screen, so a level frozen in the snapshot cannot be painted by
         a later layout. */
     void reset()
     {
-        level = 0.0f;
-        fill = 0.0f;
+        state.reset();
         repaint();
     }
 
@@ -92,7 +175,7 @@ public:
         slot it is given decides the final size, so this is a cap, never a demand. */
     void setDotDiameter (int px)
     {
-        dotDiameter = juce::jlimit (minDiameter, maxDiameter, px);
+        dotDiameter = juce::jlimit (ActivityState::minDiameter, ActivityState::maxDiameter, px);
         repaint();
     }
 
@@ -118,65 +201,17 @@ public:
         if (slotD < 2)
             return;
 
-        const auto slot = area.withSizeKeepingCentre (slotD, slotD).toFloat();
-
-        if (drawSlotBackground)
-        {
-            g.setColour (vizBg());
-            g.fillEllipse (slot);
-        }
-
-        // The ring is always painted: an unlit dot must still read as a slot that
-        // exists, not as a hole in the panel.
-        g.setColour (panelBorder());
-        g.drawEllipse (slot.reduced (0.5f), 1.0f);
-
-        // Then the activity itself. The inner radius is what level fills, so a quiet
-        // path shows a small disc and a loud one covers the slot.
-        const float innerD = static_cast<float> (slotD) - 4.0f;
-        if (innerD <= 0.0f)
-            return;
-
-        if (fill <= 0.0f)
-        {
-            // Unlit: one dim pip keeps the centre from looking broken.
-            g.setColour (textDim().withAlpha (0.45f));
-            g.fillEllipse (slot.withSizeKeepingCentre (2.0f, 2.0f));
-            return;
-        }
-
-        const float discD = juce::jmax (2.0f, innerD * fill);
-        g.setColour (outputColour());
-        g.fillEllipse (slot.withSizeKeepingCentre (discD, discD));
+        paintActivityDisc (g, static_cast<float> (area.getCentreX()),
+                           static_cast<float> (area.getCentreY()),
+                           static_cast<float> (slotD), state.fill, drawSlotBackground);
     }
 
     /** The linear level the dB floor corresponds to: under any audible programme
         material and over the noise a stopped path leaves behind. */
-    static float silenceFloorLinear() { return silenceFloorGain; }
+    static float silenceFloorLinear() { return ActivityState::silenceFloorGain; }
 
 private:
-    /** Map a linear peak onto the disc's travel: the floor is 0, full scale is 1.
-        The dB arithmetic is done here with <cmath> on purpose: juce::Decibels lives
-        in juce_audio_basics, and a UI library must not drag an audio module into
-        every translation unit that includes it. */
-    static float fillForLevel (float peakLinear)
-    {
-        if (peakLinear <= silenceFloorGain)
-            return 0.0f;
-
-        const float db = 20.0f * std::log10 (peakLinear);
-        return juce::jlimit (0.0f, 1.0f, (db - silenceFloorDb) / (0.0f - silenceFloorDb));
-    }
-
-    static constexpr float silenceFloorDb   = -45.0f;
-    static constexpr float silenceFloorGain = 0.0056234133f;   // 10 ^ (-45 / 20)
-    static constexpr float releaseStep     = 0.05f;   // ~20 ticks, i.e. ~0.6 s at 30 Hz
-    static constexpr float repaintEpsilon  = 0.004f;  // below this the disc did not move
-    static constexpr int   minDiameter     = 6;
-    static constexpr int   maxDiameter     = 24;
-
-    float level = 0.0f;   // the last feed, as handed in (clamped)
-    float fill  = 0.0f;   // the smoothed disc, what paint() draws
+    ActivityState state;
     int dotDiameter = 10;
     bool drawSlotBackground = true;
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.17.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.17.2 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -10,7 +10,7 @@ project(eiffelbs-ui VERSION 0.17.1 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.17.1)
+#       GIT_TAG        v0.17.2)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -141,6 +141,18 @@ project(eiffelbs-ui VERSION 0.17.1 LANGUAGES C CXX)
 # caption and its locale belong to the host, exactly like LevelMeter's. Additive: nothing else
 # changes, and the dB arithmetic stays in <cmath> so a UI header never drags juce_audio_basics
 # into a consumer.
+
+# v0.17.2: ebs::ActivityKnob (include/eiffelbs/ActivityKnob.h) - an ebs::Knob that carries the
+# activity dot AT ITS CENTRE. A component that owns exactly ONE knob has nowhere else to put an
+# indicator: a dot beside the toggle label needs 80-94 px inside a 74 px cell (measured in
+# OpenVoxTuner), and a strip under the cell costs 12 px of height and reads as a second object.
+# The dial paints exactly as a plain knob paints - the shared LookAndFeel draws it, then the disc
+# goes on top of the centre, which ebs::drawKnob leaves free because the pointer line starts 8 px
+# out and grows outward. The disc is bounded by the knob's face, so a squeezed dial shrinks the
+# indicator instead of spilling over its rim, and no slot background is painted by default: on a
+# dark cap a dark disc reads as a hole. Additive: ebs::ActivityState (the level, the dB mapping,
+# the release ramp) and ebs::paintActivityDisc() are now shared with ActivityDot, so a dot in a
+# knob and a dot on a panel cannot drift apart, and ebs::Knob itself is untouched.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

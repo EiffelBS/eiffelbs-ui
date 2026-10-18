@@ -39,6 +39,7 @@
 #include "eiffelbs/BusyIndicator.h"
 #include "eiffelbs/LevelMeter.h"
 #include "eiffelbs/ActivityDot.h"
+#include "eiffelbs/ActivityKnob.h"
 #include "eiffelbs/TextSanitize.h"
 #include "eiffelbs/HelpBubble.h"
 #include "eiffelbs/PathRow.h"

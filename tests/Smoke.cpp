@@ -1604,6 +1604,78 @@ int main()
         check (! dot.hitTest (8, 8),
                "the dot takes no clicks of its own, so the knob under it still works");
 
+        // v0.17.2 ActivityKnob: the same dot, carried by the knob it reports. A component that
+        // owns exactly ONE knob has nowhere else to put it - the cell's power toggle already
+        // spends 18 of its 74 px on the tick well - so the dot IS the knob's hub, drawn on top
+        // of the dial at the centre of the bounds. The dial itself is painted first, by the
+        // shared LookAndFeel, exactly as a plain ebs::Knob paints it.
+        ebs::ActivityKnob actKnob;
+        actKnob.setBounds (0, 0, 54, 54);
+        actKnob.setActivityDotDiameter (9);
+
+        const auto renderActKnob = [&] (int size, float feed)
+        {
+            actKnob.setBounds (0, 0, size, size);
+            // Half the range, so the value arc has a length to paint: at 0 the arc is a
+            // zero-length path and there is nothing to look for.
+            actKnob.setValue (5.0, juce::dontSendNotification);
+            actKnob.resetActivity();
+            if (feed > 0.0f)
+                actKnob.setActivityLevel (feed);
+            return renderToImage (size, size, [&] (juce::Graphics& g)
+            {
+                actKnob.paintEntireComponent (g, false);
+            });
+        };
+
+        const auto idleKnob = renderActKnob (54, 0.0f);
+        const auto fedKnob  = renderActKnob (54, 1.0f);
+
+        check (countColour (idleKnob, ebs::outputColour()) == 0,
+               "a knob whose path is silent paints no accent disc");
+        check (countColour (fedKnob, ebs::outputColour()) > 0,
+               "a knob whose path carries signal paints its accent disc");
+        checkPixel (fedKnob, { 27, 27 }, ebs::outputColour(),
+                    "the disc sits at the knob's centre, which the pointer line leaves free");
+        check (actKnob.getActivityFill() == 1.0f, "full scale fills the knob's disc");
+        check (actKnob.getActivityLevel() == 1.0f, "the knob remembers the level it was fed");
+
+        // The dial must survive the dot: the accent value arc is still painted, and the white
+        // pointer line still carries ink beside the disc.
+        check (countColour (fedKnob, ebs::accent()) > 0,
+               "the knob still paints its value arc under the dot");
+        int pointerInk = 0;
+        for (int y = 0; y < 54; ++y)
+            for (int x = 0; x < 54; ++x)
+            {
+                const auto c = fedKnob.getPixelAt (x, y);
+                if (c.getRed() > 200 && c.getGreen() > 200 && c.getBlue() > 200)
+                    ++pointerInk;
+            }
+        check (pointerInk > 0, "the knob still paints its white pointer line beside the dot");
+
+        // The disc is bounded by the knob's FACE: a squeezed dial shrinks the dot instead of
+        // letting it spill over the cap. The dot's own diameter is the cap, never a demand.
+        const auto smallKnob = renderActKnob (20, 1.0f);
+        int accentOutsideFace = 0;
+        for (int y = 0; y < 20; ++y)
+            for (int x = 0; x < 20; ++x)
+                if (smallKnob.getPixelAt (x, y) == ebs::outputColour()
+                    && (x < 7 || x > 12 || y < 7 || y > 12))
+                    ++accentOutsideFace;
+        check (accentOutsideFace == 0, "a small dial keeps its disc inside the cap");
+
+        // It is still a knob: the slider contract is untouched, and the tooltip answers like
+        // every other display in the library.
+        actKnob.setBounds (0, 0, 54, 54);
+        check (actKnob.getMinimum() == 0.0 && actKnob.getMaximum() == 10.0,
+               "an activity knob keeps the slider contract of a plain knob");
+        actKnob.setTooltip ("signal on this path");
+        check (actKnob.getTooltip() == "signal on this path",
+               "the knob's dot answers a tooltip query");
+        check (actKnob.getActivityDotDiameter() == 9,
+               "the knob remembers the dot diameter it was given");
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
