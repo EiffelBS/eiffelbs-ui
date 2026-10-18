@@ -39,7 +39,8 @@
 namespace ebs
 {
 
-class TokenField : public juce::Component
+class TokenField : public juce::Component,
+                   public juce::SettableTooltipClient
 {
 public:
     /** One value the host allows. `description` is optional prose shown to
