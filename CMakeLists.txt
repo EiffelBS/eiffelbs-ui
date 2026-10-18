@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.15.15 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.16.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -10,7 +10,7 @@ project(eiffelbs-ui VERSION 0.15.15 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.15.11)
+#       GIT_TAG        v0.16.0)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -101,9 +101,23 @@ project(eiffelbs-ui VERSION 0.15.15 LANGUAGES C CXX)
 # v0.15.11: ebs::FrameTitleBand (include/eiffelbs/FrameTitleBand.h) - a left vertical title spine for a
 # frame, reading bottom-to-top, clipping to the frame's own rounded path so its corners hug the curve and
 # shrinking its font from 13 pt to 9 pt until the title fits the band height. It costs the frame WIDTH =
-# ebs::kBandWidth (26 px) fixed for every locale, since a locale's longer name eats the spare HEIGHT of the
+# ebs::kBandWidth (17 px) fixed for every locale, since a locale's longer name eats the spare HEIGHT of the
 # row, not the width each frame is measured against. The shared curve became ebs::frameCornerRadius so the
 # band and drawGroupFrame can no longer drift apart. Additive: existing consumers paint the same pixels.
+
+# v0.15.12-v0.15.15: the title spine's caption. Uppercase bold, tracked apart, at
+# 50 % strength, drawn WITHOUT accents (ebs::bandCaps - French all-caps convention,
+# CJK untouched). A longer translated name shrinks its glyphs from 13 pt to 9 pt
+# rather than widening the fixed 17 px band, and every shipped locale title is
+# proven to fit the band height.
+
+# v0.16.0: documentation and cleanup release. The README's Contents table now lists
+# every shipped component, its consumption example pins the current tag, and the
+# roadmap is no longer a second, drifting copy of these notes. The transitional
+# CompatOt.h shim is REMOVED - its only consumer migrated, and it named the old
+# in-house `ot::` namespace and its OT* headers, which have no place in a public
+# library - as are the last OT* file names in the Theme / Fonts / LookAndFeel
+# provenance notes. No behaviour change otherwise.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -4,7 +4,7 @@
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 //
-// Adapted from an in-house OTLookAndFeel (class OTLookAndFeel),
+// Adapted from an in-house app LookAndFeel,
 // itself adapted from OpenVoxTuner Source/ui/LookAndFeel.{h,cpp} and
 // Source/ui/OVTFonts.h (original copyright (C) 2026 EiffelBS).
 //
