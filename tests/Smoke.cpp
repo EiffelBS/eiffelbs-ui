@@ -318,7 +318,8 @@ int main()
             ebs::IconButton::Shape::power,   ebs::IconButton::Shape::trash,
             ebs::IconButton::Shape::save,    ebs::IconButton::Shape::expand,
             ebs::IconButton::Shape::compress,
-            ebs::IconButton::Shape::pause
+            ebs::IconButton::Shape::pause,
+            ebs::IconButton::Shape::plus
         };
         bool allShapesInk = true;
         for (const auto s : shapes)

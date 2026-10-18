@@ -157,7 +157,13 @@ public:
                        // smoke tells them apart by their centre pixel, because
                        // "it painted something" cannot see a pause that fell
                        // through to the stop shape.
-                       pause };
+                       pause,
+                       // Add / create: the one glyph a button that MAKES a
+                       // provider, a model or a template needs. Added rather
+                       // than borrowed - `wand` means "generate", `save`
+                       // means "keep", and a plus is the shape a reader
+                       // already reads as "one more".
+                       plus };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -403,6 +409,20 @@ public:
             x.startNewSubPath (c.x + r, c.y - r);
             x.lineTo (c.x - r, c.y + r);
             juce::PathStrokeType (2.0f).createStrokedPath (p, x);
+        }
+        else if (s == Shape::plus)
+        {
+            // The add glyph: the same 2 px stroke as the cross, turned a
+            // quarter. Stroked rather than filled so it matches the rest of
+            // the procedural set at any icon side.
+            const float r = iconSide * 0.5f;
+            const auto c = box.getCentre();
+            juce::Path arms;
+            arms.startNewSubPath (c.x - r, c.y);
+            arms.lineTo (c.x + r, c.y);
+            arms.startNewSubPath (c.x, c.y - r);
+            arms.lineTo (c.x, c.y + r);
+            juce::PathStrokeType (2.0f).createStrokedPath (p, arms);
         }
         else if (const char* glyph = svgFor (s))
         {

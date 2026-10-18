@@ -70,6 +70,16 @@ namespace ebs
             repaint();
         }
 
+        /** The label's font. Defaults to fontHint(), the size the button was
+         *  designed at; a denser host (the Settings window) passes its own.
+         *  widthForLabel() measures from the SAME font, so a layout that
+         *  sizes the button to its label cannot disagree with the paint. */
+        void setFont (const juce::Font& f)
+        {
+            font = f;
+            repaint();
+        }
+
         void paintButton (juce::Graphics& g, bool over, bool down) override
         {
             const auto b = getLocalBounds().toFloat().reduced (1.0f);
@@ -107,7 +117,7 @@ namespace ebs
             g.setColour (! isEnabled() ? ebs::textDim().withAlpha (0.35f)
                                        : (over ? ebs::text().brighter (0.15f)
                                                : ebs::text()));
-            g.setFont (fontHint());
+            g.setFont (font);
             g.drawText (getButtonText(), row, juce::Justification::centredLeft);
         }
 
@@ -118,7 +128,7 @@ namespace ebs
         int widthForLabel() const
         {
             const int labelW = (int) std::ceil (
-                fontHint().getStringWidth (getButtonText()));
+                font.getStringWidth (getButtonText()));
             return 7 + (int) (iconSide * 1.30f) + gap_ + labelW + 7;
         }
 
@@ -127,6 +137,7 @@ namespace ebs
         float iconSide = 10.0f;
         int   gap_     = 4;
         bool  framed   = false;
+        juce::Font font = fontHint();
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (IconTextButton)
     };

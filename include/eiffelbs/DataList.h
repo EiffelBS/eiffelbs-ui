@@ -239,7 +239,7 @@ public:
             if (c.id == columnId) { col = &c; break; }
         if (col == nullptr)
             return;
-        const auto font = ebs::fontBody();
+        const auto font = scaled (ebs::fontBody());
         float best = 0.0f;
         if (includeHeader)
             best = juce::GlyphArrangement::getStringWidth (font, col->title) + 22.0f;
@@ -368,6 +368,22 @@ public:
 
     /** Row count of the underlying ListBox (visible rows scroll the same). */
     void setRowHeight (int h) { table.setRowHeight (h); }
+
+    /** Text size for the ROW cells and the progress %, without touching the
+        row heights: a host whose window reads larger (the Settings window)
+        sets the same factor it gives its LookAndFeel's header font. 1.0 is
+        the shipped size, so every existing caller paints identical pixels.
+        The table HEADER is a juce::TableHeaderComponent and takes its font
+        from the LookAndFeel, not from here - a host that scales one scales
+        the other (the Settings window does both). */
+    void setTextScale (float s)
+    {
+        const float clamped = juce::jlimit (0.75f, 2.0f, s);
+        if (juce::exactlyEqual (textScale, clamped))
+            return;
+        textScale = clamped;
+        repaint();
+    }
 
     /** Force the table to rebuild visible components (state icons...). */
     void updateRows() { table.updateContent(); }
@@ -704,7 +720,7 @@ private:
                         track.withWidth (track.getWidth() * frac), 5.0f);
                 }
                 g.setColour (ebs::text());
-                g.setFont (ebs::fontHint());
+                g.setFont (scaled (ebs::fontHint()));
                 g.drawText (juce::String (juce::roundToInt (frac * 100.0f))
                                 + "%",
                             6, 0, w - 12, h,
@@ -716,9 +732,17 @@ private:
             g.fillRect (0, 0, (int) (w * frac), h);
         }
         g.setColour (ebs::text());
-        g.setFont (ebs::fontBody());
+        g.setFont (scaled (ebs::fontBody()));
         g.drawText (text, 6, 0, w - 12, h,
                     juce::Justification::centredLeft, true);
+    }
+
+    /** The row/header font at this host's text scale; 1.0 returns the font
+        itself, so the shipped pixels do not move. */
+    juce::Font scaled (const juce::Font& f) const
+    {
+        return juce::exactlyEqual (textScale, 1.0f)
+                   ? f : f.withHeight (f.getHeight() * textScale);
     }
 
     void paintActionGlyph (juce::Graphics& g, IconButton::Shape shape,
@@ -962,6 +986,7 @@ private:
     std::vector<Column> columns;
     std::vector<View> views;
     std::vector<Action> actions;
+    float textScale = 1.0f;
     std::vector<Row> rows;
     std::vector<const Row*> visible;
     int activeView = 0;
