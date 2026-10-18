@@ -1212,6 +1212,53 @@ int main()
                        - ebs::ExpansibleFrame::chevronWidth()
                        - ebs::ExpansibleFrame::chevronGap(),
                    "interior() excludes the chevron slot");
+
+            // A VERTICAL fold (v0.17.0): the zone grows downward, so the glyph has
+            // to say so - down when folded, up when open - while the strip keeps its
+            // right edge and interior() is untouched (a horizontal strip would cost
+            // the very height a short, wide frame is short of). Direction is read
+            // from the HORIZONTAL SPREAD of ink per ROW, the mirror of the column
+            // probe above: the two arm tips are wide apart, the vertex is pinched.
+            auto rowSpan = [] (const juce::Image& img, int y)
+            {
+                int lo = -1, hi = -1;
+                for (int x = 0; x < img.getWidth(); ++x)
+                    if (img.getPixelAt (x, y).getBlue() > 60)
+                    {
+                        if (lo < 0) lo = x;
+                        hi = x;
+                    }
+                return hi - lo;
+            };
+
+            ebs::DisclosureChevron vstrip;
+            vstrip.setSize (40, 22);
+            vstrip.setVerticalFold (true);
+            // Read the direction AT RENDER TIME: a value read after the flip
+            // describes the flip, not the frame that was just painted (the
+            // first version of this check did exactly that and failed a
+            // correct strip).
+            const auto foldedDir = vstrip.chevronDirection();
+            const auto vClosed = renderToImage (40, 22, [&] (juce::Graphics& g)
+                { vstrip.paint (g); });
+            vstrip.setExpanded (true);
+            const auto openDir = vstrip.chevronDirection();
+            const auto vOpen = renderToImage (40, 22, [&] (juce::Graphics& g)
+                { vstrip.paint (g); });
+            check (foldedDir == ebs::ChevronDirection::Down
+                       && rowSpan (vClosed, 8) - rowSpan (vClosed, 13) >= 3,
+                   "a folded vertical strip points DOWN (arms wide, vertex pinched)");
+            check (openDir == ebs::ChevronDirection::Up
+                       && rowSpan (vOpen, 13) - rowSpan (vOpen, 8) >= 3,
+                   "an open vertical strip points UP (vertex now on top)");
+
+            frame.setFoldVertical (true);
+            check (frame.foldIsVertical(),
+                   "ExpansibleFrame forwards the fold axis to its strip");
+            check (frame.interior().getWidth() == 120
+                       - ebs::ExpansibleFrame::chevronWidth()
+                       - ebs::ExpansibleFrame::chevronGap(),
+                   "a vertical fold keeps the strip on the right: interior() unchanged");
         }
 
         // === FrameBand (v0.13.0, fixed widths since v0.14.0) ==============

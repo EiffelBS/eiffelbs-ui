@@ -10,11 +10,12 @@
 // chevron's direction.
 //
 // This component owns exactly those three. The HOST owns the layout: it
-// sizes the frame (wider when open - that is what pushes the neighbour),
-// lays its own widgets into interior(), and is told through
-// onExpandedChanged when the fold flips so it can re-lay out. Children
-// added to the frame clip and paint inside it, so a folded zone is a
-// setVisible() away from gone, never an overwritten one.
+// sizes the frame (wider when open on the default HORIZONTAL axis - that
+// is what pushes the neighbour - taller when open on the VERTICAL one,
+// see setFoldVertical), lays its own widgets into interior(), and is told
+// through onExpandedChanged when the fold flips so it can re-lay out.
+// Children added to the frame clip and paint inside it, so a folded zone
+// is a setVisible() away from gone, never an overwritten one.
 // One thing the host must not forget: when the frame MOVES, JUCE repaints
 // only the rectangles the frame's own widgets vacated. A host that paints
 // its background behind the frame - blocks drawn in paint(), not components
@@ -58,6 +59,25 @@ namespace ebs
         /** The disclosure strip itself, for a host that wants to set its
          *  tooltip (the default says what the click does). */
         ebs::DisclosureChevron& disclosure() noexcept { return chevron; }
+
+        /** The axis the folded zone grows on. Horizontal (the DEFAULT, and
+         *  unchanged for every existing host) is the sideways fold: the frame
+         *  gets WIDER, and that is what pushes its neighbour. Vertical means
+         *  the zone grows DOWNWARD and the frame gets TALLER - what a short,
+         *  wide frame in a bottom band needs, since it has no width to spare
+         *  and all the room below it.
+         *  The strip stays on the RIGHT edge in both cases (a horizontal
+         *  strip would spend the very height such a frame is short of);
+         *  only the GLYPH follows the axis - down when folded, up when open -
+         *  because a chevron pointing right at a zone that opens downward is
+         *  exactly the decoration this class exists to refuse.
+         *  The HOST still owns the sizing: it returns the taller
+         *  `preferredHeight()` from onExpandedChanged (see the note below). */
+        void setFoldVertical (bool vertical)
+        {
+            chevron.setVerticalFold (vertical);
+        }
+        bool foldIsVertical() const noexcept { return chevron.foldIsVertical(); }
 
         /** The content area, the chevron slot excluded. The host applies
          *  its own padding to it. */

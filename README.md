@@ -18,10 +18,10 @@ surface below is what they all share.
 | `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff, the transport pair + rewind + pause, and the app set music/layers/activity/chat/mic/keys/sparkle/type/image/film), viewer-toolbar set (zoom in / out, four chevrons, grid, step, power, trash, save), expand/compress fullscreen pair, `setShape()` for a button whose meaning moves, framed chrome mode, play/stop toggle state, grey disabled transport glyphs, `ColourIds` overrides |
 | `IconTextButton.h` | `ebs::IconTextButton`: an icon button that also carries a TEXT label - the glyph drawn from `IconButton`'s own path builder, so a shape is pixel-identical at the same size whichever of the two renders it; icon left, text glued to its right, shared colour language |
 | `MenuChevronButton.h` | `ebs::MenuChevronButton`: a button that OPENS something and says so - text left, a light V chevron right (never a filled triangle), transparent at rest with a quiet accent hover; optional glyph from `IconButton`'s paths, measured into its width |
-| `DisclosureChevron.h` | `ebs::DisclosureChevron`: a vertical strip that folds a zone open/closed with one click - a chevron (a DIRECTION, not a state) pointing the way the zone is about to move; also exposes the shared `drawChevronGlyph` reused by `FrameBand`'s scroll cues |
+| `DisclosureChevron.h` | `ebs::DisclosureChevron`: a vertical strip that folds a zone open/closed with one click - a chevron (a DIRECTION, not a state) pointing the way the zone is about to move, on the axis the zone grows (`setVerticalFold`: down when folded / up when open for a downward fold, left / right otherwise); also exposes the shared four-way `drawChevronGlyph` reused by `FrameBand`'s scroll cues |
 | `FileGripButton.h` | `ebs::FileGripButton`: external-file drag handle — resolves the file AT DRAG TIME (a recycled row can never drag a stale path), open-hand cursor, native drag-out towards DAW/desktop |
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
-| `ExpansibleFrame.h` | `ebs::ExpansibleFrame`: a framed body whose zone folds open and pushes its neighbour - owns the shared frame paint, the chevron's placement and the fold flag; the host sizes the frame, lays its widgets into `interior()`, and is told through `onExpandedChanged` |
+| `ExpansibleFrame.h` | `ebs::ExpansibleFrame`: a framed body whose zone folds open and pushes its neighbour - owns the shared frame paint, the chevron's placement and the fold flag; the host sizes the frame, lays its widgets into `interior()`, and is told through `onExpandedChanged`; `setFoldVertical` turns the fold downward (the frame grows taller) while the strip stays on the right edge and only the glyph follows the axis |
 | `FrameTitleBand.h` | `ebs::FrameTitleBand`: left vertical title spine naming a frame - fixed 17 px width for every locale, measured from glyph thickness (tracking adds length along the spine only), caption in UPPERCASE bold tracked apart at half strength with accents dropped (all-caps typography, via `ebs::bandCaps`); a longer translated name shrinks glyphs from 13pt to 9pt, never widens the band; fills row-by-row inside the rounded corners of its parent through the shared `ebs::frameCornerRadius`, separator on the inner edge, dimmed when disabled |
 | `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
 | `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
@@ -140,7 +140,7 @@ override `checkboxFillColourId` per instance (or through
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.16.0)              # pin tags; behaviour changes bump minor
+    GIT_TAG        v0.17.0)              # pin tags; behaviour changes bump minor
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -271,6 +271,11 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
 - **v0.16.0** — documentation pass: the `Contents` table lists every shipped
   component; the transitional `CompatOt.h` shim and the last internal file names in
   the provenance notes are gone. No behaviour change.
+- **v0.17.0** — a fold has an AXIS: `ExpansibleFrame::setFoldVertical` grows the zone
+  downward (taller frame) instead of sideways; the strip keeps its right edge and only
+  the glyph follows the axis (`DisclosureChevron::setVerticalFold`; `drawChevronGlyph`
+  gains the four-way `ChevronDirection` overload, the bool one still the horizontal pair).
+  Defaults unchanged, so every existing host paints the same pixels.
 - **Next** — keep the smoke green as the gate for every consumer-facing tag;
   per-tag detail lives in the version notes at the top of `CMakeLists.txt`.
 

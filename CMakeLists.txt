@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.16.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.17.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -10,7 +10,7 @@ project(eiffelbs-ui VERSION 0.16.0 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.16.0)
+#       GIT_TAG        v0.17.0)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -118,6 +118,18 @@ project(eiffelbs-ui VERSION 0.16.0 LANGUAGES C CXX)
 # in-house `ot::` namespace and its OT* headers, which have no place in a public
 # library - as are the last OT* file names in the Theme / Fonts / LookAndFeel
 # provenance notes. No behaviour change otherwise.
+
+# v0.17.0: a fold has an AXIS. ExpansibleFrame::setFoldVertical (false by default) tells
+# the frame that its zone grows DOWNWARD instead of sideways - what a short, wide frame in
+# a bottom band needs, since it has no width to spare and all the room below it. The strip
+# itself does NOT move: it stays on the right edge, because a horizontal strip would spend
+# the very height such a frame is short of, and interior() / resized() are untouched.
+# What follows the axis is the GLYPH: DisclosureChevron::setVerticalFold draws a DOWN
+# chevron when folded and an UP one when open, since a chevron pointing right at a zone
+# that opens downward is the decoration the component refuses. drawChevronGlyph gains a
+# four-way ChevronDirection overload (Left / Right / Up / Down); the historic bool overload
+# still draws the horizontal pair, so FrameBand's scroll cues are byte-identical. The
+# default keeps every existing host - the karaoke band included - painting the same pixels.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
