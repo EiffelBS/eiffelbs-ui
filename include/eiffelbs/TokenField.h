@@ -13,6 +13,13 @@
 // whole name. A value already present is never offered twice, Backspace on an
 // empty editor removes the last chip, and each chip's cross removes it.
 //
+// The chips WRAP: a field too narrow for its tokens grows TALLER instead of
+// hiding the ones that do not fit (a chip the reader added and cannot see is
+// worse than a taller row). The host asks heightForWidth() BEFORE laying the
+// row out - rowsForWidth() is the same simulation - and gives the field that
+// height; the editor follows the last chip, on the same line when 70 px
+// remain, else on its own.
+//
 // The popup is a child of the TOP-LEVEL component (a list that must draw
 // outside the field's own bounds cannot be a child of the field), placed in
 // the top-level's coordinates and closed by selection, Escape, focus loss or
@@ -23,6 +30,9 @@
 // Unknown values ALREADY in a host's data are KEPT and shown with a danger
 // outline: a hand-edited file must not silently lose a name this build cannot
 // resolve - the reader removes it, the field never does.
+//
+// setTextScale follows the same contract as DataList::setTextScale: 1.0 is
+// the shipped size, and a host whose window reads larger passes its factor.
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
 
@@ -66,7 +76,7 @@ public:
         editor.setColour (juce::TextEditor::focusedOutlineColourId,
                           juce::Colours::transparentBlack);
         editor.setColour (juce::TextEditor::textColourId, ebs::text());
-        editor.setFont (ebs::fontBody());
+        editor.setFont (hintFont());
         editor.setWantsKeyboardFocus (true);
 
         editor.onTextChange = [this] { editorTextChanged(); };
@@ -120,6 +130,51 @@ public:
     void setPlaceholder (const juce::String& text)
     {
         editor.setTextToShowWhenEmpty (text, ebs::textDim());
+    }
+
+    /** Follow the hosting window's text size (DataList::setTextScale's
+        contract): 1.0 is the shipped size, every chip and popup font
+        scales with it. */
+    void setTextScale (float scale)
+    {
+        const float clamped = juce::jlimit (0.75f, 2.0f, scale);
+        if (juce::exactlyEqual (textScale, clamped))
+            return;
+        textScale = clamped;
+        editor.setFont (hintFont());
+        popup.setTextScale (clamped);
+        hideSuggestions();
+        resized();
+        repaint();
+    }
+
+    /** How many chip rows `width` produces - the SAME simulation resized()
+        runs, so a host can size the row before laying the field out. */
+    int rowsForWidth (int width) const
+    {
+        const int inner = juce::jmax (80, width) - 8;
+        int rows = 1;
+        int x = 0;
+        for (const auto& id : chosen)
+        {
+            const int w = chipWidth (id);
+            if (x > 0 && x + w > inner)
+            {
+                ++rows;
+                x = 0;
+            }
+            x += w + 4;
+        }
+        if (inner - x < 70)
+            ++rows;   // the editor needs room after the last chip
+        return rows;
+    }
+
+    /** The height the field needs at `width`: every chip visible, the
+        editor on the last line. */
+    int heightForWidth (int width) const
+    {
+        return rowsForWidth (width) * rowPitch() + 6;
     }
 
     /** The allowed values a typed fragment matches, minus the ones already
@@ -189,7 +244,7 @@ public:
             g.drawRoundedRectangle (r, 4.0f, 1.0f);
 
             g.setColour (known ? ebs::text() : ebs::danger());
-            g.setFont (ebs::fontHint());
+            g.setFont (hintFont());
             g.drawText (chosen[i], r.toNearestInt().reduced (6, 0),
                         juce::Justification::centredLeft, true);
 
@@ -212,20 +267,30 @@ public:
         auto b = getLocalBounds().reduced (4, 3);
         chipRects.clear();
 
+        const int chipH = chipHeight();
         int x = b.getX();
+        int y = b.getY();
         for (int i = 0; i < chosen.size(); ++i)
         {
             const int w = chipWidth (chosen[i]);
-            // Leave room for the editor: a chip that eats the whole row
-            // makes the field un-typeable.
-            if (x + w > b.getRight() - 70)
-                break;
-            chipRects.push_back ({ x, b.getY(), w, b.getHeight() });
+            if (x > b.getX() && x + w > b.getRight())
+            {
+                x = b.getX();
+                y += rowPitch();
+            }
+            chipRects.push_back ({ x, y, w, chipH });
             x += w + 4;
         }
 
-        editor.setBounds (x, b.getY(), juce::jmax (60, b.getRight() - x),
-                          b.getHeight());
+        // The editor follows the last chip - on its own line when the room
+        // left is too small to type in.
+        if (x + 70 > b.getRight())
+        {
+            x = b.getX();
+            y += rowPitch();
+        }
+        editor.setBounds (x, y, juce::jmax (60, b.getRight() - x),
+                          juce::jmax (chipH, b.getBottom() - y));
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -290,6 +355,12 @@ private:
             list.setWantsKeyboardFocus (false);
         }
 
+        void setTextScale (float scale)
+        {
+            textScale = scale;
+            list.setRowHeight (juce::roundToInt (24.0f * scale));
+        }
+
         /** Rows carry the id, the description dimmed to its right. */
         void setRows (std::vector<Token> rowsToShow)
         {
@@ -321,9 +392,9 @@ private:
             int w = 0;
             for (const auto& t : rows)
             {
-                w = juce::jmax (w, (int) ebs::fontHint().getStringWidth (t.id));
+                w = juce::jmax (w, (int) bodyFont().getStringWidth (t.id));
                 if (t.description.isNotEmpty())
-                    w = juce::jmax (w, (int) ebs::fontHint().getStringWidth (
+                    w = juce::jmax (w, (int) bodyFont().getStringWidth (
                                            t.id + "   " + t.description));
             }
             return w + 28;
@@ -347,6 +418,22 @@ private:
         }
 
     private:
+        juce::Font hintFont() const
+        {
+            return juce::exactlyEqual (textScale, 1.0f)
+                       ? ebs::fontHint()
+                       : ebs::fontHint().withHeight (
+                             ebs::fontHint().getHeight() * textScale);
+        }
+
+        juce::Font bodyFont() const
+        {
+            return juce::exactlyEqual (textScale, 1.0f)
+                       ? ebs::fontBody()
+                       : ebs::fontBody().withHeight (
+                             ebs::fontBody().getHeight() * textScale);
+        }
+
         int getNumRows() override { return (int) rows.size(); }
 
         void paintListBoxItem (int row, juce::Graphics& g, int w, int h,
@@ -358,14 +445,14 @@ private:
             if (isSelected)
                 g.fillAll (ebs::bgPanel());
             g.setColour (isSelected ? ebs::accent() : ebs::text());
-            g.setFont (ebs::fontBody());
-            const int idW = (int) ebs::fontBody().getStringWidth (t.id) + 8;
+            g.setFont (bodyFont());
+            const int idW = (int) bodyFont().getStringWidth (t.id) + 8;
             g.drawText (t.id, 6, 0, idW, h, juce::Justification::centredLeft,
                         true);
             if (t.description.isNotEmpty())
             {
                 g.setColour (ebs::textDim());
-                g.setFont (ebs::fontHint());
+                g.setFont (hintFont());
                 g.drawText (t.description, 6 + idW, 0, w - idW - 12, h,
                             juce::Justification::centredLeft, true);
             }
@@ -380,6 +467,7 @@ private:
         juce::ListBox list;
         std::vector<Token> rows;
         int selected = -1;
+        float textScale = 1.0f;
     };
 
     /** The canonical spelling of an allowed id, case-insensitively - "" when
@@ -531,7 +619,7 @@ private:
         const int width = juce::jlimit (180, 460,
                                         juce::jmax (getWidth(), popup.preferredWidth()));
         const int rowsShown = juce::jmin (7, (int) ids.size());
-        const int height = rowsShown * 24 + 8;
+        const int height = rowsShown * juce::roundToInt (24.0f * textScale) + 8;
 
         // Place under the field in the top-level's coordinates; flip above
         // when the window has no room below (a field near the bottom edge).
@@ -557,31 +645,35 @@ private:
             refreshSuggestions();
     }
 
-    juce::Rectangle<int> chipRect (int index) const
-    {
-        return index >= 0 && index < (int) chipRects.size()
-                   ? chipRects[(size_t) index] : juce::Rectangle<int>();
-    }
-
     juce::Rectangle<int> crossRect (int index) const
     {
-        const auto r = chipRect (index);
-        if (r.isEmpty())
-            return {};
+        const auto r = chipRects[(size_t) index];
         return juce::Rectangle<int> (r.getRight() - 14,
                                      r.getCentreY() - 4, 9, 9);
     }
 
+    juce::Font hintFont() const
+    {
+        return juce::exactlyEqual (textScale, 1.0f)
+                   ? ebs::fontHint()
+                   : ebs::fontHint().withHeight (
+                         ebs::fontHint().getHeight() * textScale);
+    }
+
     int chipWidth (const juce::String& id) const
     {
-        return (int) ebs::fontHint().getStringWidth (id) + 26;
+        return (int) hintFont().getStringWidth (id) + 26;
     }
+
+    int chipHeight() const { return juce::roundToInt (20.0f * textScale); }
+    int rowPitch() const { return chipHeight() + 3; }
 
     Editor editor;
     SuggestionPopup popup;
     std::vector<Token> allowed;
     juce::StringArray chosen;
     std::vector<juce::Rectangle<int>> chipRects;
+    float textScale = 1.0f;
     bool popupShown = false;
 
     friend struct TokenFieldTestAccess;

@@ -2561,6 +2561,25 @@ int main()
         tf.removeToken ("assistant.input");
         check (changes == 2, "every edit notifies once");
 
+        // The chips WRAP: a narrow field is TALLER, never a field that
+        // hides the tokens that do not fit.
+        {
+            ebs::TokenField wrap;
+            wrap.setSize (300, 28);
+            wrap.setAllowedTokens (allowed);
+            for (const auto& t : { "music.description", "music.duration",
+                                   "assistant.input" })
+                wrap.addToken (t);
+            const int wide = wrap.heightForWidth (600);
+            const int narrow = wrap.heightForWidth (200);
+            check (wide <= 32,
+                   "one chip row measures one row (chip height + field padding)");
+            check (narrow > wide,
+                   "a narrow field asks for more HEIGHT instead of hiding a chip");
+            check (wrap.rowsForWidth (600) == 1 && wrap.rowsForWidth (200) > 1,
+                   "rowsForWidth is the same simulation the layout runs");
+        }
+
         tf.setTokens ({ "music.description", "assistant.time" });
         check (tf.tokens().size() == 2
                    && tf.tokens().contains ("assistant.time"),
