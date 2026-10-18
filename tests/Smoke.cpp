@@ -2515,6 +2515,59 @@ int main()
         std::printf ("[INFO] locale spine receipt: %s\n", localeFile.getFullPathName().toRawUTF8());
     }
 
+    // --- TokenField: the allowed set is the only set ----------------------
+    // A field of ids in free text accepts every typo and every name the build
+    // does not provide, and the failure lands later, somewhere else. Here the
+    // host's list is the only list: measured on the pure helpers a keyboard
+    // would drive, plus the keep-unknown rule a hand-edited file needs.
+    {
+        ebs::TokenField tf;
+        tf.setSize (420, 26);
+
+        std::vector<ebs::TokenField::Token> allowed
+        {
+            { "music.description", "the Music Description box" },
+            { "music.duration",    "the Music tab's Duration, in seconds" },
+            { "assistant.input",   "the chat input box" }
+        };
+        tf.setAllowedTokens (allowed);
+
+        check (tf.suggestionsFor ("").size() == 3,
+               "an empty fragment offers every allowed value");
+        check (tf.suggestionsFor ("dur") == juce::StringArray { "music.duration" },
+               "typing filters to the matching value");
+        check (tf.suggestionsFor ("zzz").isEmpty(),
+               "a fragment nothing matches offers nothing");
+
+        check (! tf.addToken ("bogus"),
+               "a value the host does not allow cannot be added");
+        check (tf.addToken ("music.duration"),
+               "an allowed value is added");
+        check (! tf.addToken ("music.duration"),
+               "... and never lands twice");
+        check (! tf.addToken ("MUSIC.DURATION"),
+               "... the same value in another case is the same value");
+        check (tf.tokens().size() == 1 && tf.tokens()[0] == "music.duration",
+               "the token list carries the canonical spelling");
+        check (! tf.suggestionsFor ("").contains ("music.duration"),
+               "what is already held is not offered again");
+        check (tf.removeToken ("music.duration"), "a chip removes");
+        check (! tf.removeToken ("music.duration"),
+               "... and removal is honest about a value it does not hold");
+
+        int changes = 0;
+        tf.onTokensChanged = [&changes] { ++changes; };
+        tf.addToken ("assistant.input");
+        tf.removeToken ("assistant.input");
+        check (changes == 2, "every edit notifies once");
+
+        tf.setTokens ({ "music.description", "assistant.time" });
+        check (tf.tokens().size() == 2
+                   && tf.tokens().contains ("assistant.time"),
+               "setTokens KEEPS an unknown value - a hand-edited file loses nothing");
+        check (changes == 2, "setTokens is a load, not an edit");
+    }
+
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",
                  failures == 0 ? "PASS" : "FAIL",
                  failures, failures == 1 ? "" : "s");

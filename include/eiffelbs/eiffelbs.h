@@ -50,4 +50,5 @@
 #include "eiffelbs/ChatBubble.h"
 #include "eiffelbs/PillTabSwitch.h"
 #include "eiffelbs/FrameBand.h"
+#include "eiffelbs/TokenField.h"
 #include "eiffelbs/TextReadability.h"
