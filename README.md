@@ -30,6 +30,7 @@ surface below is what they all share.
 | `StatusBar.h` | `ebs::StatusBar` global log bar + activity slots (`beginActivity`: spinner + label + elapsed, ratio bar, queue bar, burst) + resource meters (right-aligned slots, GPU cell) + single-instance floating `LogWindow` (append-only, live, visible truncation, OS-native title bar, `ebs::LogView` over `juce::CodeEditorComponent`), thread-safe `logLine()`, C0/C1 sanitising, `ColourIds` overrides |
 | `BusyIndicator.h` | `ebs::BusyIndicator`: reusable indeterminate/determinate progress strip behind the shared theme (stage text or normalized progress) |
 | `LevelMeter.h` | `ebs::LevelMeter`: compact output meter - a peak bar, a gain-reduction segment drawn from the right edge on a 12 dB scale, and one dB line with host-supplied captions; takes three numbers (peak, GR dB, trim dB) and computes nothing |
+| `ActivityDot.h` | `ebs::ActivityDot`: one small dot that says whether a signal PATH is carrying anything - a disc sized by the dB level the path produced (dark below -45 dBFS, full at full scale), one-call attack and a ~0.6 s release so a syllable between two notes reads as continuous activity; a display only, wordless by design (the host owns the caption and its locale), tooltip-capable, takes no clicks |
 | `TextSanitize.h` | `ebs::sanitizeForShaping()`: replaces the C0/C1 controls JUCE's HarfBuzz shaper cannot render (missing-glyph crash guard); idempotent; apply at every edge feeding on-screen text |
 | `TextReadability.h` | `ebs::Readability` + `glyphPathForText()` / `drawReadabilityBacking()` / `drawReadabilityScrim()`: a NEUTRAL black backing (shadow, contour, scrim, contour+scrim) so text stays legible over ANY background - a video, an animated clip, a photo; the fill keeps the caller's colour, `off` is a no-op. `drawReadabilityBacking()` takes the caller's own `fade` (0..1, default 1) and multiplies the backing's ALPHA by it, so a host that dims its rows (a lyric roll) takes the contour with them; the stroke WIDTH stays the caller's `strength`, and the outline also takes the caller's own `contour` colour plus a `contourWeight` width multiplier (applied after the relative clamp) |
 | `HelpBubble.h` | `ebs::HelpBubble`: 14x14 accent "?" bubble showing the host tooltip — section instructions live in the bubble, same look across panels and projects |
@@ -276,6 +277,10 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   the glyph follows the axis (`DisclosureChevron::setVerticalFold`; `drawChevronGlyph`
   gains the four-way `ChevronDirection` overload, the bool one still the horizontal pair).
   Defaults unchanged, so every existing host paints the same pixels.
+- **v0.17.1** — `ActivityDot.h`: one small dot that says whether a signal PATH is
+  carrying anything - a disc sized by the level the path produced, so "no sound" stops
+  being a guess. A display only, wordless by design: the host keeps the caption and its
+  locale, exactly like `LevelMeter`.
 - **Next** — keep the smoke green as the gate for every consumer-facing tag;
   per-tag detail lives in the version notes at the top of `CMakeLists.txt`.
 

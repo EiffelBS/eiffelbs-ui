@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.17.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.17.1 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -10,7 +10,7 @@ project(eiffelbs-ui VERSION 0.17.0 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.17.0)
+#       GIT_TAG        v0.17.1)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -130,6 +130,17 @@ project(eiffelbs-ui VERSION 0.17.0 LANGUAGES C CXX)
 # four-way ChevronDirection overload (Left / Right / Up / Down); the historic bool overload
 # still draws the horizontal pair, so FrameBand's scroll cues are byte-identical. The
 # default keeps every existing host - the karaoke band included - painting the same pixels.
+
+# v0.17.1: ebs::ActivityDot (include/eiffelbs/ActivityDot.h) - one small dot that says whether
+# a signal PATH is carrying anything. A knob at 0 % and a switched-off stage look identical on
+# screen, so "no sound" is diagnosed by guessing; this reads the AUDIO instead: a disc sized by
+# the level the path produced, dark below -45 dBFS and full at full scale, with a one-call
+# attack and a ~0.6 s release so a syllable between two notes reads as continuous activity.
+# Display only - the host feeds it from its own atomic snapshot at its own tick rate, and the
+# component repaints only when the disc it would draw actually moved. Wordless on purpose: the
+# caption and its locale belong to the host, exactly like LevelMeter's. Additive: nothing else
+# changes, and the dB arithmetic stays in <cmath> so a UI header never drags juce_audio_basics
+# into a consumer.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

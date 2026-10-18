@@ -1462,6 +1462,148 @@ int main()
         check (meter.getTooltip() == "peak, reduction, trim",
                "the meter answers a tooltip query");
 
+        // v0.15.16 ActivityDot: one dot per signal path, sized by the level that path
+        // carried. The host hands it a linear peak from its own snapshot, so every check
+        // below is on the disc that number implies. The dB floor is -45, full scale is 1,
+        // and the disc's travel is the inner 6 px of a 10 px slot (10 - 4).
+        ebs::ActivityDot dot;
+        dot.setBounds (0, 0, 16, 16);
+        dot.setDotDiameter (10);
+
+        const auto renderDot = [&] (std::initializer_list<float> feeds)
+        {
+            dot.reset();
+            for (const float f : feeds)
+                dot.setLevel (f);
+            return renderToImage (16, 16, [&] (juce::Graphics& g)
+            {
+                dot.paintEntireComponent (g, false);
+            });
+        };
+
+        const auto countColour = [] (const juce::Image& img, juce::Colour c)
+        {
+            int n = 0;
+            for (int y = 0; y < img.getHeight(); ++y)
+                for (int x = 0; x < img.getWidth(); ++x)
+                    if (img.getPixelAt (x, y) == c)
+                        ++n;
+            return n;
+        };
+
+        // Silence: the slot exists (a ring, a dim pip) and carries NO accent at all.
+        const auto silentDot = renderDot ({ 0.0f });
+        check (countColour (silentDot, ebs::outputColour()) == 0,
+               "a dot with no signal behind it paints no accent");
+        // The ring is antialiased, so its ink is counted rather than sampled at one
+        // pixel: any pixel that is neither the black pre-fill nor the slot background
+        // is edge or pip.
+        int slotInk = 0;
+        for (int y = 0; y < silentDot.getHeight(); ++y)
+            for (int x = 0; x < silentDot.getWidth(); ++x)
+            {
+                const auto c = silentDot.getPixelAt (x, y);
+                if (c != juce::Colours::black && c != ebs::vizBg())
+                    ++slotInk;
+            }
+        check (slotInk > 0, "an unlit dot still draws its slot ring and its dim pip");
+        check (dot.getFill() == 0.0f, "silence reads as a dark disc");
+
+        // Full scale: the accent covers the inner disc, and its area grows with level.
+        const auto loudDot = renderDot ({ 1.0f });
+        const int loudPixels = countColour (loudDot, ebs::outputColour());
+        check (loudPixels > 0, "a path carrying full scale lights the accent disc");
+        checkPixel (loudDot, { 8, 8 }, ebs::outputColour(),
+                    "the disc is solid at its centre when the path is at full scale");
+        check (dot.getFill() == 1.0f, "full scale fills the disc");
+
+        const auto halfDot = renderDot ({ 0.5f });
+        const int halfPixels = countColour (halfDot, ebs::outputColour());
+        check (halfPixels > 0 && halfPixels < loudPixels,
+               "a quieter path paints a smaller disc, not a dimmer one");
+
+        // The dB scale is what makes a quiet path readable: -6 dBFS is not half the
+        // travel, it is almost all of it, while -40 dBFS is nearly dark.
+        dot.reset();
+        dot.setLevel (0.5f);   // -6 dBFS
+        check (dot.getFill() > 0.8f, "a -6 dBFS path reads near the top of the disc");
+        dot.reset();
+        dot.setLevel (0.01f);  // -40 dBFS
+        const float quietFill = dot.getFill();
+        check (quietFill > 0.0f && quietFill < 0.2f,
+               "a -40 dBFS path lights a small disc rather than a bright one");
+
+        // Under the floor there is nothing at all, and a hot feed cannot overfill.
+        dot.reset();
+        dot.setLevel (0.001f);   // -60 dBFS
+        check (dot.getFill() == 0.0f, "below the -45 dBFS floor the dot stays dark");
+        dot.setLevel (2.0f);
+        check (dot.getLevel() == 1.0f && dot.getFill() == 1.0f,
+               "a level above full scale is clamped, never drawn past the slot");
+
+        // The release ramp: one peak holds for a moment, then the disc falls away on
+        // its own once the path stops carrying signal.
+        dot.reset();
+        dot.setLevel (1.0f);
+        dot.setLevel (0.0f);
+        check (dot.getFill() > 0.9f, "one peak holds the dot briefly, so short words read");
+        int releaseTicks = 0;
+        while (dot.getFill() > 0.0f && releaseTicks < 100)
+        {
+            dot.setLevel (0.0f);
+            ++releaseTicks;
+        }
+        check (releaseTicks > 5 && releaseTicks < 40,
+               "the released dot falls over a fraction of a second, not one tick");
+
+        // reset() skips the ramp: a host that hides the dot does not want it to glow
+        // on the next layout pass.
+        dot.setLevel (1.0f);
+        dot.reset();
+        check (dot.getFill() == 0.0f && dot.getLevel() == 0.0f,
+               "reset drops the dot and its remembered feed at once");
+
+        // Nothing is ever painted outside the rectangle the host gave the dot: a tight
+        // strip must not let two neighbours bleed into each other. The dot is really
+        // parented here, because paintEntireComponent does NOT translate by a component's
+        // own position - a detached component would be painted at the image origin and the
+        // check would read its own ink as a leak.
+        juce::Image dotCanvas (juce::Image::ARGB, 40, 40, true);
+        {
+            juce::Graphics gc (dotCanvas);
+            gc.fillAll (juce::Colours::black);
+        }
+        juce::Component dotHolder;
+        dotHolder.setSize (40, 40);
+        ebs::ActivityDot wideDot;
+        dotHolder.addAndMakeVisible (wideDot);
+        wideDot.setBounds (8, 8, 24, 24);
+        wideDot.setDotDiameter (10);
+        wideDot.setLevel (1.0f);
+        {
+            juce::Graphics gc (dotCanvas);
+            dotHolder.paintEntireComponent (gc, true);
+        }
+        int outside = 0;
+        for (int y = 0; y < 40; ++y)
+            for (int x = 0; x < 40; ++x)
+            {
+                const bool inside = (x >= 8 && x < 32 && y >= 8 && y < 32);
+                if (! inside && dotCanvas.getPixelAt (x, y) != juce::Colours::black)
+                    ++outside;
+            }
+        check (outside == 0, "the dot paints inside its own bounds and nowhere else");
+        dotHolder.removeAllChildren();
+
+        // The dot answers a tooltip query like every other display in the library.
+        dot.setTooltip ("signal on this path");
+        check (dot.getTooltip() == "signal on this path",
+               "the dot answers a tooltip query");
+
+        // Controls must keep working THROUGH the dot: it is an indicator, not a control.
+        check (! dot.hitTest (8, 8),
+               "the dot takes no clicks of its own, so the knob under it still works");
+
         // === Composed PNG receipt ===========================================
         // CANONICAL offscreen rendering: assemble a REAL component hierarchy
         // under a detached parent, then let paintEntireComponent do the
@@ -1544,6 +1686,19 @@ int main()
         canvas.addAndMakeVisible (meter);
         meter.setBounds (96, 152, 74, 18);
 
+        // v0.15.16: two activity dots beside that cell - a path carrying signal and a
+        // silent one - at the 16 px slot a host puts a dot in. Parenting matters here:
+        // the disc has to keep its level once the component is really on screen.
+        canvas.addAndMakeVisible (dot);
+        dot.setBounds (150, 132, 16, 16);
+        dot.reset();
+        dot.setLevel (1.0f);
+        ebs::ActivityDot silentDotHost;
+        canvas.addAndMakeVisible (silentDotHost);
+        silentDotHost.setBounds (170, 132, 16, 16);
+        silentDotHost.reset();
+        silentDotHost.setLevel (0.0f);
+
         juce::Image receipt (juce::Image::ARGB, 260, 280, true);
         {
             juce::Graphics g (receipt);
@@ -1560,6 +1715,14 @@ int main()
                     "the meter keeps its peak fill when parented on the canvas");
         checkPixel (receipt, { 160, 154 }, ebs::danger(),
                     "the meter keeps its gain-reduction segment when parented");
+
+        // The two dots, on the same canvas: the fed one keeps its disc at its centre,
+        // and the silent one keeps its slot background - the level is a property of the
+        // PATH, so a silent path must not borrow the lit one's ink.
+        checkPixel (receipt, { 158, 140 }, ebs::outputColour(),
+                    "a fed dot keeps its disc when parented on the canvas");
+        checkPixel (receipt, { 178, 137 }, ebs::vizBg(),
+                    "a silent dot keeps its empty slot when parented beside a lit one");
 
         // Detach children BEFORE stack unwind order gets tricky: canvas is
         // destroyed first (declared last among the parents here), while its
