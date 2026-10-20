@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.22)
+﻿cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.17.3 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.17.8 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -10,7 +10,7 @@ project(eiffelbs-ui VERSION 0.17.3 LANGUAGES C CXX)
 #   include(FetchContent)
 #   FetchContent_Declare(eiffelbs-ui
 #       GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-#       GIT_TAG        v0.17.3)
+#       GIT_TAG        v0.17.8)
 #   FetchContent_MakeAvailable(eiffelbs-ui)
 #   target_link_libraries(myApp PRIVATE eiffelbs::ui juce::juce_gui_basics)
 #
@@ -154,6 +154,25 @@ project(eiffelbs-ui VERSION 0.17.3 LANGUAGES C CXX)
 # the release ramp) and ebs::paintActivityDisc() are now shared with ActivityDot, so a dot in a
 # knob and a dot on a panel cannot drift apart, and ebs::Knob itself is untouched.
 
+
+# v0.17.3 (tag, committed): ActivityKnob never paints its dot over the pointer line. The disc and
+# the needle are one knob's face; sharing the geometry keeps them out of each other's way.
+
+# v0.17.4-v0.17.7 (tags, committed): an `IconButton` plus glyph, DataList::setLabelFont() and
+# setTextScale, then ebs::TokenField - a chip field whose suggestions are the ONLY values the host
+# allows (see TokenField.h), its tooltip, and chips that follow the host's text scale.
+
+# v0.17.8: ebs::PathRow gains setBrowseFilters(globs) / getBrowseFilters() - the browse dialog lists
+# what the host declares it READS, because a picker showing every file in the folder is not a filter
+# (an audio field fed a .json fails at decode time, far from the field that took it). The default is
+# "*" and stays byte-identical for hosts that name nothing; a Directory row keeps its setting recorded
+# and its dialog lists folders, where an extension filter says nothing. Additive: every existing PathRow
+# paints and browses exactly as before.
+# v0.17.8 also ships ebs::FrameTitleHeader (a TOP title band for a wide, short frame - the spine's caption
+# voice laid horizontally, height fixed by measurement at 21 px through ebs::bandHeaderHeight(), additive:
+# FrameTitleBand is untouched) and ebs::WrappedText (word wrap measured through juce::TextLayout: this
+# build's juce::Label has NO word wrap at all; requiredHeightForWidth / linesForWidth report what a caption
+# needs BEFORE it is placed, setMaxLines(n) truncates loudly with U+2026 dropping whole words).
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
 

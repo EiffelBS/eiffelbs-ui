@@ -31,6 +31,7 @@
 #include "eiffelbs/FileGripButton.h"
 #include "eiffelbs/FramedBody.h"
 #include "eiffelbs/FrameTitleBand.h"
+#include "eiffelbs/FrameTitleHeader.h"
 #include "eiffelbs/Knob.h"
 #include "eiffelbs/MorphSlider.h"
 #include "eiffelbs/PowerToggle.h"
@@ -52,3 +53,4 @@
 #include "eiffelbs/FrameBand.h"
 #include "eiffelbs/TokenField.h"
 #include "eiffelbs/TextReadability.h"
+#include "eiffelbs/WrappedText.h"

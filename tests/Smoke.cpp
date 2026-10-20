@@ -1,4 +1,4 @@
-// Smoke.cpp
+﻿// Smoke.cpp
 // Standalone offscreen proof for eiffelbs-ui.
 //
 // Exercises every public header: instantiates the LookAndFeel and the
@@ -32,6 +32,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <eiffelbs/eiffelbs.h>
 
+#include <cmath>
 #include <cstdio>
 #include <optional>
 
@@ -627,6 +628,20 @@ int main()
               pathRow.resized(); });
         check (inkPixels (pathImg) > 40,
                "path row paints editor + buttons");
+
+        // v0.17.8 PathRow browse filters: the dialog shows EVERYTHING until the host names
+        // what its form reads, and what a host sets is exactly what its chooser gets.
+        check (pathRow.getBrowseFilters() == "*",
+               "a file row lists every file until the host declares its extensions");
+        pathRow.setBrowseFilters ("*.lrc;*.srt;*.vtt");
+        check (pathRow.getBrowseFilters() == "*.lrc;*.srt;*.vtt",
+               "the browse filter is what the host set, character for character");
+        ebs::PathRow dirRow (ebs::PathRow::Mode::Directory);
+        dirRow.setBrowseFilters ("  *.json  ");   // spaces typed around a list never reach the dialog
+        check (dirRow.getBrowseFilters() == "*.json",
+               "the filter keeps exactly what the host wrote, without the spaces around it");
+        // A Directory row stores its setting as the row's own state, and its chooser ignores
+        // it: a folder dialog has no extension to list, so wildcards there change nothing.
 
         // v0.8.0 DataList: proxy pipeline (views + search + sort) over
         // painted cells with a progress bar and an action column. The
@@ -2586,6 +2601,347 @@ int main()
                "setTokens KEEPS an unknown value - a hand-edited file loses nothing");
         check (changes == 2, "setTokens is a load, not an edit");
     }
+
+        // v0.17.8 WrappedText: word wrap measured by font metrics, because a juce::Label in THIS build has no word
+        // wrap at all - `setMultiLine` and `setWordWrapText` do not exist (the compile that first asked for wrapped
+        // captions failed with C2039 on both), so a caption is left breaking by hand for one width, which lies the
+        // moment the window shrinks, or running past the edge in silence.
+        {
+            ebs::WrappedText block;
+            const juce::String para = "Plain LRC stamps whole lines; SRT and VTT bring line windows. Enhanced LRC "
+                                      "brings word times for the words it tags. Nothing is invented for a word the "
+                                      "file does not stamp.";
+
+            block.setText (para);
+
+            const int wide = 400, narrow = 170;
+            const int oneLineH = juce::roundToInt (ebs::fontBody().getHeight());
+            const int hWide   = block.requiredHeightForWidth (wide);
+            const int hNarrow = block.requiredHeightForWidth (narrow);
+
+            check (block.linesForWidth (wide) > 1 && block.linesForWidth (narrow) > block.linesForWidth (wide),
+                   "the same text needs more lines at a narrow width");
+            check (hNarrow > hWide && hWide > oneLineH,
+                   "a narrower width asks for more HEIGHT instead of clipping the sentence");
+
+            // The component's number is the layout's own arithmetic: rebuild the attributed string with the same
+            // font, colour, wrap and leading, and compare heights exactly. A host laying out from a guess would
+            // fail this on the first resize.
+            juce::AttributedString as (para);
+            as.setFont (ebs::fontBody());
+            as.setColour (ebs::text());
+            as.setWordWrap (juce::AttributedString::WordWrap::byWord);
+            as.setJustification (juce::Justification::topLeft);
+            as.setLineSpacing (ebs::kTextLeading);
+
+            juce::TextLayout ref;
+            ref.createLayout (as, static_cast<float> (narrow));
+
+            check (hNarrow == juce::roundToInt (ref.getHeight()),
+                   "requiredHeightForWidth is the measured layout height, not an estimate");
+
+            bool inside = true;
+
+            for (int i = 0; i < ref.getNumLines(); ++i)
+                if (static_cast<int> (std::ceil (ref.getLine (i).getLineBoundsX().getEnd())) > narrow)
+                    inside = false;
+
+            check (inside, "no wrapped line runs past the width it was measured against");
+
+            // A hard break written by the host is a real line: a report joins its entries that way.
+            ebs::WrappedText rows;
+            rows.setText ("first entry\nsecond entry");
+            check (rows.linesForWidth (600) == 2 && rows.requiredHeightForWidth (600) > oneLineH,
+                   "hard breaks survive wrapping and both lines get room");
+
+            // Truncation is loud: the kept tail carries the mark, every kept line fits inside the width, and the
+            // room shrinks to what is shown - never full-height space hiding text nobody can read.
+            const auto ellipsis = juce::String::charToString (0x2026);
+            block.setMaxLines (2);
+
+            const int hTrunc = block.requiredHeightForWidth (narrow);
+            const auto shown = block.textForWidth (narrow);
+
+            check (block.linesForWidth (narrow) == 2, "the truncated caption paints exactly the allowed lines");
+            check (hTrunc < hNarrow, "kept short means a shorter room, not hidden text in tall space");
+            check (shown.contains (ellipsis), "the cut is marked on the last kept line");
+
+            bool tailFits = true;
+
+            for (const auto& l : juce::StringArray::fromTokens (shown, "\n", {}))
+                if (ebs::fontBody().getStringWidth (l) > narrow)
+                    tailFits = false;
+
+            check (tailFits, "the mark never pushes a kept line past the width it was told to keep");
+
+            auto countColour = [&] (const juce::Image& img, const juce::Colour& c)
+            {
+                int n = 0;
+
+                for (int x = 0; x < img.getWidth(); ++x)
+                    for (int y = 0; y < img.getHeight(); ++y)
+                        if (img.getPixelAt (x, y) == c)
+                            ++n;
+
+                return n;
+            };
+
+            block.setSize (narrow, hTrunc);
+
+            const auto inked = renderOnClear (narrow, hTrunc, [&] (juce::Graphics& g) { block.paint (g); });
+            check (inkPixels (inked) > 60 && countColour (inked, ebs::text()) > 20,
+                   "the truncated caption paints its kept lines at full strength");
+
+            // Disabled dims the fill and touches no word.
+            block.setEnabled (false);
+
+            const auto dimmed = renderOnClear (narrow, hTrunc, [&] (juce::Graphics& g) { block.paint (g); });
+            check (inkPixels (dimmed) > 60 && countColour (dimmed, ebs::text()) == 0,
+                   "a disabled caption dims its text without moving a single word");
+
+            // Empty text asks for no room: nothing is invented where the host has nothing to say.
+            ebs::WrappedText none;
+            check (none.requiredHeightForWidth (200) == 0 && none.linesForWidth (200) == 0,
+                   "empty text measures zero lines and zero height");
+
+            // A word wider than the line is never cut mid-glyph: it keeps its whole shape on a line of its own and
+            // asks for room, so nothing disappears at a width where a Label would have clipped it in silence.
+            ebs::WrappedText longWord;
+            longWord.setText ("incomprehensibilities demonstratepermeability");
+            const int tight = 40;
+
+            check (longWord.linesForWidth (tight) == 2
+                       && longWord.textForWidth (tight).contains ("incomprehensibilities")
+                       && longWord.requiredHeightForWidth (tight) > oneLineH,
+                   "a word wider than the line stays whole on its own line and asks for height, never mid-glyph");
+        }
+
+        // v0.17.8 receipt: BOTH bands in one picture - a frame named on its LEFT spine, the way every existing host
+        // names its rooms, and a wide short dialog frame named along its TOP edge. A human eye reads this to check
+        // that adding the header band changed nothing for the left band; the pixel checks above say what each is
+        // made of.
+        {
+            const int pw = 320, ph = 190;
+
+            // This receipt is rendered by the file's own helper: a template image, pre-filled black, painted by
+            // components inside ONE Graphics object. What this work observed about writing such pictures to PNG is
+            // recorded honestly here, because it decides how this proof must be read: painting the same component tree
+            // into an ordinary ARGB image in separate Graphics scopes gives identical picture data whose written file
+            // reads A=0 everywhere; one run built by renderToImage wrote an opaque PNG (A=255, exact palette colours)
+            // and another run of the same route wrote A=0. The evidence that holds is therefore the checks and the
+            // printed pixel values - a viewable file for this composite is not guaranteed on this machine. Colour
+            // references must be built in the SAME image format as the proof: a template image keeps a 1-bit alpha
+            // stencil, so its blended colours land at different bytes than an ordinary ARGB image's, and equality
+            // across formats fails for reasons foreign to the band.
+
+            juce::Component headCanvas;
+            headCanvas.setSize (pw, ph);
+
+            ebs::FramedBody leftFrame, topFrame;
+            ebs::FrameTitleBand spine;
+            ebs::FrameTitleHeader header;
+
+            headCanvas.addAndMakeVisible (leftFrame);
+            leftFrame.setBounds (10, 10, 300, 70);
+            headCanvas.addAndMakeVisible (topFrame);
+            topFrame.setBounds (10, 95, 300, 85);
+
+            spine.setTitle ("Reverb");
+            header.setTitle ("Detection de tonalite");
+
+            leftFrame.addAndMakeVisible (spine);
+            spine.setBounds (0, 0, ebs::FrameTitleBand::bandWidth(), 70);   // the spine rides its own frame's height
+            topFrame.addAndMakeVisible (header);
+            header.setBounds (0, 0, 300, ebs::bandHeaderHeight());
+
+            juce::Image headProof = renderToImage (pw, ph, [&topFrame, &leftFrame] (juce::Graphics& g)
+            {
+                // Each frame is painted as its own root, at the place the canvas assigns it; a headless canvas root
+                // paints only itself, so painting the canvas would show two empty bodies.
+                {
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.setOrigin (10, 95);
+                    topFrame.paintEntireComponent (g, false);   // the dialog frame named along its TOP edge
+                }
+
+                {
+                    juce::Graphics::ScopedSaveState ss (g);
+                    g.setOrigin (10, 10);
+                    leftFrame.paintEntireComponent (g, false);  // the same voice on its LEFT spine, untouched by this
+                }
+            });
+
+            // The picture must show BOTH bands: the same tint the spine paints inside a frame body, laid along the
+            // top edge under its own hairline. A proof that stays the canvas colour is the honest way to catch "the
+            // component never painted".
+            const int bh = ebs::bandHeaderHeight();
+
+            // The reference strip is built in this proof's own template format, for the reason recorded above.
+            juce::Image headRef (juce::Image::ARGB, 300, bh, true);
+            {
+                juce::Graphics rg (headRef);
+                rg.setColour (ebs::bgPanel());          rg.fillRect (juce::Rectangle<int> (0, 0, 300, bh));
+                rg.setColour (ebs::accent().withAlpha (0.10f)); rg.fillRect (juce::Rectangle<int> (0, 0, 300, bh));
+            }
+
+            const auto headTint = headRef.getPixelAt (30, bh - 2);
+
+            checkPixel (headProof, { 30, 95 + bh - 2 }, headTint,
+                        "the receipt shows the top band's tint inside its own frame body");
+            checkPixel (headProof, { 160, 95 + bh - 1 }, ebs::panelBorder(),
+                        "the receipt shows the band's hairline closing its bottom edge");
+
+            int headInk = 0;
+
+            for (int x = 20; x < 300; ++x)
+                for (int y = 95; y < 95 + bh - 1; ++y)   // above the hairline, inside the strip
+                    if (headProof.getPixelAt (x, y) != headTint
+                        && headProof.getPixelAt (x, y) != ebs::bgPanel()
+                        && headProof.getPixelAt (x, y) != ebs::bgDark())   // the canvas colour is not ink
+                        ++headInk;
+
+            check (headInk > 100, "the receipt shows a caption painted on the top band, not an empty strip");
+
+            std::printf ("[INFO] receipt pixels: fill(2,2)=#%08x left body(150,40)=#%08x band tint(30,%d)=#%08x hairline(160,%d)=#%08x\n",
+                         headProof.getPixelAt (2, 2).getARGB(),
+                         headProof.getPixelAt (150, 40).getARGB(),
+                         95 + bh - 2, headProof.getPixelAt (30, 95 + bh - 2).getARGB(),
+                         95 + bh - 1, headProof.getPixelAt (160, 95 + bh - 1).getARGB());
+
+            const juce::File headFile (juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                          .getChildFile ("eiffelbs-title-header.png"));
+
+            if (auto out = headFile.createOutputStream())
+            {
+                juce::PNGImageFormat().writeImageToStream (headProof, *out);
+                out->flush();
+            }
+            std::printf ("[INFO] top band receipt: %s\n", headFile.getFullPathName().toRawUTF8());
+        }
+
+        // v0.17.8 FrameTitleHeader: a TOP title band - the spine's caption voice laid along a frame's top edge,
+        // additive to FrameTitleBand (the left spine is untouched, and every host naming its frames on the left
+        // keeps doing exactly that). A dialog is wide and short, so the band spends WIDTH, the room it has.
+        {
+            const int w = 320;
+            const int h = ebs::bandHeaderHeight();
+
+            auto renderTopBand = [&] (const juce::String& title)
+            {
+                ebs::FramedBody frame;
+                frame.setSize (w, h + 40);
+                ebs::FrameTitleHeader head;
+                frame.addAndMakeVisible (head);
+                head.setBounds (0, 0, w, h);
+                head.setTitle (title);
+
+                juce::Image img (juce::Image::ARGB, w, h + 40, true);
+                juce::Graphics g (img);
+                g.fillAll (juce::Colours::black);
+                frame.paintEntireComponent (g, false);
+                return img;
+            };
+
+            // The tint the band paints over a frame body, computed exactly as the paint does it: bgPanel under an
+            // accent wash at 10 %. Compared as a colour, not against the palette.
+            const auto tint = renderToImage (w, h, [&] (juce::Graphics& g)
+            {
+                g.setColour (ebs::bgPanel());          g.fillRect (juce::Rectangle<int> (0, 0, w, h));
+                g.setColour (ebs::accent().withAlpha (0.10f)); g.fillRect (juce::Rectangle<int> (0, 0, w, h));
+            }).getPixelAt (30, h - 2);   // inside the band, left of where a caption sits
+
+            const auto withTitle = renderTopBand ("Detection de tonalite");
+            const auto bare      = renderTopBand ("");
+
+            ebs::FramedBody plain;
+            plain.setSize (w, h + 40);
+            const auto plainFrame = renderToImage (w, h + 40, [&] (juce::Graphics& g)
+            {
+                plain.paintEntireComponent (g, false);
+            });
+
+            check (h == ebs::FrameTitleHeader::bandHeight() && h > 8,
+                   "the top band asks for its measured height, not a number picked by eye");
+            checkPixel (withTitle, { 30, h - 2 }, tint, "the top band tints inside the frame body");
+            checkPixel (withTitle, { w / 2, h - 1 }, ebs::panelBorder(),
+                        "a solid hairline closes the band's bottom edge, where the name stops and content begins");
+            // The extreme corner stays exactly what a plain frame paints there: a strip squaring off the shared
+            // curve would leave its own tint on the corner pixel.
+            check (withTitle.getPixelAt (1, 1) == plainFrame.getPixelAt (1, 1),
+                   "the top band hugs the frame's rounded corner instead of squaring it off");
+
+            auto countHeadInk = [&] (const juce::Image& img, const juce::Image& ref)
+            {
+                int n = 0;
+
+                for (int x = 4; x < w - 4; ++x)
+                    for (int y = 2; y < h - 2; ++y)   // the hairline row stays out
+                        if (img.getPixelAt (x, y) != ref.getPixelAt (x, y))
+                            ++n;
+
+                return n;
+            };
+
+            const int headInk = countHeadInk (withTitle, bare);
+
+            int fullStrength = 0;
+
+            for (int x = 4; x < w - 4; ++x)
+                for (int y = 2; y < h - 2; ++y)
+                    if (withTitle.getPixelAt (x, y) == ebs::text())
+                        ++fullStrength;
+
+            check (headInk > 100, "the caption paints readable glyphs inside the band");
+            check (fullStrength == 0,
+                   "the name sits at half strength, so a header never shouts over its content");
+
+            // The height is fixed by measurement across locales: glyphs shrink when a long translated name does
+            // not fit, and smaller glyphs are THINNER, which is what keeps one measured number cleared. The
+            // shipped OpenTimbre captions (accents dropped as the band draws them) must each fit the narrowest
+            // dialog width the app gives a band, and the tallest glyph the ladder can start from must clear pads.
+            const juce::StringArray headLocales = { u8 ({ 'T', 'o', 'n', 'a', 'l', 'i', 't', 0xC3, 0xA9, ' ',
+                                                          'e', 't', ' ', 'g', 'a', 'm', 'm', 'e' }),
+                                                    u8 ({ 'R', 0xC3, 0xA9, 'v', 'e', 'r', 'b', 0xC3, 0xA9, 'r',
+                                                          'a', 't', 'i', 'o', 'n' }),
+                                                    u8 ({ 'E', 'x', 'p', 'o', 'r', 't', 'a', 't', 'i', 'o',
+                                                          'n', ' ', 'd', 'e', 's', ' ', 'f', 'i', 'c', 'h',
+                                                          'i', 'e', 'r', 's' }),
+                                                    u8 ({ 0xE3, 0x82, 0xAD, 0xE3, 0x83, 0xBC, 0xE3, 0x81, 0xA8,
+                                                          0xE3, 0x82, 0xB9, 0xE3, 0x82, 0xB1, 0xE3, 0x83, 0xBC,
+                                                          0xE3, 0x83, 0xAB }) };
+            const int tightW = 170;   // a band the width of a small dialog's content
+
+            for (int i = 0; i < headLocales.size(); ++i)
+            {
+                const auto caps = ebs::bandCaps (headLocales[i]);
+                const int len9  = ebs::bandTextLength (caps, ebs::kBandMinFontSize);
+                const int thick13 = ebs::bandGlyphThickness (caps, ebs::kBandFontSize);
+
+                std::printf ("[INFO] top band locale %d: caption=%s length@9pt=%d budget=%d thickness@13pt=%d height=%d\n",
+                             i + 1, caps.toRawUTF8(), len9, tightW - 2 * juce::roundToInt (ebs::kBandHeaderPad),
+                             thick13, h);
+
+                check (len9 <= tightW - 2 * juce::roundToInt (ebs::kBandHeaderPad)
+                           && thick13 + 2 * juce::roundToInt (ebs::kBandHeaderPad) <= h,
+                       "a long translated name shrinks inside the fixed band height at a narrow width");
+            }
+
+            // The empty title is allowed to be silent: tint and hairline only, exactly as the spine paints when
+            // a frame has no name.
+            int bareDiff = 0;
+
+            for (int x = 4; x < w - 4; ++x)
+                for (int y = 2; y < h - 2; ++y)
+                    if (bare.getPixelAt (x, y) != plainFrame.getPixelAt (x, y))
+                        ++bareDiff;
+
+            // Nothing outside the strip may move when a band has no name: tint and trim only, exactly as the spine
+            // paints silent when a frame has nothing to say.
+            const int stripArea = (w - 2 * juce::roundToInt (ebs::frameCornerRadius)) * h;
+
+            check (bareDiff > 0 && bareDiff <= stripArea,
+                   "an empty band paints its tint and trim inside the curve, and nothing outside them");
+        }
 
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",
                  failures == 0 ? "PASS" : "FAIL",

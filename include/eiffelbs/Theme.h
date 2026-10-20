@@ -231,4 +231,29 @@ namespace ebs
     {
         return juce::Colours::white.withAlpha (0.9f);
     }
+
+    /** Mark one button of a `juce::AlertWindow` as the PRIMARY action.
+        An AlertWindow builds its buttons internally from the labels passed to
+        `addButton`; the EiffelBS LookAndFeel paints the button carrying
+        componentID "primary" with the accent fill, so naming the yes-side
+        makes the confirmation read as it does everywhere in the app.
+        The label must match the text handed to `addButton` exactly. Returns
+        true when the button was found (a silent no-op on a typo is worse
+        than an unstyled dialog). */
+    inline bool markPrimaryAlertButton (juce::AlertWindow& alert,
+                                        const juce::String& label)
+    {
+        for (int i = 0; i < alert.getNumChildComponents(); ++i)
+        {
+            if (auto* button = dynamic_cast<juce::TextButton*> (alert.getChildComponent (i)))
+                if (button->getButtonText() == label)
+                {
+                    button->setComponentID ("primary");   // EiffelBS accent fill
+                    button->setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+                    button->setColour (juce::TextButton::textColourOnId,  juce::Colours::white);
+                    return true;
+                }
+        }
+        return false;
+    }
 }

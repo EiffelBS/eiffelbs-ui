@@ -12,7 +12,7 @@ surface below is what they all share.
 | Header | Provides |
 |---|---|
 | `eiffelbs.h` | Umbrella include: every header below EXCEPT the two audio widgets (`Waveform.h`, `ThumbnailPool.h`), which are included directly and link `juce::juce_audio_utils` |
-| `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger`; always-dark viz-chrome tokens (`grid`, `scaleLine`, `rulerBg`, `curveGrid`, `vizHeaderBg`, `vizHeaderAccent`, `vizLegendBg`, `cpuBg`, `cpuText`) |
+| `Theme.h` | `ebs::Theme` mode + `currentTheme()` / `isDark()`; palette `bgDark`, `bgPanel`, `accent`, `accentSoft`, `text`, `textDim`, `headerAccent`, `panelBorder`; shared constants `vizBg`, `outputColour`, `danger`; always-dark viz-chrome tokens (`grid`, `scaleLine`, `rulerBg`, `curveGrid`, `vizHeaderBg`, `vizHeaderAccent`, `vizLegendBg`, `cpuBg`, `cpuText`) plus `markPrimaryAlertButton()`, which puts the `"primary"` accent contract on a confirmation dialog's yes-side button so every project styles that dialog the same way |
 | `Fonts.h` | Platform-correct typeface helpers (`createFont`, `createFontRaw`, `createMonospaceFont`) and named sizes (`fontTitle`, `fontSectionLabel`, `fontComboBox`, ...) |
 | `LookAndFeel.h` | `ebs::LookAndFeel`: full custom painting (buttons incl. the `"primary"` ComponentID contract, rotary knobs, toggles, combos, editors, labels, tooltips, popups, tabs, scrollbars) + `drawGroupFrame` / `drawFramePlain` + shared `widgetColour()` three-level resolver + chrome `ThemeChromeIds` |
 | `IconButton.h` | `ebs::IconButton`: vector icon button (procedural + SVG-flattened Feather/Material glyphs incl. download/eye/eyeOff, the transport pair + rewind + pause, and the app set music/layers/activity/chat/mic/keys/sparkle/type/image/film), viewer-toolbar set (zoom in / out, four chevrons, grid, step, power, trash, save), expand/compress fullscreen pair, `setShape()` for a button whose meaning moves, framed chrome mode, play/stop toggle state, grey disabled transport glyphs, `ColourIds` overrides |
@@ -23,6 +23,7 @@ surface below is what they all share.
 | `FramedBody.h` | `ebs::FramedBody`: drop-in rounded framed panel body |
 | `ExpansibleFrame.h` | `ebs::ExpansibleFrame`: a framed body whose zone folds open and pushes its neighbour - owns the shared frame paint, the chevron's placement and the fold flag; the host sizes the frame, lays its widgets into `interior()`, and is told through `onExpandedChanged`; `setFoldVertical` turns the fold downward (the frame grows taller) while the strip stays on the right edge and only the glyph follows the axis |
 | `FrameTitleBand.h` | `ebs::FrameTitleBand`: left vertical title spine naming a frame - fixed 17 px width for every locale, measured from glyph thickness (tracking adds length along the spine only), caption in UPPERCASE bold tracked apart at half strength with accents dropped (all-caps typography, via `ebs::bandCaps`); a longer translated name shrinks glyphs from 13pt to 9pt, never widens the band; fills row-by-row inside the rounded corners of its parent through the shared `ebs::frameCornerRadius`, separator on the inner edge, dimmed when disabled |
+| `FrameTitleHeader.h` | `ebs::FrameTitleHeader`: a TOP title band naming a frame along its top edge - the same caption voice as `FrameTitleBand` (UPPERCASE, bold, tracked apart at half strength, accents dropped through `ebs::bandCaps`), laid horizontally for a wide, short frame. Its height is FIXED BY MEASUREMENT (`ebs::bandHeaderHeight()`: capital glyph thickness + pads), so every locale gets the same strip; a long translated name shrinks its glyphs from 13pt to 9pt inside that height and spends WIDTH, the room a wide frame has. Fills column-by-column inside its parent's rounded path through `ebs::frameCornerRadius`, solid hairline closing its own bottom edge, dimmed when disabled, tooltip-capable, takes no clicks. **Additive**: nothing in `FrameTitleBand` changed and every host naming frames on the left keeps doing exactly that. **A band names one FRAME, never the window**: a top level with its own title bar already says its name there, so repeating it as a strip leaves every group inside unnamed — bands go on the frames, where sections get told apart; a top level with no title bar (a fold, an embedded panel) uses the band as its name |
 | `Knob.h` | `ebs::Knob`: typed rotary slider (arc track, optional pivot-centred fill via `setCentredFill`/`"centred"` property, gradient cap) rendered by the shared LookAndFeel; colours on standard `juce::Slider` rotary ids through the three-level contract |
 | `MorphSlider.h` | `ebs::MorphSlider`: slim pivot-centred horizontal track for blend/crossfade parameters (0..1), self-painting, themed built-ins |
 | `PowerToggle.h` | `ebs::PowerToggle`: power-glyph toggle with warm glow when engaged, disabled dimming; `glowColourId` override |
@@ -35,12 +36,13 @@ surface below is what they all share.
 | `TextSanitize.h` | `ebs::sanitizeForShaping()`: replaces the C0/C1 controls JUCE's HarfBuzz shaper cannot render (missing-glyph crash guard); idempotent; apply at every edge feeding on-screen text |
 | `TextReadability.h` | `ebs::Readability` + `glyphPathForText()` / `drawReadabilityBacking()` / `drawReadabilityScrim()`: a NEUTRAL black backing (shadow, contour, scrim, contour+scrim) so text stays legible over ANY background - a video, an animated clip, a photo; the fill keeps the caller's colour, `off` is a no-op. `drawReadabilityBacking()` takes the caller's own `fade` (0..1, default 1) and multiplies the backing's ALPHA by it, so a host that dims its rows (a lyric roll) takes the contour with them; the stroke WIDTH stays the caller's `strength`, and the outline also takes the caller's own `contour` colour plus a `contourWeight` width multiplier (applied after the relative clamp) |
 | `HelpBubble.h` | `ebs::HelpBubble`: 14x14 accent "?" bubble showing the host tooltip — section instructions live in the bubble, same look across panels and projects |
-| `PathRow.h` | `ebs::PathRow`: path input row (editor + reveal-in-Explorer + browse), File/Directory modes, tooltip-aware via `SettableTooltipClient` |
+| `PathRow.h` | `ebs::PathRow`: path input row (editor + reveal-in-Explorer + browse), File/Directory modes, read-only display via `setReadOnly`, tooltip-aware via `SettableTooltipClient`, and `setBrowseFilters(globs)` so the dialog lists what the host declares it reads (`*.lrc;*.srt`); a Directory row's folder dialog has no extension to filter |
+| `WrappedText.h` | `ebs::WrappedText`: word wrap measured by font metrics through `juce::TextLayout` — this build's `juce::Label` has **no** word wrap at all (no `setMultiLine`, no `setWordWrapText`), so a caption written as one Label line runs past the right edge in silence. `requiredHeightForWidth(w)` and `linesForWidth(w)` report what the text needs BEFORE it is placed (the `ChatBubble` contract); `textForWidth(w)` returns exactly the words that will show, for a tooltip built from them. Hard `\n` breaks are kept as forced lines, wrapping is per WORD so a glyph is never cut mid-shape (a word wider than the line keeps its whole shape on its own line), `setMaxLines(n)` caps with a visible ellipsis and drops whole words until the mark fits inside the width, full `juce::Justification` is honoured (horizontal per line plus top/bottom placement through the attributed string), host colour via `setTextColour`, disabled dims to `textDim` |
 | `DataList.h` | `ebs::DataList`: filterable/sortable table list over `juce::TableListBox` — `Row`/`Column`/`View` model, view+search+sort proxy, stable-id selection, per-row action column, progress cells (bar or percent), content-aware auto-size, show/hide column menu, native file-drag grips |
 | `Sidebar.h` | `ebs::Sidebar`: collapsible/resizable side panel — the library owns only the chrome (edge rail: collapse chevron + width drag, `onWidthChanged`); the host owns the content and the width policy |
 | `BandGrip.h` | `ebs::BandGrip`: vertical resize strip for a bottom band - the host owns the geometry, the grip owns the interaction (drag, clamping, reset, relayout) |
 | `Avatar.h` | `ebs::Avatar`: one circular speaker badge - a person for the user, a sparkle for the assistant; two fills for the two meanings, no third state |
-| `ChatBubble.h` | `ebs::ChatBubble`: one message of a transcript - side + avatar, the model's reasoning italic in its own collapsible block, a copy affordance per answer; `requiredHeightForWidth()` measures it before it is placed |
+| `TokenField.h` | `ebs::TokenField`: a field of chips whose suggestions are the ONLY values the host allows — typing filters that set, an unknown name cannot be added, a value already in the host's data stays with a danger outline; chips wrap (the field grows taller, `heightForWidth(w)` says how much BEFORE layout), Backspace on an empty editor removes the last chip, every chip carries its own cross, `setTextScale` follows DataList's contract |
 | `PillTabSwitch.h` | `ebs::PillTabSwitch`: animated pill tab strip with scroll, icons and edge cues - slots sized to their labels, scroll to keep the active tab in view, fade/chevron edge cues; app chrome arrives through `onTabLabel` / `onTabIcon` providers |
 | `FrameBand.h` | `ebs::FrameBand`: a horizontal band of frames that keeps each block at the width its content asks for and scrolls only below the hard floor - spare room stays at the right edge, never stretched; a discreet bottom scroll strip (drag / jump one view) appears only while content is hidden |
 | `Waveform.h` | `ebs::Waveform`: compact audio preview with time labels (`m:ss`, remaining-count mode), a draggable and resizable selection band, explicit playhead state (Stopped / Playing / Finished), shared thumbnail cache via `setCache`. **NOT in the umbrella** - include it directly and link `juce::juce_audio_utils` |
@@ -142,7 +144,7 @@ override `checkboxFillColourId` per instance (or through
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.17.0)              # pin tags; behaviour changes bump minor
+    GIT_TAG        v0.17.8)              # pin tags; behaviour changes bump minor
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -286,6 +288,26 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   that owns exactly ONE knob has nowhere else to put it, so the dot IS the knob's hub: the dial
   paints as a plain knob does and the disc goes on top of the centre. `ActivityState` and
   `paintActivityDisc()` are now shared with `ActivityDot`, so the two can never drift apart.
+- **v0.17.3** — `ActivityKnob` never paints its dot over the pointer line: the disc and the needle
+  are one knob's face, so the shared geometry keeps them out of each other's way.
+- **v0.17.4** — a `plus` glyph in `IconButton`, `DataList::setLabelFont()` for a header whose type is
+  the host's, and `setTextScale` for lists reading inside a larger window.
+- **v0.17.5** — `TokenField.h`: a field of chips whose suggestions are the ONLY values the host allows.
+  Typing filters that set; a name the host does not know cannot be added. A value already in the host's
+  data is KEPT and shown with a danger outline, chips wrap (the field grows taller), Backspace on an empty
+  editor removes the last chip, every chip carries its own cross.
+- **v0.17.6** — `TokenField` carries its own tooltip: the field says what it accepts while the pointer is
+  on it, not only after a failed add.
+- **v0.17.7** — chips follow the host's text scale: the same chip set laid out at a larger factor, by
+  measurement and not by guess.
+- **v0.17.8** — `PathRow.setBrowseFilters()`: the browse dialog lists what the host declares it READS. A
+  picker that shows every file in the folder is not a filter - an audio field fed a `.json` fails at decode
+  time, far from the field that took it. The default stays `"*"` for hosts naming nothing; a Directory row
+  keeps its setting recorded and its dialog lists folders (an extension filter says nothing there). Also
+  `FrameTitleHeader.h`: a TOP title band carrying the spine's caption voice for a wide, short frame
+  (additive — the left spine is untouched), its height fixed by measurement (`ebs::bandHeaderHeight()` =
+  21 px); and `WrappedText.h`: word wrap measured through `juce::TextLayout`, because this build's
+  `juce::Label` has **no** word wrap at all, with loud truncation (U+2026, whole words dropped).
 - **Next** — keep the smoke green as the gate for every consumer-facing tag;
   per-tag detail lives in the version notes at the top of `CMakeLists.txt`.
 
