@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.17.8 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.18.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -173,6 +173,14 @@ project(eiffelbs-ui VERSION 0.17.8 LANGUAGES C CXX)
 # FrameTitleBand is untouched) and ebs::WrappedText (word wrap measured through juce::TextLayout: this
 # build's juce::Label has NO word wrap at all; requiredHeightForWidth / linesForWidth report what a caption
 # needs BEFORE it is placed, setMaxLines(n) truncates loudly with U+2026 dropping whole words).
+# v0.18.0 (tag, committed): ebs::TokenField gains FREE-TEXT mode
+# (`setAllowFreeText(true)` + optional `normaliseFreeText`). The default contract is unchanged - the
+# allowed set is still the only set - but a TAG field needs the opposite: its allowed set is only the
+# suggestion list (the values already in use) and the reader must be able to CREATE one. In free-text
+# mode a typed value that matches nothing is committed as typed (after normalisation), duplicates stay
+# case-insensitive, and suggestions still exclude what is already held. Additive: every existing caller
+# compiles and behaves exactly as before (the smoke asserts both modes).
+
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
 

@@ -110,6 +110,26 @@ public:
     /** The values currently held, in the order they were added. */
     juce::StringArray tokens() const { return chosen; }
 
+    /** FREE-TEXT mode: a typed value that is not in the allowed set is
+        committed AS TYPED instead of being refused. This is for TAG fields,
+        where the allowed set is only a SUGGESTION list (the values already in
+        use) and the reader must be able to create a new one. The enum-like
+        contract above stays the default - unchanged for every existing
+        caller. Values already held are still never offered twice, and the
+        duplicate check is case-insensitive. */
+    void setAllowFreeText (bool shouldAllow) noexcept
+    {
+        allowFreeText = shouldAllow;
+        repaint();
+    }
+
+    bool allowsFreeText() const noexcept { return allowFreeText; }
+
+    /** Optional normalisation of a free-text value before it is committed
+        (trim, lower-case, length cap...). Return an empty string to refuse
+        the value. Ignored in the enum-like mode. */
+    std::function<juce::String (const juce::String&)> normaliseFreeText;
+
     /** Replace the held values (a file load, a selection change). Unknown
         values are kept, not dropped. Never notifies. */
     void setTokens (const juce::StringArray& ids)
@@ -196,12 +216,16 @@ public:
 
     /** Add one value. False when the value is not allowed or already held -
         the same rule the typing obeys, exposed so a test can ask without a
-        keyboard. */
+        keyboard. In free-text mode any non-empty value is accepted (after
+        normalisation) unless it duplicates an existing one case-insensitively. */
     bool addToken (const juce::String& id)
     {
         const auto canonical = canonicalFor (id);
-        if (canonical.isEmpty() || chosen.contains (canonical))
+        if (canonical.isEmpty())
             return false;
+        for (const auto& held : chosen)
+            if (held.equalsIgnoreCase (canonical))
+                return false;
         chosen.add (canonical);
         if (onTokensChanged != nullptr)
             onTokensChanged();
@@ -472,7 +496,10 @@ private:
 
     /** The canonical spelling of an allowed id, case-insensitively - "" when
         nothing corresponds. Committing the CANONICAL id is what makes the
-        file carry what the build provides, whatever was typed. */
+        file carry what the build provides, whatever was typed. In FREE-TEXT
+        mode a value that is not among the allowed ids is committed as typed
+        (after normaliseFreeText, when set), because the allowed set is only a
+        suggestion list there. */
     juce::String canonicalFor (const juce::String& typed) const
     {
         const auto needle = typed.trim();
@@ -481,7 +508,11 @@ private:
         for (const auto& t : allowed)
             if (t.id.equalsIgnoreCase (needle))
                 return t.id;
-        return {};
+        if (! allowFreeText)
+            return {};
+        auto free = normaliseFreeText != nullptr ? normaliseFreeText (needle)
+                                                 : needle;
+        return free.trim();
     }
 
     bool isAllowed (const juce::String& id) const
@@ -675,6 +706,8 @@ private:
     std::vector<juce::Rectangle<int>> chipRects;
     float textScale = 1.0f;
     bool popupShown = false;
+    /** Free-text (tag) mode; see setAllowFreeText(). Off by default. */
+    bool allowFreeText = false;
 
     friend struct TokenFieldTestAccess;
 

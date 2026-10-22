@@ -1,4 +1,4 @@
-﻿// Smoke.cpp
+// Smoke.cpp
 // Standalone offscreen proof for eiffelbs-ui.
 //
 // Exercises every public header: instantiates the LookAndFeel and the
@@ -2600,6 +2600,43 @@ int main()
                    && tf.tokens().contains ("assistant.time"),
                "setTokens KEEPS an unknown value - a hand-edited file loses nothing");
         check (changes == 2, "setTokens is a load, not an edit");
+    }
+
+    // --- v0.18.0 TokenField FREE-TEXT mode (tag fields) --------------------
+    // A tag field is the opposite contract: the allowed set is only a
+    // SUGGESTION list (the tags already in use), and the reader must be able
+    // to create a new one. The enum-like default above must stay unchanged.
+    {
+        ebs::TokenField tags;
+        tags.setSize (420, 26);
+        tags.setAllowFreeText (true);
+        tags.setAllowedTokens ({ { "door", "" }, { "rain", "" } });
+
+        check (tags.allowsFreeText(), "free-text mode reports itself");
+        check (tags.suggestionsFor ("").size() == 2,
+               "existing tags are still offered as suggestions");
+        check (tags.addToken ("impact"),
+               "a NEW tag is created in free-text mode");
+        check (! tags.addToken ("Impact"),
+               "... and the duplicate check is case-insensitive");
+        check (tags.addToken ("rain") && tags.tokens().size() == 2,
+               "an existing suggestion still adds normally");
+
+        tags.normaliseFreeText = [] (const juce::String& s)
+        { return s.trim().toLowerCase(); };
+        check (tags.addToken ("  Metal  ")
+                   && tags.tokens().contains ("metal"),
+               "normaliseFreeText is applied to a created tag");
+        check (tags.suggestionsFor ("").size() == 1,
+               "held tags are not offered again");
+        check (tags.removeToken ("impact") && tags.tokens().size() == 2,
+               "a created chip removes like any other");
+
+        ebs::TokenField strict;
+        strict.setSize (200, 26);
+        strict.setAllowedTokens ({ { "a", "" } });
+        check (! strict.addToken ("free") && strict.tokens().isEmpty(),
+               "free text stays OFF unless the host opts in");
     }
 
         // v0.17.8 WrappedText: word wrap measured by font metrics, because a juce::Label in THIS build has no word

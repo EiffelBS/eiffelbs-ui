@@ -144,7 +144,7 @@ override `checkboxFillColourId` per instance (or through
 include(FetchContent)
 FetchContent_Declare(eiffelbs-ui
     GIT_REPOSITORY https://github.com/EiffelBS/eiffelbs-ui.git
-    GIT_TAG        v0.17.8)              # pin tags; behaviour changes bump minor
+    GIT_TAG        v0.18.0)              # pin tags; behaviour changes bump minor
 FetchContent_MakeAvailable(eiffelbs-ui)
 
 target_link_libraries(my_app PRIVATE
@@ -308,6 +308,9 @@ Without `EIFFELBS_UI_JUCE_DIR` the test fetches JUCE 8.0.8 (shallow clone).
   (additive — the left spine is untouched), its height fixed by measurement (`ebs::bandHeaderHeight()` =
   21 px); and `WrappedText.h`: word wrap measured through `juce::TextLayout`, because this build's
   `juce::Label` has **no** word wrap at all, with loud truncation (U+2026, whole words dropped).
+- **v0.18.0** — `TokenField.setAllowFreeText(true)`: a TAG field creates values instead of only
+  choosing among them (its allowed set is a suggestion list), with optional `normaliseFreeText` for
+  trim/case; the enum-like contract stays the default, unchanged for every existing caller.
 - **Next** — keep the smoke green as the gate for every consumer-facing tag;
   per-tag detail lives in the version notes at the top of `CMakeLists.txt`.
 
