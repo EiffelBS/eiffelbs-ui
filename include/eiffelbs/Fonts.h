@@ -32,6 +32,33 @@ namespace ebs
     static constexpr float kPlatformFontScale = 1.0f;
 #endif
 
+    /** APP-WIDE type scale, multiplied into every named font helper (AND into
+        the LookAndFeel fonts, because those helpers are what it returns).
+
+        WHY A PROCESS-WIDE SCALE AND NOT PER-WIDGET SIZES: the design tokens
+        below (13 pt body, 14 pt combo, ...) are measured against the design
+        system's own screens; an app whose UI reads too small had to grow every
+        token at once, or it ends up with one bigger surface and eleven
+        unchanged ones - the exact "mixed sizes" complaint this hook fixes.
+        The app sets it ONCE at start-up, before any component exists; the
+        default is 1.0 so every other consumer of the design system keeps its
+        shipped metrics. */
+    inline float& uiTypeScaleRef() noexcept
+    {
+        static float scale = 1.0f;
+        return scale;
+    }
+
+    /** Set the process-wide UI type scale (clamped to a sane 0.75..1.6).
+        Call once at start-up, before creating components; setTypeScale is not
+        a per-widget control and is not meant to change while a UI is live. */
+    inline void setUiTypeScale (float scale) noexcept
+    {
+        uiTypeScaleRef() = juce::jlimit (0.75f, 1.6f, scale);
+    }
+
+    inline float uiTypeScale() noexcept { return uiTypeScaleRef(); }
+
     /** Create a font with the standard typeface.
         The (family, height, style) constructor guarantees the same typeface
         is used for bold and plain variants.
@@ -40,7 +67,7 @@ namespace ebs
     inline juce::Font createFont (float size, bool bold = false)
     {
         return juce::Font (juce::FontOptions (kTypefaceFamily,
-                            size * kPlatformFontScale,
+                            size * kPlatformFontScale * uiTypeScale(),
                             bold ? juce::Font::bold : juce::Font::plain));
     }
 
@@ -60,7 +87,7 @@ namespace ebs
     {
         return juce::Font (juce::FontOptions (
             juce::Font::getDefaultMonospacedFontName(),
-            size * kPlatformFontScale, juce::Font::plain));
+            size * kPlatformFontScale * uiTypeScale(), juce::Font::plain));
     }
 
     // === Named font constants for common sizes ===
