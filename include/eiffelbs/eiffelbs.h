@@ -26,6 +26,8 @@
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/IconTextButton.h"
 #include "eiffelbs/MenuChevronButton.h"
+#include "eiffelbs/SearchableModelPicker.h"
+#include "eiffelbs/ModelMenuButton.h"
 #include "eiffelbs/DisclosureChevron.h"
 #include "eiffelbs/ExpansibleFrame.h"
 #include "eiffelbs/FileGripButton.h"

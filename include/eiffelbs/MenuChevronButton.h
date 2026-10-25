@@ -49,6 +49,18 @@ namespace ebs
             repaint();
         }
 
+        /** A SECOND, dim text drawn right-aligned before the chevron. The
+         *  model menus show "model ... effort" as two facts of different weight:
+         *  the model name may ellipsize, the effort word must stay readable.
+         *  Empty by default - a button without trailing text is the one this
+         *  class shipped, pixel for pixel. */
+        void setTrailingText (juce::String text)
+        {
+            trailingText = std::move (text);
+            repaint();
+        }
+        const juce::String& getTrailingText() const noexcept { return trailingText; }
+
         void paintButton (juce::Graphics& g, bool over, bool down) override
         {
             const auto b = getLocalBounds().toFloat();
@@ -63,6 +75,17 @@ namespace ebs
             const auto ink = ! isEnabled() ? ebs::textDim().withAlpha (0.35f)
                                            : ebs::text();
             auto textArea = b.withTrimmedLeft (pad()).withTrimmedRight (chevronSlot());
+            if (trailingText.isNotEmpty())
+            {
+                auto trail = textArea.removeFromRight (
+                    (int) std::ceil (ebs::fontHint().getStringWidth (trailingText))
+                    + 10);
+                g.setColour (isEnabled() ? ebs::textDim()
+                                         : ebs::textDim().withAlpha (0.35f));
+                g.setFont (ebs::fontHint());
+                g.drawText (trailingText, trail,
+                            juce::Justification::centredRight, false);
+            }
             if (hasShape)
             {
                 // The glyph owns the left of the text area, at the height of
@@ -108,22 +131,28 @@ namespace ebs
          *  that measures only the text of a button that HAS one is the layout
          *  that cuts it. */
         static int widthNeededFor (const juce::String& text,
-                                   bool withIcon = false)
+                                   bool withIcon = false,
+                                   const juce::String& trailing = {})
         {
             return pad()
                  + (withIcon ? iconSlot() : 0)
                  + (int) std::ceil (ebs::fontHint().getStringWidth (text))
+                 + (trailing.isNotEmpty()
+                        ? (int) std::ceil (ebs::fontHint().getStringWidth (trailing))
+                          + 10
+                        : 0)
                  + chevronSlot() + pad();
         }
 
         int widthForLabel() const
         {
-            return widthNeededFor (getButtonText(), hasShape);
+            return widthNeededFor (getButtonText(), hasShape, trailingText);
         }
 
     private:
         IconButton::Shape shape = IconButton::Shape::play;
         bool hasShape = false;
+        juce::String trailingText;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MenuChevronButton)
     };

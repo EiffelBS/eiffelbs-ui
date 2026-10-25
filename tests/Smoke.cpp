@@ -293,6 +293,100 @@ int main()
                    "the menu glyph reaches the drawing");
         }
 
+        // TRAILING TEXT: the model menus show two facts of different weight
+        // ("model ... effort"). The second one is dim, right-aligned and ALWAYS
+        // drawn (the model name may ellipsize; the effort must not), and it is
+        // measured into the button's own width - a caller that lays the button
+        // out with widthNeededFor(text) would cut it otherwise.
+        {
+            ebs::MenuChevronButton plain, trailed;
+            plain.setButtonText ("Qwen3-8B-Instruct");
+            trailed.setButtonText ("Qwen3-8B-Instruct");
+            trailed.setTrailingText ("High");
+            check (trailed.widthForLabel()
+                       > plain.widthForLabel(),
+                   "a menu button with trailing text asks for its width");
+            const auto renderTrail = [] (ebs::MenuChevronButton& b)
+            {
+                b.setSize (b.widthForLabel(), 32);
+                juce::Image img (juce::Image::ARGB, b.getWidth(), 32, true);
+                juce::Graphics g (img);
+                g.fillAll (juce::Colours::black);
+                b.paintEntireComponent (g, true);
+                return img;
+            };
+            const auto plainInk2 = inkPixels (renderTrail (plain));
+            const auto trailedInk = inkPixels (renderTrail (trailed));
+            std::printf ("[INFO] menu trailing ink: label %d, label+trail %d\n",
+                         plainInk2, trailedInk);
+            check (trailedInk > plainInk2 + 10,
+                   "the trailing text reaches the drawing");
+            check (trailed.getTrailingText() == juce::String ("High"),
+                   "the trailing text is readable back");
+        }
+
+        // THE MODEL FACTS: a searchable picker and the menu button that shows
+        // "model ... effort" must both paint and measure. The menu button's
+        // width follows BOTH facts (a layout asking only for the model cuts the
+        // effort - the 2026-10-25 dialog bug), and its width can be capped.
+        {
+            ebs::SearchableModelPicker picker;
+            picker.setItems ({ "org/a", "org/b" }, { "Alpha 3B", "Beta 7B" },
+                             { "tts", "stt" });
+            picker.setSelectedId ("org/a");
+            check (picker.displayText() == juce::String ("Alpha 3B"),
+                   "the shared picker paints the selected label");
+            picker.setSize (240, 26);
+            juce::Image pickerImg (juce::Image::ARGB, 240, 26, true);
+            {
+                juce::Graphics pg (pickerImg);
+                picker.paintEntireComponent (pg, true);
+            }
+            std::printf ("[INFO] shared picker ink: %d\n",
+                         inkPixels (pickerImg));
+            check (inkPixels (pickerImg) > 200,
+                   "the shared picker leaves ink on screen");
+            check (picker.itemCount() == 2 && picker.selectedIndex() == 0,
+                   "the shared picker keeps the combo-compatible contract");
+
+            ebs::ModelMenuButton button;
+            button.setModels ({ "org/a", "org/b" }, { "Alpha 3B", "Beta 7B" });
+            button.setSelectedModelId ("org/a");
+            button.setEfforts ({ "off", "high" }, { "Off", "High" });
+            button.setSelectedEffortId ("high");
+            check (button.getSelectedModelId() == juce::String ("org/a")
+                       && button.getEffortText() == juce::String ("High"),
+                   "the menu button shows model AND effort");
+            const int withEffort = button.widthForContent();
+            button.setEffortText ("");
+            const int withoutEffort = button.widthForContent();
+            check (withEffort > withoutEffort,
+                   "the menu button asks for the trailing text's width");
+            button.setEffortText ("High");
+            button.setMaxWidth (120);
+            check (button.widthForContent() <= 120,
+                   "the menu button honours a host cap");
+            button.setSize (button.widthForContent(), button.heightForContent());
+            juce::Image buttonImg (juce::Image::ARGB, button.getWidth(),
+                                   button.getHeight(), true);
+            {
+                juce::Graphics bg (buttonImg);
+                button.paintEntireComponent (bg, true);
+            }
+            std::printf ("[INFO] model menu button: %dx%d ink=%d\n",
+                         button.getWidth(), button.getHeight(),
+                         inkPixels (buttonImg));
+            check (inkPixels (buttonImg) > 200,
+                   "the menu button leaves ink on screen");
+            check (button.menuItemTextForTest (0).startsWith ("Model: ")
+                       && button.menuItemTextForTest (1) == juce::String ("Effort: High"),
+                   "the menu names the two facts the face shows");
+            button.pickerOpenForTest();
+            button.pickerSearchForTest ("Beta");
+            check (button.pickerVisibleCountForTest() == 1,
+                   "the menu button's model step reuses the shared picker's filter");
+        }
+
         const ebs::IconButton::Shape shapes[] =
         {
             // The WHOLE enum: a new shape cannot ship without an ink check.
