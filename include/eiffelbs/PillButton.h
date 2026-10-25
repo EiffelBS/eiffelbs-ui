@@ -19,6 +19,7 @@
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/IconButton.h"
+#include "eiffelbs/PillPainter.h"
 
 #include <cmath>
 
@@ -73,42 +74,25 @@ public:
         paintButtonImpl (g, over, down);
     }
 
-private:
     void paintButtonImpl (juce::Graphics& g, bool over, bool down)
     {
-        const auto b = getLocalBounds().toFloat();
-        const bool enabled = isEnabled();
-        const bool primary = tone == Tone::primary;
-        const bool disabledish = tone == Tone::disabledish || ! enabled;
-
-        const juce::Colour border = disabledish ? panelBorder()
-                                   : primary ? accent()
-                                             : panelBorder();
-        juce::Colour fill = bgDark();
-        if (! disabledish)
-        {
-            if (down)          fill = accent().withAlpha (0.30f);
-            else if (over)     fill = accent().withAlpha (0.16f);
-            else if (primary)  fill = accent().withAlpha (0.08f);
-        }
-        g.setColour (fill);
-        g.fillRoundedRectangle (b, 4.0f);
-        g.setColour (over && ! disabledish ? accent() : border);
-        g.drawRoundedRectangle (b, 4.0f, 1.0f);
-
-        const juce::Colour ink = disabledish
-                                     ? textDim().withAlpha (0.7f)
-                                     : (primary ? accent()
-                                                : (over ? ebs::text() : textDim()));
-        auto area = getLocalBounds().reduced (8, 0);
-        const auto glyph = area.removeFromLeft (14)
-                               .withSizeKeepingCentre (12, 12).toFloat();
-        g.setColour (ink);
-        g.fillPath (IconButton::glyphPath (shape, glyph, false, false, 12.0f));
-        area.removeFromLeft (4);
-        g.setFont (font);
-        g.drawFittedText (getButtonText(), area, juce::Justification::centredLeft, 1);
+        paintPillButton (g, getLocalBounds(), shape, getButtonText(), font,
+                         iconPx, painterTone(), over, down, isEnabled());
     }
+
+    PillTone painterTone() const noexcept
+    {
+        switch (tone)
+        {
+            case Tone::primary:     return PillTone::primary;
+            case Tone::disabledish: return PillTone::gated;
+            case Tone::neutral:     break;
+        }
+        return PillTone::neutral;
+    }
+
+    float iconPx = 12.0f;
+
 
     IconButton::Shape shape = IconButton::Shape::play;
     juce::String label_;

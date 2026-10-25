@@ -387,6 +387,59 @@ int main()
                    "the menu button's model step reuses the shared picker's filter");
         }
 
+        // ONE pill language: IconTextButton and PillButton paint the same
+        // chrome, and a destructive glyph turns RED under the hover.
+        {
+            const auto pixelsWhere = [] (const juce::Image& img,
+                                         juce::Colour target)
+            {
+                int n = 0;
+                for (int y = 0; y < img.getHeight(); ++y)
+                    for (int x = 0; x < img.getWidth(); ++x)
+                    {
+                        const auto p = img.getPixelAt (x, y);
+                        if (p.getAlpha() > 60
+                            && std::abs ((int) p.getRed() - (int) target.getRed()) < 26
+                            && std::abs ((int) p.getGreen() - (int) target.getGreen()) < 26
+                            && std::abs ((int) p.getBlue() - (int) target.getBlue()) < 26)
+                            ++n;
+                    }
+                return n;
+            };
+            const auto renderIconText = [] (bool over)
+            {
+                ebs::IconTextButton b (ebs::IconButton::Shape::trash, "Remove");
+                b.setFont (ebs::fontHint());
+                b.setSize (b.widthForLabel(), 24);
+                juce::Image img;
+                {
+                    img = juce::Image (juce::Image::ARGB, b.getWidth(),
+                                       b.getHeight(), true);
+                    juce::Graphics g (img);
+                    b.paintForTest (g, over, false);
+                }
+                return img;
+            };
+            const auto rest = renderIconText (false);
+            const auto hover = renderIconText (true);
+            check (pixelsWhere (rest, ebs::panelBorder()) > 8,
+                   "an icon-text button always draws its pill border (uniform look)");
+            check (pixelsWhere (hover, ebs::danger()) > 20
+                       && pixelsWhere (rest, ebs::danger()) == 0,
+                   "a destructive pill turns RED on hover");
+            ebs::PillButton same (ebs::IconButton::Shape::trash, "Remove");
+            same.setSize (same.widthForLabel(), 24);
+            juce::Image sameImg;
+            {
+                sameImg = juce::Image (juce::Image::ARGB, same.getWidth(),
+                                       same.getHeight(), true);
+                juce::Graphics g (sameImg);
+                same.paintForTest (g, true, false);
+            }
+            check (pixelsWhere (sameImg, ebs::danger()) > 20,
+                   "PillButton follows the same destructive hover rule");
+        }
+
         // PILL BUTTON: icon + label, sized to its content, with a hover state
         // that actually changes the drawing (the author asked for the pill
         // look with a real mouseover).

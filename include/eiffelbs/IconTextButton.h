@@ -27,6 +27,7 @@
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/LookAndFeel.h"
 #include "eiffelbs/IconButton.h"
+#include "eiffelbs/PillPainter.h"
 
 namespace ebs
 {
@@ -80,45 +81,21 @@ namespace ebs
             repaint();
         }
 
+        /** Test seam: paint the SAME path with an explicit hover state. */
+        void paintForTest (juce::Graphics& g, bool over, bool down)
+        {
+            paintButton (g, over, down);
+        }
+
         void paintButton (juce::Graphics& g, bool over, bool down) override
         {
-            const auto b = getLocalBounds().toFloat().reduced (1.0f);
-
-            // The frame chrome, in the shared language: a real button
-            // affordance rather than a bare glyph that only shows itself on
-            // hover. A control that appears only under the pointer is a control
-            // nobody finds by looking.
-            g.setColour (down   ? ebs::bgDark().darker (0.08f)
-                         : over ? ebs::bgDark().brighter (0.07f)
-                                : ebs::bgDark());
-            g.fillRoundedRectangle (b, 5.0f);
-            g.setColour (over ? ebs::accent().withAlpha (0.40f)
-                              : ebs::panelBorder());
-            g.drawRoundedRectangle (b, 5.0f, 1.0f);
-
-            auto row = getLocalBounds().reduced (7, 0);
-            const int iconW = (int) (iconSide * 1.30f) + gap_;
-            auto iconBox = row.removeFromLeft (iconW).toFloat();
-
-            const auto ink = ! isEnabled() ? ebs::textDim().withAlpha (0.35f)
-                                          : (over ? ebs::accent().brighter (0.15f)
-                                                  : ebs::accent());
-            g.setColour (ink);
-            const auto glyphBox = iconBox.withSizeKeepingCentre (iconSide,
-                                                                 iconSide);
-            g.fillPath (IconButton::glyphPath (shape, glyphBox, true,
-                                               getToggleState(), iconSide));
-
-            // NOTE the explicit `ebs::`: a member of juce::Button hides the
-            // namespace-scope colour of the same name inside this class, so an
-            // unqualified `text()` here resolves to a PRIVATE member and fails
-            // to compile. `textDim()` has no such collision, but both are
-            // qualified so the pair reads the same way.
-            g.setColour (! isEnabled() ? ebs::textDim().withAlpha (0.35f)
-                                       : (over ? ebs::text().brighter (0.15f)
-                                               : ebs::text()));
-            g.setFont (font);
-            g.drawText (getButtonText(), row, juce::Justification::centredLeft);
+            // ONE pill language for the whole app (PillPainter.h): uniform
+            // chrome at rest, an unmistakable hover, and a destructive glyph
+            // turning red under the pointer. The author asked for every icon
+            // button of Settings to read like the Models row pills.
+            paintPillButton (g, getLocalBounds(), shape, getButtonText(), font,
+                             iconSide, PillTone::neutral, over, down,
+                             isEnabled());
         }
 
         /** The width the button needs for its own label at the current font.
