@@ -320,8 +320,9 @@ private:
 
     static constexpr int kFooterRowH = 18;
 
-    /** The ONE footer layout: "Manage models..." LEFT, "X of Y" RIGHT, on the
-        same 18 px row. Shared by the popup and the geometry seams. */
+    /** The ONE footer layout: "Manage models..." CENTRED on the row, "X of Y"
+        right-aligned over the same 18 px row (author preference 2026-10-26;
+        it used to sit on the left). Shared by the popup and the seams. */
     static void layoutFooterRow (juce::Rectangle<int> footerRow,
                                  bool manageVisible,
                                  juce::Rectangle<int>& linkOut,
@@ -334,7 +335,8 @@ private:
         const int linkW = juce::jmin (
             footerRow.getWidth() - 60,
             (int) std::ceil (textWidthOf ("Manage models...")) + 16);
-        linkOut = footerRow.removeFromLeft (juce::jmax (0, linkW));
+        linkOut = footerRow.withSizeKeepingCentre (juce::jmax (0, linkW),
+                                                   footerRow.getHeight());
         countOut = footerRow;
     }
 
