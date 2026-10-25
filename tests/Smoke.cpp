@@ -387,6 +387,48 @@ int main()
                    "the menu button's model step reuses the shared picker's filter");
         }
 
+        // PILL BUTTON: icon + label, sized to its content, with a hover state
+        // that actually changes the drawing (the author asked for the pill
+        // look with a real mouseover).
+        {
+            ebs::PillButton pill (ebs::IconButton::Shape::download, "Install");
+            pill.setSize (pill.widthForLabel(), 24);
+            check (pill.widthForLabel() > 40,
+                   "a pill button measures its label");
+            const auto render = [&pill] (bool over)
+            {
+                juce::Image img (juce::Image::ARGB, pill.getWidth(),
+                                 pill.getHeight(), true);
+                juce::Graphics g (img);
+                pill.paintForTest (g, over, false);
+                return img;
+            };
+            const auto idle = render (false);
+            const auto hovered = render (true);
+            int differences = 0;
+            for (int y = 0; y < idle.getHeight(); ++y)
+                for (int x = 0; x < idle.getWidth(); ++x)
+                    if (idle.getPixelAt (x, y) != hovered.getPixelAt (x, y))
+                        ++differences;
+            check (differences > idle.getWidth() / 2,
+                   "a pill button changes visibly on hover");
+            // The "gated" LOOK comes from the tone (a dim pill), not from
+            // Component::setEnabled: a disabled juce::Component is painted by
+            // its parent, so an offscreen direct paint would test nothing.
+            ebs::PillButton gated (ebs::IconButton::Shape::lock, "Runtime first");
+            gated.setTone (ebs::PillButton::Tone::disabledish);
+            gated.setSize (gated.widthForLabel(), 24);   // a component needs bounds
+            juce::Image gatedImg;
+            {
+                gatedImg = juce::Image (juce::Image::ARGB, gated.getWidth(),
+                                        gated.getHeight(), true);
+                juce::Graphics gg (gatedImg);
+                gated.paintForTest (gg, false, false);
+            }   // the software renderer flushes when the Graphics goes away
+            check (inkPixels (gatedImg) > 0,
+                   "a gated pill still paints (dim), never a blank cell");
+        }
+
         // STATE COLOURS: accent, warning and danger must stay distinguishable -
         // a filter, an action and an error are three different messages.
         check (ebs::accent() != ebs::warning()
