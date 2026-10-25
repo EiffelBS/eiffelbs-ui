@@ -52,25 +52,29 @@ inline void paintPillButton (juce::Graphics& g, juce::Rectangle<int> area,
     const bool primary = tone == PillTone::primary;
     const bool destructive = pillShapeIsDestructive (shape);
 
-    // Chrome: ALWAYS a fill and a border (uniform look). Hover brightens the
-    // border and tints the fill; primary carries a permanent accent tint.
-    juce::Colour fill = bgDark();
-    juce::Colour border = panelBorder();
+    // Chrome: ALWAYS a fill and a VISIBLE border (uniform look). At rest a
+    // NON-primary action wears the light textDim border the author liked, and
+    // a primary action wears its accent; hover tints the fill and switches the
+    // border (and the glyph) to accent - or to danger for a destructive shape.
+    juce::Colour fill = gated ? bgDark()
+                       : primary ? accent().withAlpha (0.10f) : bgDark();
+    juce::Colour border = gated ? panelBorder()
+                       : primary ? accent() : textDim();
     if (! gated)
     {
         if (down)          fill = accent().withAlpha (0.30f);
         else if (over)     fill = (destructive ? danger() : accent())
                                        .withAlpha (0.18f);
-        else if (primary)  fill = accent().withAlpha (0.10f);
         if (over)          border = destructive ? danger() : accent();
-        else if (primary)  border = accent().withAlpha (0.75f);
     }
     g.setColour (fill);
     g.fillRoundedRectangle (b, 4.0f);
     g.setColour (border);
     g.drawRoundedRectangle (b, 4.0f, 1.0f);
 
-    // Glyph: dim at rest, accent (or RED for a destructive shape) on hover.
+    // Glyph: accent at rest for a primary action (the Install blue the author
+    // knows), dim for a secondary one; hover brings accent - or RED for a
+    // destructive shape.
     juce::Colour glyphInk = gated ? textDim().withAlpha (0.55f)
                          : ! enabled ? textDim().withAlpha (0.4f)
                          : over ? (destructive ? danger() : accent())
@@ -85,9 +89,10 @@ inline void paintPillButton (juce::Graphics& g, juce::Rectangle<int> area,
                                        false, false, iconPx));
     row.removeFromLeft (4);
 
-    // Label: brighter on hover, dim when gated.
+    // Label: accent for a primary action, light on hover, dim otherwise.
     const juce::Colour textInk = gated ? textDim().withAlpha (0.6f)
-                               : over ? ebs::text() : textDim();
+                               : over ? ebs::text()
+                               : primary ? accent() : textDim();
     g.setColour (textInk);
     g.setFont (font);
     g.drawFittedText (label, row, juce::Justification::centredLeft, 1);
