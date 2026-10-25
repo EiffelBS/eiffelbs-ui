@@ -387,6 +387,13 @@ int main()
                    "the menu button's model step reuses the shared picker's filter");
         }
 
+        // STATE COLOURS: accent, warning and danger must stay distinguishable -
+        // a filter, an action and an error are three different messages.
+        check (ebs::accent() != ebs::warning()
+                   && ebs::warning() != ebs::danger()
+                   && ebs::accent() != ebs::danger(),
+               "accent, warning and danger are three distinct colours");
+
         const ebs::IconButton::Shape shapes[] =
         {
             // The WHOLE enum: a new shape cannot ship without an ink check.

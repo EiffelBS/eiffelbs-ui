@@ -168,6 +168,14 @@ namespace ebs
         return juce::Colour (0xffe5484d);
     }
 
+    /** Attention amber: a setting that is NOT at its default and must be seen
+        without reading as an error (danger) or as "act on this" (accent). The
+        Models lists use it for an ACTIVE FILTER combo. Reads on both themes. */
+    inline juce::Colour warning()
+    {
+        return juce::Colour (0xffe6a23c);
+    }
+
     // === Viz chrome ======================================================
     //
     // Fixed (theme-independent) accents for always-dark visualization
