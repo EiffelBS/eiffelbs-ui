@@ -160,7 +160,10 @@ private:
     {
         if (getText().isEmpty())
             return;
-        setText ({}, juce::sendNotificationSync);
+        // setText's second argument is a bool named sendNotificationSync, not a
+        // NotificationType enum: passing the enum truncates (C4305) yet works.
+        // Pass what the signature actually takes.
+        setText ({}, true);
         if (onCleared != nullptr)
             onCleared();
         repaint();
