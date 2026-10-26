@@ -480,6 +480,30 @@ int main()
             editor.onCleared = [&cleared] { ++cleared; };
             int toggles = 0;
             editor.onRevealToggled = [&toggles] { ++toggles; };
+            // The BASE TextEditor chrome must survive our override: a border
+            // colour and a placeholder, both painted by the base.
+            editor.setColour (juce::TextEditor::outlineColourId, ebs::panelBorder());
+            editor.setColour (juce::TextEditor::backgroundColourId, ebs::bgDark());
+            editor.setColour (juce::TextEditor::textColourId, ebs::text());
+            editor.setTextToShowWhenEmpty ("Filter models...", ebs::textDim());
+            {
+                juce::Image chrome (juce::Image::ARGB, 240, 24, true);
+                {
+                    juce::Graphics g (chrome);
+                    editor.paintEntireComponent (g, true);
+                }
+                int borderPixels = 0;
+                for (int y = 0; y < chrome.getHeight(); ++y)
+                    for (int x = 0; x < chrome.getWidth(); ++x)
+                        if (chrome.getPixelAt (x, y).getAlpha() > 40)
+                            if (x == 0 || y == 0
+                                || x == chrome.getWidth() - 1
+                                || y == chrome.getHeight() - 1)
+                                ++borderPixels;
+                check (borderPixels > 100,
+                       "a clearable editor keeps its TextEditor border + "
+                       "placeholder (base paintOverChildren)");
+            }
             editor.setText ("openrouter", juce::dontSendNotification);
             editor.clickClearForTest();
             check (editor.getText().isEmpty() && cleared == 1,

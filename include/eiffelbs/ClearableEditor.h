@@ -53,6 +53,12 @@ public:
 
     void paintOverChildren (juce::Graphics& g) override
     {
+        // TextEditor draws its BORDER and its PLACEHOLDER in ITS
+        // paintOverChildren (juce_TextEditor.cpp): overriding without calling
+        // the base removed both, which is exactly what the author saw in the
+        // Fetch models dialog (2026-10-26).
+        juce::TextEditor::paintOverChildren (g);
+
         const auto area = getLocalBounds();
         const int h = area.getHeight();
         int x = area.getRight();
@@ -62,7 +68,10 @@ public:
                                  .withSizeKeepingCentre (16, 16);
             g.setColour (hovered == Part::reveal ? accent()
                                                  : textDim().withAlpha (0.85f));
-            drawEye (g, eye, reveal);
+            // An OPEN eye while the text is masked (the click reveals), a
+            // CROSSED eye once it is visible (the click hides again) - the
+            // convention the author expects (2026-10-26).
+            drawEye (g, eye, getPasswordCharacter() != 0);
             x -= kSlot;
         }
         if (getText().isNotEmpty())
