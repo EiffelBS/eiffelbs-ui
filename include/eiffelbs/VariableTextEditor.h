@@ -116,12 +116,20 @@ public:
     /** Move the caret to the character under a drop point. */
     void moveCaretToDropPoint (juce::Point<int> localPosition)
     {
+        dropPoint = localPosition;
         const int index = getTextIndexAt (localPosition);
         if (index >= 0)
             setCaretPosition (juce::jlimit (0, getText().length(), index));
+        repaint();   // the drop caret/liseré are OUR painting, not JUCE's
     }
 
     /** Drop seam used by the gate: aims the caret then inserts. */
+    void setDragPreviewForTest (bool on, juce::Point<int> localPosition)
+    {
+        dragOver = on;
+        moveCaretToDropPoint (localPosition);
+    }
+
     void dropVariableAtForTest (const juce::String& id,
                                 juce::Point<int> localPosition)
     {
@@ -159,12 +167,20 @@ public:
     void paintOverChildren (juce::Graphics& g) override
     {
         ClearableEditor::paintOverChildren (g);
-        if (dragOver)
-        {
-            g.setColour (accent());
-            g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f),
-                                    6.0f, 2.0f);
-        }
+        if (! dragOver)
+            return;
+
+        // A 2 px accent border plus OUR OWN drop caret: the real caret is
+        // only painted while the editor has keyboard focus, and during a drag
+        // the focus sits on the source chip - which is exactly why the author
+        // saw the drop land correctly with no visual cue (2026-10-26).
+        g.setColour (accent());
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f),
+                                6.0f, 2.0f);
+        auto caret = getCaretRectangleForCharIndex (getCaretPosition());
+        if (caret.isEmpty())
+            caret = juce::Rectangle<int> (dropPoint.x, dropPoint.y - 9, 2, 18);
+        g.fillRect (caret.withWidth (2).expanded (1, 0));
     }
 
     // === KeyListener ======================================================
@@ -450,6 +466,7 @@ private:
     int lastCaret = 0;
     int highlight = 0;
     bool dragOver = false;
+    juce::Point<int> dropPoint;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VariableTextEditor)
 };

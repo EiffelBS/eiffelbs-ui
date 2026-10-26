@@ -753,6 +753,35 @@ int main()
                            juce::DragAndDropTarget::SourceDetails (
                                "some.other.drag", nullptr, {})),
                    "variable editor: only ebs.variable. payloads are accepted");
+            // VISIBLE drop feedback (author report): during a drag the real
+            // caret is hidden (focus lives on the chip), so the editor paints
+            // its own caret + accent border; a still image proves the pixels.
+            editor.setMultiLine (true, true);
+            editor.setText ("first line\nsecond line", juce::dontSendNotification);
+            editor.setDragPreviewForTest (true, { 6, 4 });
+            {
+                juce::Image dropImg (juce::Image::ARGB, 320, 80, true);
+                {
+                    juce::Graphics g (dropImg);
+                    g.fillAll (juce::Colours::black);
+                    editor.paintEntireComponent (g, true);
+                }
+                int accentPixels = 0;
+                const auto accentColour = ebs::accent();
+                for (int y = 0; y < 80; ++y)
+                    for (int x = 0; x < 320; ++x)
+                    {
+                        const auto p = dropImg.getPixelAt (x, y);
+                        const int dr = std::abs (p.getRed() - accentColour.getRed());
+                        const int dg = std::abs (p.getGreen() - accentColour.getGreen());
+                        const int db = std::abs (p.getBlue() - accentColour.getBlue());
+                        if (p.getAlpha() > 120 && dr + dg + db < 90)
+                            ++accentPixels;
+                    }
+                check (accentPixels > 40,
+                       "variable editor: a drop shows its accent border + caret");
+            }
+            editor.setDragPreviewForTest (false, { 0, 0 });
             juce::Image img (juce::Image::ARGB, 320, 80, true);
             {
                 juce::Graphics g (img);
