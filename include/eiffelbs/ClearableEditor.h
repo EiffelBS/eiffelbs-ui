@@ -29,7 +29,11 @@ class ClearableEditor : public juce::TextEditor
 public:
     ClearableEditor()
     {
-        setIndents (4, reservedRight());
+        // Reserve the right edge through the BORDER, not setIndents(): that
+        // function's second argument is the TOP indent (not a right inset), and
+        // passing the icon width there pushed the text/caret to the bottom and
+        // collapsed the placeholder band to 4 px (author report 2026-10-26).
+        applyInsets();
         setMouseCursor (juce::MouseCursor::IBeamCursor);
     }
 
@@ -40,7 +44,7 @@ public:
         secretMode = shouldBeSecret;
         if (secretMode)
             setPasswordCharacter ((juce::juce_wchar) '*');
-        resized();
+        applyInsets();
     }
 
     std::function<void()> onCleared;
@@ -116,7 +120,13 @@ private:
     enum class Part { none, clear, reveal };
     static constexpr int kSlot = 20;
 
-    int reservedRight() const { return kSlot + (secretMode ? kSlot : 0) + 2; }
+    int reservedRight() const { return kSlot + (secretMode ? kSlot : 0) + 4; }
+
+    /** Text area = inside a 4 px left pad and the icon strip on the right. */
+    void applyInsets()
+    {
+        setBorder (juce::BorderSize<int> (0, 4, 0, reservedRight()));
+    }
 
     Part partAt (juce::Point<int> p) const
     {

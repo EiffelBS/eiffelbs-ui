@@ -497,6 +497,12 @@ int main()
                    "a columns splitter drags horizontally");
         }
 
+        
+
+        
+
+        
+
         // ONE pill language: IconTextButton and PillButton paint the same
         // chrome, and a destructive glyph turns RED under the hover.
         {
@@ -582,7 +588,54 @@ int main()
                        "a clearable editor keeps its TextEditor border + "
                        "placeholder (base paintOverChildren)");
             }
+            // PLACEHOLDER + CENTRING (author report 2026-10-26): the empty
+            // state must SHOW its hint, and text must sit on the vertical
+            // middle, not at the bottom (setIndents' 2nd arg is the TOP inset).
+            {
+                juce::Image empty (juce::Image::ARGB, 240, 26, true);
+                {
+                    juce::Graphics g (empty);
+                    editor.paintEntireComponent (g, true);
+                }
+                int hintInk = 0;
+                for (int y = 4; y < 22; ++y)
+                    for (int x = 6; x < 160; ++x)
+                        if (empty.getPixelAt (x, y).getAlpha() > 60)
+                            ++hintInk;
+                check (hintInk > 30,
+                       "an empty clearable editor SHOWS its placeholder");
+                const auto f = juce::File::getSpecialLocation (
+                                   juce::File::tempDirectory)
+                                   .getChildFile ("clearable-final.png");
+                if (auto stream = f.createOutputStream())
+                    juce::PNGImageFormat().writeImageToStream (empty, *stream);
+                std::printf ("[INFO] wrote %s\n",
+                             f.getFullPathName().toRawUTF8());
+            }
             editor.setText ("openrouter", juce::dontSendNotification);
+            {
+                juce::Image withText (juce::Image::ARGB, 240, 26, true);
+                {
+                    juce::Graphics g (withText);
+                    editor.paintEntireComponent (g, true);
+                }
+                int topInk = 0, middleInk = 0;
+                for (int y = 4; y < 11; ++y)
+                    for (int x = 4; x < 160; ++x)
+                        if (withText.getPixelAt (x, y).getAlpha() > 60)
+                            ++topInk;
+                for (int y = 11; y < 21; ++y)
+                    for (int x = 4; x < 160; ++x)
+                        if (withText.getPixelAt (x, y).getAlpha() > 60)
+                            ++middleInk;
+                // "openrouter" has a descender (p), so the BOTTOM rows legitimately
+                // carry a few pixels; what must NOT happen is an empty TOP band,
+                // which is what the old top-indent bug produced.
+                check (topInk > 10 && middleInk > 20,
+                       "clearable text sits on the middle, not glued to the "
+                       "bottom");
+            }
+
             editor.clickClearForTest();
             check (editor.getText().isEmpty() && cleared == 1,
                    "a clearable editor empties itself in one gesture");
