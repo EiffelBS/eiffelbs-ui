@@ -455,7 +455,7 @@ private:
     // === The popup ========================================================
     /** The search field: a TextEditor subclass so Up/Down move the highlight
         before the editor's own newline handling sees the key. */
-    struct SearchField : juce::TextEditor
+    struct SearchField : ebs::ClearableEditor
     {
         SearchableModelPicker* owner = nullptr;
         bool keyPressed (const juce::KeyPress& key) override
@@ -735,3 +735,4 @@ private:
 };
 
 } // namespace ebs
+#include "eiffelbs/ClearableEditor.h"
