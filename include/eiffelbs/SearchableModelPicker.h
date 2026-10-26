@@ -392,8 +392,59 @@ public:
         PopupContent content (this);
         const int rows = viewRowsForTest();
         content.setSize (width, 26 + 4 + rows * PopupContent::kRowH
-                            + PopupContent::kFooterH + 4);
+                            + PopupContent::kFooterH + 8);   // resized()'s padding
         content.paintEntireComponent (g, true);
+    }
+
+    // === Bar + wheel harness ==========================================
+    /** A headless PopupContent with a real resized() and NO window: the bar's
+        state is readable from disk tests, so 'is there a scrollbar' and 'what
+        does one notch move' are PROVED, not eyeballed. */
+    void openHeadlessPopupForTest()
+    {
+        if (popup == nullptr)
+        {
+            auto* content = new PopupContent (this);
+            content->setSize (360, 26 + 4 + PopupContent::kMaxViewRows * PopupContent::kRowH
+                                 + PopupContent::kFooterH + 8);   // resized()'s padding
+            popup = content;   // SafePointer mirrors the live popup, as openPopup does
+        }
+    }
+    void closeHeadlessPopupForTest()
+    {
+        if (auto* p = popup.getComponent())
+            delete p;   // ~PopupContent calls popupClosed, which drops the pointer
+    }
+    bool barVisibleForTest() const
+    {
+        return popup != nullptr && popup->scroll.isVisible();
+    }
+    int barThumbLengthForTest() const
+    {
+        return popup == nullptr ? 0 : (int) popup->scroll.getCurrentRangeSize();
+    }
+    double barUpperForTest() const
+    {
+        return popup == nullptr ? 0.0 : popup->scroll.getRangeLimit().getEnd();
+    }
+    int scrollOffsetForTest() const
+    {
+        return popup != nullptr ? popup->offset : -1;
+    }
+    void wheelScrollForTest (double deltaY)
+    {
+        if (popup == nullptr)
+            return;
+        juce::MouseWheelDetails d;   // JUCE 8 carries ONLY deltaX / deltaY
+        d.deltaX = 0.0f;
+        d.deltaY = (float) deltaY;   // Windows reports one notch as 3.0
+        // JUCE 8 MouseEvent takes the input source BY VALUE with every field explicit.
+        const juce::MouseEvent ev (juce::Desktop::getInstance().getMainMouseSource(),
+                                   {18.0f, 60.0f}, juce::ModifierKeys(), 1.0f,
+                                   0.0f, 0.0f, 0.0f, 0.0f, popup.getComponent(),
+                                   popup.getComponent(), juce::Time(),
+                                   {18.0f, 60.0f}, juce::Time(), 1, false);
+        popup->mouseWheelMove (ev, d);
     }
 
 private:
@@ -639,6 +690,7 @@ private:
         juce::ScrollBar scroll { true };   // vertical
 
         int offset = 0;        // display rows skipped above the top edge
+        double wheelAccum = 0.0;   // fractional wheel carry, in LINES per event
 
         explicit PopupContent (SearchableModelPicker* o) : owner (o)
         {
@@ -656,9 +708,16 @@ private:
             addAndMakeVisible (search);
             scroll.addListener (this);
             scroll.setRangeLimits (0.0, 0.0);
+            // The default scrollbar colours are LIGHT-theme: on the popup's dark
+            // panel the track and thumb vanish, which is what the author saw as
+            // 'il n'y a pas de scrollbar'. Give the bar the popup's own theme.
+            scroll.setColour (juce::ScrollBar::thumbColourId, ebs::accent().withAlpha (0.55f));
+            scroll.setColour (juce::ScrollBar::trackColourId, ebs::bgDark());
             scroll.setVisible (false);
             addAndMakeVisible (scroll);
-            setSize (360, 26 + 4 + kMaxViewRows * kRowH + kFooterH + 4);
+            // The height formula pays for resized()'s reduced(4) TOP AND BOTTOM
+            // (8 px), or the window lands one row short and shows 9 rows.
+            setSize (360, 26 + 4 + kMaxViewRows * kRowH + kFooterH + 8);
         }
 
         ~PopupContent() override
@@ -691,19 +750,23 @@ private:
             updateScroll();
         }
 
-        /** The scroll window is re-measured after every row change: range = the
-            rows below the view, offset clamped into it, bar shown only when
-            content actually scrolls. */
+        /** The scroll window is re-measured after every row change. The bar gets the
+            FULL content span and a thumb as long as the visible window - the
+            ScrollBar keeps its current range LENGTH at zero until told, so
+            without this the thumb has no size and NOTHING shows: the author's
+            'il n'y a pas de scrollbar'. */
         void updateScroll()
         {
             const int total = owner != nullptr ? (int) owner->display.size() : 0;
             const int view = rowsBase.getHeight() / kRowH;
-            const double upper = juce::jmax (0, total - view);
-            offset = juce::jlimit (0, (int) upper, offset);
-            scroll.setRangeLimits (0.0, upper);
-            scroll.setCurrentRangeStart ((double) offset,
-                                         juce::dontSendNotification);
-            const bool showBar = upper > 0.0;
+            offset = juce::jlimit (0, juce::jmax (0, total - view), offset);
+            scroll.setRangeLimits (0.0, (double) juce::jmax (total, 1));
+            // setCurrentRange sets thumb START and LENGTH in one call; a
+            // thumb of length zero is the invisible bar the author reported.
+            scroll.setCurrentRange ((double) offset,
+                                    (double) juce::jmin (view, total),
+                                    juce::dontSendNotification);
+            const bool showBar = total > view;
             scroll.setVisible (showBar);
             if (showBar)
             {
@@ -741,7 +804,9 @@ private:
                 target = row;
             else if (row >= offset + view)
                 target = juce::jlimit (0, upper, row - view + 1);
-            scroll.setCurrentRangeStart ((double) target);   // fires setScrollOffset
+            setScrollOffset (target);   // async listener delivery, so apply now
+            scroll.setCurrentRangeStart ((double) target,
+                                     juce::dontSendNotification);
         }
 
         /** On open, park the window at the current model's row. */
@@ -880,14 +945,31 @@ private:
         void mouseWheelMove (const juce::MouseEvent&,
                              const juce::MouseWheelDetails& e) override
         {
-            const double upper = scroll.getRangeLimit().getEnd();
-            if (owner == nullptr || upper <= 0.0)
+            if (owner == nullptr)
+                return;
+            const int total = (int) owner->display.size();
+            const int view  = listArea.getHeight() / kRowH;
+            const int upper = juce::jmax (0, total - view);
+            if (upper <= 0)
                 return;
             // The wheel moves the WINDOW, not the highlight: a reader scanning
-            // a long catalog scrolls past whole provider runs.
-            scroll.setCurrentRangeStart (juce::jlimit (
-                0.0, upper,
-                scroll.getCurrentRangeStart() - e.deltaY * 2.5));
+            // a long catalog scrolls past whole provider runs. Windows reports
+            // one notch as deltaY = 3 and smooth scrolling floods small deltas,
+            // so the fraction is CARRIED between events (the author's 'la molette
+            // est assez lent'): only WHOLE lines repaint - about ten lines per
+            // notch. The bar moves through setRangeStart WITH notification, so
+            // the same listener path updates offset and repaints once per line.
+            wheelAccum += e.deltaY * 3.2;
+            const int step = (int) juce::roundToInt (wheelAccum);
+            if (step == 0)
+                return;
+            wheelAccum -= (double) step;
+            const int newStart = juce::jlimit (0, upper,
+                (int) scroll.getCurrentRangeStart() - step);
+            setScrollOffset (newStart);   // listener delivery is ASYNC in
+            // ScrollBar; move the content now and park the bar there silently.
+            scroll.setCurrentRangeStart ((double) newStart,
+                                     juce::dontSendNotification);
         }
 
         void mouseDown (const juce::MouseEvent& e) override
@@ -964,7 +1046,7 @@ private:
             const int rows = viewRowsForTest();   // jmin(kMaxViewRows, display size)
             content->setSize (juce::jmax (280, getWidth() - 2),
                               26 + 4 + rows * PopupContent::kRowH
-                                  + PopupContent::kFooterH + 4);
+                                  + PopupContent::kFooterH + 8);   // resized()'s padding
             popup = content.get();
             const auto anchorBounds = anchorComponent != nullptr
                                           ? anchorComponent->getScreenBounds()

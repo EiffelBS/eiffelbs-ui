@@ -448,6 +448,39 @@ int main()
                 [&grouped] (juce::Graphics& g) { grouped.paintPopupForTest (g, 320); });
             check (inkPixels (groupImg) > 250,
                    "the grouped popup paints headers and model rows");
+            // THE SCROLLBAR THE AUTHOR COULD NOT SEE + THE WHEEL SPEED. The
+            // headless popup gets a real resized(); the bar must be visible AND
+            // carry a thumb as long as the window, and ONE Windows notch (deltaY
+            // = 3) must move whole lines - about ten - in one step.
+            grouped.openHeadlessPopupForTest();
+            check (grouped.barVisibleForTest(),
+                   "the popup shows its scrollbar when content scrolls");
+            check (grouped.barThumbLengthForTest() == 10 && grouped.barUpperForTest() == 104,
+                   "the thumb is as long as the window, over the whole catalog");
+            grouped.wheelScrollForTest (-3.0);   // one notch DOWN
+            check (grouped.scrollOffsetForTest() == 10,
+                   "one notch moves ten lines in whole-line steps");
+            for (int n = 0; n < 9; ++n)
+                grouped.wheelScrollForTest (-3.0);
+            check (grouped.scrollOffsetForTest() == 94,
+                   "the wheel reaches the last provider run");
+            for (int n = 0; n < 20; ++n)
+                grouped.wheelScrollForTest (3.0);
+            check (grouped.scrollOffsetForTest() == 0,
+                   "the wheel walks back home symmetrically");
+            grouped.closeHeadlessPopupForTest();
+            ebs::SearchableModelPicker flat;
+            juce::StringArray fIds, fLabels;
+            for (int i = 0; i < 8; ++i)
+            {
+                fIds.add ("f" + juce::String (i));
+                fLabels.add ("Model " + juce::String (i));
+            }
+            flat.setItems (fIds, fLabels);
+            flat.openHeadlessPopupForTest();
+            check (! flat.barVisibleForTest() && flat.scrollOffsetForTest() == 0,
+                   "an unscrollable list shows no bar at all");
+            flat.closeHeadlessPopupForTest();
 
             // THE SUBMENU CHEVRONS (author report: "Il y avait avant un chevron
             // vers la droite pour aller au sous-menu"): each menu row draws its
