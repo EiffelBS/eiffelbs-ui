@@ -20,6 +20,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 
 #include "eiffelbs/Theme.h"
+#include "eiffelbs/IconButton.h"
 
 namespace ebs
 {
@@ -54,6 +55,8 @@ public:
     void clickClearForTest() { clearText(); }
     void clickRevealForTest() { toggleReveal(); }
     bool maskedForTest() const { return getPasswordCharacter() != 0; }
+    /** 1 = open eye (masked), 2 = eye-off (visible): what the glyph MEANS. */
+    int eyeGlyphForTest() const { return getPasswordCharacter() != 0 ? 1 : 2; }
 
     void paintOverChildren (juce::Graphics& g) override
     {
@@ -187,27 +190,16 @@ private:
         g.drawLine (a.getRight(), a.getY(), a.getX(), a.getBottom(), 1.6f);
     }
 
+    /** The SAME glyph pair the rest of the app uses (Library's hidden
+        packages): an OPEN eye while the text is masked (click reveals), the
+        design system's EYE-OFF once it is visible (click hides). Hand-drawing
+        these produced a "+" instead of the crossed eye the reader expects
+        (author report 2026-10-26). */
     static void drawEye (juce::Graphics& g, juce::Rectangle<int> r, bool open)
     {
-        const auto a = r.toFloat().reduced (1.0f);
-        if (! open)
-        {
-            // Closed eye: lid line + a small slash.
-            g.drawLine (a.getX(), a.getCentreY(), a.getRight(), a.getCentreY(),
-                        1.4f);
-            g.drawLine (a.getCentreX(), a.getY() + 2.0f,
-                        a.getCentreX(), a.getBottom() - 2.0f, 1.2f);
-            return;
-        }
-        juce::Path lid;
-        lid.startNewSubPath (a.getX(), a.getCentreY());
-        lid.quadraticTo (a.getCentreX(), a.getY(),
-                         a.getRight(), a.getCentreY());
-        lid.quadraticTo (a.getCentreX(), a.getBottom(),
-                         a.getX(), a.getCentreY());
-        g.strokePath (lid, juce::PathStrokeType (1.2f));
-        g.fillEllipse (a.getCentreX() - 1.6f, a.getCentreY() - 1.6f, 3.2f,
-                       3.2f);
+        g.fillPath (IconButton::glyphPath (open ? IconButton::Shape::eye
+                                                : IconButton::Shape::eyeOff,
+                                           r.toFloat(), false, false, 14.0f));
     }
 
     bool secretMode = false;

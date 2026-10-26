@@ -697,8 +697,12 @@ int main()
             editor.clickRevealForTest();
             check (! editor.maskedForTest() && toggles == 1,
                    "the eye reveals the secret");
+            check (editor.eyeGlyphForTest() == 2,
+                   "a revealed secret wears the EYE-OFF glyph, not a plus");
             editor.clickRevealForTest();
             check (editor.maskedForTest(), "the eye hides it again");
+            check (editor.eyeGlyphForTest() == 1,
+                   "a masked secret wears the OPEN eye");
             juce::Image img;
             {
                 img = juce::Image (juce::Image::ARGB, editor.getWidth(),
