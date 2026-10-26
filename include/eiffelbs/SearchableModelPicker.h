@@ -384,6 +384,17 @@ public:
     {
         return displayRowOfModel (highlightedForTest());
     }
+    /** Offscreen render of the popup list - the SAME component the CallOutBox
+        paints on screen, so the gate counts ink in header rows and can prove a
+        90-model catalog is a real scrolling view. */
+    void paintPopupForTest (juce::Graphics& g, int width)
+    {
+        PopupContent content (this);
+        const int rows = viewRowsForTest();
+        content.setSize (width, 26 + 4 + rows * PopupContent::kRowH
+                            + PopupContent::kFooterH + 4);
+        content.paintEntireComponent (g, true);
+    }
 
 private:
     /** Width of `text` at the picker font, measured with GlyphArrangement (the
@@ -615,25 +626,18 @@ private:
         list ("X of Y" footer, named empty state). The rows are painted at the
         picker's own rhythm; a scrollbar and the wheel move the window through
         every row so a 90-model catalog is fully reachable. */
-    struct PopupContent : juce::Component
+    struct PopupContent : juce::Component,
+                          private juce::ScrollBar::Listener
     {
         SearchableModelPicker* owner = nullptr;
         SearchField search;
         juce::Rectangle<int> listArea, footerArea, manageLinkArea,
                              footerCountArea, rowsBase;
 
-        /** A Scrollbar that reports moves to the popup (JUCE fires valueChanged
-            through a subclass override - no broadcaster needed). */
-        struct RowScrollBar : juce::Scrollbar
-        {
-            PopupContent* view = nullptr;
-            void valueChanged (double newValue) override
-            {
-                if (view != nullptr && view->owner != nullptr)
-                    view->setScrollOffset ((int) (newValue + 0.5));
-            }
-        };
-        RowScrollBar scroll;   // the window's vertical position lives here
+        /** The scrollbar reports moves through onValueChange (juce::ScrollBar
+            has NO valueChanged() to override in JUCE 8). */
+        juce::ScrollBar scroll { true };   // vertical
+
         int offset = 0;        // display rows skipped above the top edge
 
         explicit PopupContent (SearchableModelPicker* o) : owner (o)
@@ -650,8 +654,8 @@ private:
                     owner->setSearchForTest (search.getText());
             };
             addAndMakeVisible (search);
-            scroll.view = this;
-            scroll.setRange (0.0, 0.0);
+            scroll.addListener (this);
+            scroll.setRangeLimits (0.0, 0.0);
             scroll.setVisible (false);
             addAndMakeVisible (scroll);
             setSize (360, 26 + 4 + kMaxViewRows * kRowH + kFooterH + 4);
@@ -659,8 +663,14 @@ private:
 
         ~PopupContent() override
         {
+            scroll.removeListener (this);
             if (owner != nullptr)
                 owner->popupClosed (this);
+        }
+
+        void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override
+        {
+            setScrollOffset ((int) (newRangeStart + 0.5));
         }
 
         static constexpr int kRowH = 24;
@@ -690,8 +700,9 @@ private:
             const int view = rowsBase.getHeight() / kRowH;
             const double upper = juce::jmax (0, total - view);
             offset = juce::jlimit (0, (int) upper, offset);
-            scroll.setRange (0.0, upper);
-            scroll.setCurrentPosition ((double) offset);   // syncs the thumb
+            scroll.setRangeLimits (0.0, upper);
+            scroll.setCurrentRangeStart ((double) offset,
+                                         juce::dontSendNotification);
             const bool showBar = upper > 0.0;
             scroll.setVisible (showBar);
             if (showBar)
@@ -730,7 +741,7 @@ private:
                 target = row;
             else if (row >= offset + view)
                 target = juce::jlimit (0, upper, row - view + 1);
-            scroll.setCurrentPosition ((double) target);   // fires setScrollOffset
+            scroll.setCurrentRangeStart ((double) target);   // fires setScrollOffset
         }
 
         /** On open, park the window at the current model's row. */
@@ -866,15 +877,17 @@ private:
             }
         }
 
-        void mouseWheel (const juce::MouseWheelEvent& e) override
+        void mouseWheelMove (const juce::MouseEvent&,
+                             const juce::MouseWheelDetails& e) override
         {
-            const double upper = scroll.getRange().getUpperBound();
+            const double upper = scroll.getRangeLimit().getEnd();
             if (owner == nullptr || upper <= 0.0)
                 return;
             // The wheel moves the WINDOW, not the highlight: a reader scanning
             // a long catalog scrolls past whole provider runs.
-            scroll.setCurrentPosition (juce::jlimit (0.0, upper,
-                                                     scroll.getCurrentPosition() - e.deltaY * 2.5));
+            scroll.setCurrentRangeStart (juce::jlimit (
+                0.0, upper,
+                scroll.getCurrentRangeStart() - e.deltaY * 2.5));
         }
 
         void mouseDown (const juce::MouseEvent& e) override
