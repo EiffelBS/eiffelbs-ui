@@ -25,7 +25,8 @@
 namespace ebs
 {
 
-class ClearableEditor : public juce::TextEditor
+class ClearableEditor : public juce::TextEditor,
+                        private juce::Timer
 {
 public:
     ClearableEditor()
@@ -36,7 +37,15 @@ public:
         // collapsed the placeholder band to 4 px (author report 2026-10-26).
         applyInsets();
         setMouseCursor (juce::MouseCursor::IBeamCursor);
+        // TextEditor repaints the TEXT area when it changes, not the icon
+        // strip: the clear x stayed invisible until something else forced a
+        // full repaint (hover, focus change - author report 2026-10-26). A
+        // slow watcher flips the strip only when emptiness CHANGES, so typing
+        // costs one repaint at most.
+        startTimerHz (10);
     }
+
+    ~ClearableEditor() override { stopTimer(); }
 
     /** Turn the field into a masked one with a reveal eye. The mask is ON by
         default: a key is secret until the reader asks otherwise. */
@@ -53,6 +62,10 @@ public:
 
     // === TEST SEAMS ========================================================
     void clickClearForTest() { clearText(); }
+    /** One watcher tick, exposed so a headless gate can prove the x appears
+        without waiting on wall-clock time. */
+    void pumpStripStateForTest() { timerCallback(); }
+    bool clearGlyphShownForTest() const { return stripShowsClear; }
     void clickRevealForTest() { toggleReveal(); }
     bool maskedForTest() const { return getPasswordCharacter() != 0; }
     /** 1 = open eye (masked), 2 = eye-off (visible): what the glyph MEANS. */
@@ -81,7 +94,7 @@ public:
             drawEye (g, eye, getPasswordCharacter() != 0);
             x -= kSlot;
         }
-        if (getText().isNotEmpty())
+        if (stripShowsClear)
         {
             const auto clear = juce::Rectangle<int> (x - kSlot, 0, kSlot, h)
                                    .withSizeKeepingCentre (16, 16);
@@ -90,6 +103,24 @@ public:
             drawCross (g, clear);
         }
     }
+
+    void timerCallback() override { stripWatcherTick(); }
+
+protected:
+    /** The 10 Hz watcher's body. Subclasses with their own per-tick work
+        (VariableTextEditor's suggestion list) override this and call the
+        base first - one Timer for the whole field, never two competing ones. */
+    virtual void stripWatcherTick()
+    {
+        const bool hasText = getText().isNotEmpty();
+        if (hasText != stripShowsClear)
+        {
+            stripShowsClear = hasText;
+            repaint();      // the x appears/disappears NOW, not on hover
+        }
+    }
+
+private:
 
     void mouseMove (const juce::MouseEvent& e) override
     {
@@ -142,7 +173,7 @@ private:
                 return Part::reveal;
             x -= kSlot;
         }
-        if (getText().isNotEmpty()
+        if (stripShowsClear
             && juce::Rectangle<int> (x - kSlot, 0, kSlot, area.getHeight())
                    .contains (p))
             return Part::clear;
@@ -204,6 +235,7 @@ private:
 
     bool secretMode = false;
     bool reveal = false;
+    bool stripShowsClear = false;
     Part hovered = Part::none;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ClearableEditor)

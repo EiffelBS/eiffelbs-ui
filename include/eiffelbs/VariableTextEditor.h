@@ -32,7 +32,6 @@ namespace ebs
 {
 
 class VariableTextEditor : public ClearableEditor,
-                          private juce::Timer,
                           public juce::KeyListener,
                           public juce::DragAndDropTarget
 {
@@ -53,7 +52,7 @@ public:
         addKeyListener (this);
     }
 
-    ~VariableTextEditor() override { stopTimer(); }
+
 
     /** The variables this build provides - the same list the chips offer. */
     void setVariables (std::vector<Variable> provided)
@@ -225,13 +224,11 @@ public:
         ClearableEditor::focusGained (cause);
         lastText = getText();
         lastCaret = getCaretPosition();
-        startTimerHz (8);
     }
 
     void focusLost (FocusChangeType cause) override
     {
         ClearableEditor::focusLost (cause);
-        stopTimer();
         hideSuggestions();
     }
 
@@ -329,13 +326,11 @@ private:
     static constexpr int kMaxRows = 6;
     static constexpr int kPopupW = 300;
 
-    void timerCallback() override
+    void stripWatcherTick() override
     {
+        ClearableEditor::stripWatcherTick();
         if (! hasKeyboardFocus (true))
-        {
-            stopTimer();
             return;
-        }
         const auto text = getText();
         const int caret = getCaretPosition();
         if (text == lastText && caret == lastCaret)

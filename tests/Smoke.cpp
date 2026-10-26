@@ -687,9 +687,25 @@ int main()
                        "bottom");
             }
 
+            // The clear x must appear as soon as text exists, WITHOUT a hover
+            // or a focus move (author report 2026-10-26: it only appeared
+            // after hovering the strip).
+            editor.setText ({}, juce::dontSendNotification);
+            editor.pumpStripStateForTest();
+            check (! editor.clearGlyphShownForTest(),
+                   "an empty clearable editor shows no clear x");
+            editor.setText ("ab", juce::dontSendNotification);
+            editor.pumpStripStateForTest();
+            check (editor.clearGlyphShownForTest(),
+                   "typing shows the clear x on the NEXT watcher tick");
+            editor.setText ("openrouter", juce::dontSendNotification);
+            editor.pumpStripStateForTest();
             editor.clickClearForTest();
             check (editor.getText().isEmpty() && cleared == 1,
                    "a clearable editor empties itself in one gesture");
+            editor.pumpStripStateForTest();
+            check (! editor.clearGlyphShownForTest(),
+                   "emptying hides the clear x again");
             editor.setSecretMode (true);
             editor.setText ("sk-secret", juce::dontSendNotification);
             check (editor.maskedForTest(),
