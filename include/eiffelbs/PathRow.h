@@ -67,6 +67,18 @@ public:
     }
 
     juce::String getText() const { return editor.getText(); }
+
+    /** Replace the dim "empty" text shown in the field. Used when the auto
+        target CHANGES (a library root, an engine default): the reader must see
+        which folder "(auto)" means, not just the word (author report
+        2026-10-26). */
+    void setPlaceholder (const juce::String& text)
+    {
+        placeholderText = text;
+        editor.setTextToShowWhenEmpty (text, ebs::textDim());
+    }
+
+    juce::String placeholderTextForTest() const { return placeholderText; }
     void setText (const juce::String& t, bool notify = false)
     { editor.setText (t, notify); }
 
@@ -152,6 +164,7 @@ private:
     }
 
     Mode mode;
+    juce::String placeholderText;
     juce::String filters { "*" };   // what the browse dialog lists, set by the host
     juce::TextEditor editor;
     ebs::IconButton revealBtn { ebs::IconButton::Shape::search };
