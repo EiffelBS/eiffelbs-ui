@@ -353,6 +353,18 @@ int main()
             check (gapDiff == 0, "a real gap separates the trail from the chevron");
         }
 
+        // TOKEN FIELD: a chip carries a drag description for text editors.
+        {
+            ebs::TokenField field;
+            field.setAllowedTokens ({ { "music.model", "engine" } });
+            field.setSize (300, 34);
+            field.setTokens ({ "music.model" });
+            field.resized();
+            check (field.chipDragDescriptionForTest (0)
+                       == ebs::TokenField::dragDescription ("music.model"),
+                   "a token chip names its own drag payload");
+        }
+
         // THE MODEL FACTS: a searchable picker and the menu button that shows
         // "model ... effort" must both paint and measure. The menu button's
         // width follows BOTH facts (a layout asking only for the model cuts the
@@ -713,6 +725,21 @@ int main()
             editor.openSuggestionsForTest();
             check (! editor.suggestionsVisibleForTest(),
                    "variable editor: no match closes the list");
+            // DRAG & DROP (phase B): a chip dropped into the editor inserts
+            // its placeholder at the caret; a foreign payload is ignored.
+            editor.setText ("Sound for ", juce::dontSendNotification);
+            editor.setCaretPosition (10);
+            editor.dropVariableForTest ("music.model");
+            check (editor.getText() == "Sound for {{music.model}}",
+                   "variable editor: a dropped chip inserts its placeholder");
+            check (editor.isInterestedInDragSource (
+                       juce::DragAndDropTarget::SourceDetails (
+                           ebs::TokenField::dragDescription ("music.model"),
+                           nullptr, {}))
+                       && ! editor.isInterestedInDragSource (
+                           juce::DragAndDropTarget::SourceDetails (
+                               "some.other.drag", nullptr, {})),
+                   "variable editor: only ebs.variable. payloads are accepted");
             juce::Image img (juce::Image::ARGB, 320, 80, true);
             {
                 juce::Graphics g (img);

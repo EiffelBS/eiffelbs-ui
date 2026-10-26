@@ -33,7 +33,8 @@ namespace ebs
 
 class VariableTextEditor : public ClearableEditor,
                           private juce::Timer,
-                          public juce::KeyListener
+                          public juce::KeyListener,
+                          public juce::DragAndDropTarget
 {
 public:
     struct Variable
@@ -74,6 +75,72 @@ public:
     }
     void chooseSuggestionForTest (int index) { pick (index); }
     void hideSuggestionsForTest() { hideSuggestions(); }
+
+    // === DragAndDropTarget: a chip dropped from a TokenField ==============
+    bool isInterestedInDragSource (const SourceDetails& d) override
+    {
+        return d.description.toString().startsWith ("ebs.variable.");
+    }
+
+    void itemDragEnter (const SourceDetails&) override
+    {
+        dragOver = true;
+        repaint();
+    }
+
+    void itemDragExit (const SourceDetails&) override
+    {
+        dragOver = false;
+        repaint();
+    }
+
+    void itemDropped (const SourceDetails& d) override
+    {
+        dragOver = false;
+        repaint();
+        insertVariable (d.description.toString().fromFirstOccurrenceOf (
+            "ebs.variable.", false, false));
+    }
+
+    /** Insert `{{id}}` at the caret (a drop and the suggestion list share this
+        path, so both behave the same way). */
+    void insertVariable (const juce::String& id)
+    {
+        if (id.isEmpty())
+            return;
+        const auto text = getText();
+        const int caret = getCaretPosition();
+        const auto before = text.substring (0, caret);
+        const int open = before.lastIndexOf ("{{");
+        if (open >= 0 && ! before.substring (open).containsChar ('}'))
+        {
+            auto replaced = text.substring (0, open) + "{{" + id + "}}"
+                          + text.substring (caret);
+            setText (replaced, juce::dontSendNotification);
+            setCaretPosition (juce::jlimit (0, replaced.length(),
+                                            open + 4 + id.length()));
+        }
+        else
+        {
+            insertTextAtCaret ("{{" + id + "}}");
+        }
+        grabKeyboardFocus();
+        if (onVariableInserted != nullptr)
+            onVariableInserted (id);
+    }
+
+    void dropVariableForTest (const juce::String& id) { insertVariable (id); }
+
+    void paintOverChildren (juce::Graphics& g) override
+    {
+        ClearableEditor::paintOverChildren (g);
+        if (dragOver)
+        {
+            g.setColour (accent());
+            g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f),
+                                    6.0f, 2.0f);
+        }
+    }
 
     // === KeyListener ======================================================
     bool keyPressed (const juce::KeyPress& key, juce::Component*) override
@@ -357,6 +424,7 @@ private:
     juce::String lastText;
     int lastCaret = 0;
     int highlight = 0;
+    bool dragOver = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (VariableTextEditor)
 };

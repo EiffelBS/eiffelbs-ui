@@ -327,6 +327,51 @@ public:
             }
     }
 
+    /** A chip is also a DRAG SOURCE: dragging it into a text editor that
+        accepts variables inserts the placeholder there (author request
+        2026-10-26, phase B). Quietly a no-op outside a DragAndDropContainer. */
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (dragStarted || ! e.mouseWasDraggedSinceMouseDown())
+            return;
+        int chip = -1;
+        for (int i = 0; i < (int) chipRects.size(); ++i)
+            if (chipRects[(size_t) i].contains (e.getMouseDownPosition())
+                && ! crossRect (i).contains (e.getMouseDownPosition()))
+            {
+                chip = i;
+                break;
+            }
+        if (chip < 0)
+            return;
+        auto* container = juce::DragAndDropContainer::findParentDragContainerFor
+                              (this);
+        if (container == nullptr)
+            return;
+
+        dragStarted = true;
+        // A small image is the drag's own feedback; its text says what will be
+        // inserted, so the pointer carries the answer.
+        juce::Image img (juce::Image::ARGB, 2, 2, true);
+        container->startDragging (dragDescription (chosen[chip]), this,
+                                  img, false);
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { dragStarted = false; }
+
+    /** The description a drag carries: name-spaced so a text editor only
+        accepts OUR variables. */
+    static juce::String dragDescription (const juce::String& id)
+    {
+        return "ebs.variable." + id;
+    }
+
+    juce::String chipDragDescriptionForTest (int index) const
+    {
+        return index >= 0 && index < chosen.size() ? dragDescription (chosen[index])
+                                                   : juce::String();
+    }
+
 private:
     class Editor : public juce::TextEditor
     {
@@ -704,6 +749,7 @@ private:
     std::vector<Token> allowed;
     juce::StringArray chosen;
     std::vector<juce::Rectangle<int>> chipRects;
+    bool dragStarted = false;
     float textScale = 1.0f;
     bool popupShown = false;
     /** Free-text (tag) mode; see setAllowFreeText(). Off by default. */
