@@ -859,6 +859,12 @@ public:
         else
             showLogWindow();
     }
+    /** Open (or focus) the floating Log window from the HOST's own UI, e.g. a
+        Settings section that offers a "Show log" action. Same window, same
+        history, same rules as clicking the bar. */
+    void openLogWindow() { showLogWindow(); }
+
+
 
 private:
     /** Activity-segment bar slot: 45 x 8 px, the geometry of the
