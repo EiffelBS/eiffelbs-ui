@@ -85,16 +85,22 @@ public:
     void mouseEnter (const juce::MouseEvent&) override { repaint(); }
     void mouseExit (const juce::MouseEvent&) override { repaint(); }
 
-    void mouseDown (const juce::MouseEvent& e) override
+    void mouseDown (const juce::MouseEvent&) override
     {
         dragStartPosition = position;
-        dragStartMouse = orientation == Orientation::rows ? e.y : e.x;
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
-        const int now = orientation == Orientation::rows ? e.y : e.x;
-        nudge (now - dragStartMouse);
+        // The HOST re-lays out while we drag, so our own bounds move under the
+        // pointer: an e.x/e.y delta is then measured from a moving origin and
+        // the handle "fights" the re-layout (jumps - author report
+        // 2026-10-26). getDistanceFromDragStart is measured from the MOUSE-DOWN
+        // SCREEN position, which no re-layout can move.
+        const int delta = orientation == Orientation::rows
+                              ? e.getDistanceFromDragStartY()
+                              : e.getDistanceFromDragStartX();
+        nudge (delta);
     }
 
     void mouseUp (const juce::MouseEvent&) override
@@ -138,7 +144,7 @@ private:
 
     Orientation orientation;
     int minPos = 0, maxPos = 0, position = 0;
-    int dragStartPosition = 0, dragStartMouse = 0;
+    int dragStartPosition = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SplitterHandle)
 };
