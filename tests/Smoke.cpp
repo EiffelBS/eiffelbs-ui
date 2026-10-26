@@ -472,6 +472,38 @@ int main()
                    "PillButton follows the same destructive hover rule");
         }
 
+        // PILL TAB BAR: labels + icons, one active slot, taps reported.
+        {
+            ebs::PillTabBar bar;
+            bar.setTabs ({ "Chat config", "Templates", "Web search" });
+            bar.onTabIcon = [] (int i) -> std::optional<ebs::IconButton::Shape>
+            {
+                if (i == 0) return ebs::IconButton::Shape::chat;
+                if (i == 1) return ebs::IconButton::Shape::sparkle;
+                return ebs::IconButton::Shape::search;
+            };
+            int picked = -1;
+            bar.onTabSelected = [&picked] (int i) { picked = i; };
+            bar.setSize (420, 28);
+            check (bar.tabCount() == 3 && bar.activeIndex() == 0,
+                   "a pill tab bar starts on its first tab");
+            check (bar.preferredWidth() > 0,
+                   "a pill tab bar measures its slots");
+            bar.clickTabForTest (2);
+            check (picked == 2 && bar.activeIndex() == 2,
+                   "a tab tap reports the new index once");
+            check (bar.tabAtForTest (bar.getWidth() - 8) == 2,
+                   "the rightmost slot belongs to the last tab");
+            juce::Image img;
+            {
+                img = juce::Image (juce::Image::ARGB, bar.getWidth(),
+                                   bar.getHeight(), true);
+                juce::Graphics g (img);
+                bar.paintEntireComponent (g, true);
+            }
+            check (inkPixels (img) > 0, "a pill tab bar paints");
+        }
+
         // The model menu button forwards its tooltip to the visible face.
         {
             ebs::ModelMenuButton button;
