@@ -1,4 +1,4 @@
-// MenuChevronButton.h
+﻿// MenuChevronButton.h
 // eiffelbs-ui - shared menu button (EiffelBS design system).
 //
 // Copyright (C) 2026 EiffelBS. Licensed under AGPLv3.
@@ -74,12 +74,19 @@ namespace ebs
             }
             const auto ink = ! isEnabled() ? ebs::textDim().withAlpha (0.35f)
                                            : ebs::text();
-            auto textArea = b.withTrimmedLeft (pad()).withTrimmedRight (chevronSlot());
-            if (trailingText.isNotEmpty())
+            // With trailing text the right trim gains its own gap, measured
+            // in widthNeededFor too: slotting the trail flush to the old
+            // 18 px edge parked its last glyph 1 px from the chevron V (the
+            // author report 2026-10-26 - "le chevron est collÃ© au texte").
+            const bool trailed = trailingText.isNotEmpty();
+            auto textArea = b.withTrimmedLeft (pad())
+                                .withTrimmedRight (chevronSlot()
+                                                    + (trailed ? trailingGap() : 0));
+            if (trailed)
             {
                 auto trail = textArea.removeFromRight (
                     (int) std::ceil (ebs::fontHint().getStringWidth (trailingText))
-                    + 10);
+                    + labelGap());
                 g.setColour (isEnabled() ? ebs::textDim()
                                          : ebs::textDim().withAlpha (0.35f));
                 g.setFont (ebs::fontHint());
@@ -119,6 +126,14 @@ namespace ebs
          *  button's own chrome instead of copying the constants. */
         static constexpr int pad()        { return 8; }
         static constexpr int chevronSlot() { return 18; }
+        /** The gap the label keeps from its trailing text, and the gap the
+         *  trail keeps from the V. A trail slot drawn flush to the trim line
+         *  left its last glyph 1 px from the chevron - glued, not spaced
+         *  (author report 2026-10-26). Both numbers are measured into
+         *  widthNeededFor, so a layout that trusts the button's own number
+         *  gets the spacing too, never just the glyphs. */
+        static constexpr int labelGap()    { return 10; }
+        static constexpr int trailingGap() { return 8; }
         /** The glyph's slot and its side, when the button carries one. */
         static constexpr int iconSlot()    { return 22; }
         static constexpr int iconSide()    { return 14; }
@@ -139,8 +154,8 @@ namespace ebs
                  + (int) std::ceil (ebs::fontHint().getStringWidth (text))
                  + (trailing.isNotEmpty()
                         ? (int) std::ceil (ebs::fontHint().getStringWidth (trailing))
-                          + 10
-                        : 0)
+                           + labelGap() + trailingGap()
+                         : 0)
                  + chevronSlot() + pad();
         }
 

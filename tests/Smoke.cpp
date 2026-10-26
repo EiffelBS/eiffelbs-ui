@@ -323,6 +323,34 @@ int main()
                    "the trailing text reaches the drawing");
             check (trailed.getTrailingText() == juce::String ("High"),
                    "the trailing text is readable back");
+            // NOT GLUED (author report 2026-10-26: "le chevron est directement
+            // collé au texte"). The trail slot ends BEFORE the chevron's measured
+            // gap, so the columns between them stay empty. Diffing the trails and
+            // no-trails render at a FIXED width isolates the text pixels (the V
+            // is painted identically in both, so it cancels): the gap band must
+            // carry zero trail ink while the trail itself stays inside its slot.
+            const auto renderAt = [] (ebs::MenuChevronButton& b, int w)
+            {
+                b.setSize (w, 32);
+                juce::Image img (juce::Image::ARGB, w, 32, true);
+                juce::Graphics g (img);
+                g.fillAll (juce::Colours::black);
+                b.paintEntireComponent (g, true);
+                return img;
+            };
+            const int trailW = trailed.widthForLabel();
+            const auto withTrail = renderAt (trailed, trailW);
+            trailed.setTrailingText ("");
+            const auto noTrailImg = renderAt (trailed, trailW);
+            trailed.setTrailingText ("High");
+            int gapDiff = 0, slotDiff = 0;
+            for (int x = 0; x < trailW; ++x)
+                for (int y = 0; y < 32; ++y)
+                    if (withTrail.getPixelAt (x, y).getARGB()
+                            != noTrailImg.getPixelAt (x, y).getARGB())
+                        (x >= trailW - 25 && x <= trailW - 18 ? gapDiff : slotDiff) += 1;
+            check (slotDiff > 40, "the trailing text paints inside its measured slot");
+            check (gapDiff == 0, "a real gap separates the trail from the chevron");
         }
 
         // THE MODEL FACTS: a searchable picker and the menu button that shows
@@ -385,6 +413,56 @@ int main()
             button.pickerSearchForTest ("Beta");
             check (button.pickerVisibleCountForTest() == 1,
                    "the menu button's model step reuses the shared picker's filter");
+            // GROUPING + SCROLL (author report 2026-10-26 - "la liste n'est plus
+            // scrollable bien qu'il y ait plus de 90 modèles possibles", and the
+            // provider grouping had become a second per-row column): providers are
+            // header rows above their runs, typing one narrows to its models, and
+            // a long catalog is a real scrolling view. One offscreen render proves
+            // the headers reach ink; the seams prove the geometry.
+            ebs::SearchableModelPicker grouped;
+            juce::StringArray gIds, gLabels, gGroups;
+            for (int p = 0; p < 4; ++p)
+                for (int m = 0; m < 25; ++m)
+                {
+                    gIds.add ("srv" + juce::String (p) + "|m" + juce::String (m));
+                    gLabels.add ("Model " + juce::String (p * 25 + m));
+                    gGroups.add ("Provider " + juce::String (p));   // contiguous runs
+                }
+            grouped.setItems (gIds, gLabels, {}, gGroups);
+            check (grouped.visibleIdCountForTest() == 100
+                       && grouped.displayRowCountForTest() == 104
+                       && grouped.headerCountForTest() == 4,
+                   "providers become header rows above their runs");
+            check (grouped.rowIsHeaderForTest (0)
+                       && grouped.rowHeaderTextForTest (0).contains ("Provider"),
+                   "the first display row is a provider header");
+            grouped.setSearchForTest ("provider 2");
+            check (grouped.visibleIdCountForTest() == 25
+                       && grouped.displayRowCountForTest() == 26,
+                   "typing a provider narrows to its models plus its header");
+            grouped.setSearchForTest ("");
+            check (grouped.viewRowsForTest() == 10
+                       && grouped.scrollRangeForTest() >= 94,
+                   "a 100-model catalog is a real scrolling view");
+            const auto groupImg = renderToImage (320, 26 + 4 + 10 * 24 + 18 + 4,
+                [&grouped] (juce::Graphics& g) { grouped.paintPopupForTest (g, 320); });
+            check (inkPixels (groupImg) > 250,
+                   "the grouped popup paints headers and model rows");
+
+            // THE SUBMENU CHEVRONS (author report: "Il y avait avant un chevron
+            // vers la droite pour aller au sous-menu"): each menu row draws its
+            // own right-facing ">" - ink in the strip near the right edge, which
+            // a plain PopupMenu row cannot produce.
+            const int rowsW = 210;
+            const auto rowsImg = renderToImage (rowsW, 4 * 2 + 32 * 2,
+                [&button, rowsW] (juce::Graphics& g) { button.paintMenuRowsForTest (g, rowsW); });
+            int chevInk = 0;
+            for (int x = rowsW - 21; x <= rowsW - 8; ++x)   // cx = (right-4)-14 zone
+                for (int y = 6; y < rowsImg.getHeight(); ++y)
+                    if (rowsImg.getPixelAt (x, y).getAlpha() > 50)
+                        ++chevInk;
+            check (inkPixels (rowsImg) > 120 && chevInk > 12,
+                   "the menu rows show the chevron that opens the next layer");
         }
 
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
