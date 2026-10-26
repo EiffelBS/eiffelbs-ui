@@ -812,6 +812,23 @@ int main()
                    "a tab tap reports the new index once");
             check (bar.tabAtForTest (bar.getWidth() - 8) == 2,
                    "the rightmost slot belongs to the last tab");
+            // SLIDE (author request): the active pill travels between slots
+            // instead of blinking; the gate steps the animation itself.
+            check (std::abs (bar.pillPositionForTest() - 0.0f) < 0.01f,
+                   "the pill starts on the first slot");
+            bar.stepAnimationForTest (1.0 / 60.0);
+            const auto midway = bar.pillPositionForTest();
+            check (midway > 0.0f && midway < 2.0f,
+                   "a pill tab bar SLIDES its pill towards the new tab");
+            for (int frame = 0; frame < 120; ++frame)
+                bar.stepAnimationForTest (1.0 / 60.0);
+            check (std::abs (bar.pillPositionForTest() - 2.0f) < 0.01f,
+                   "a pill tab bar settles exactly on the picked slot");
+            bar.setActiveIndex (0, false);
+            bar.stepAnimationForTest (1.0 / 60.0);
+            check (bar.pillPositionForTest() > 0.0f
+                       && bar.pillPositionForTest() < 2.0f,
+                   "the pill animates BACK, not teleports");
             juce::Image img;
             {
                 img = juce::Image (juce::Image::ARGB, bar.getWidth(),

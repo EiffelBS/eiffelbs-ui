@@ -14,6 +14,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -26,7 +27,8 @@ namespace ebs
 {
 
 class PillTabBar : public juce::Component,
-                   public juce::SettableTooltipClient
+                   public juce::SettableTooltipClient,
+                   private juce::Timer
 {
 public:
     PillTabBar()
@@ -34,6 +36,8 @@ public:
         setMouseCursor (juce::MouseCursor::PointingHandCursor);
         setWantsKeyboardFocus (false);
     }
+
+    ~PillTabBar() override { stopTimer(); }
 
     /** Display labels, in tab order. */
     void setTabs (const juce::StringArray& labels)
@@ -60,6 +64,7 @@ public:
         if (next == active)
             return;
         active = next;
+        startSlide();
         repaint();
         if (notify && onTabSelected != nullptr)
             onTabSelected (active);
@@ -82,19 +87,27 @@ public:
         g.drawRoundedRectangle (area, radius, 1.0f);
 
         const float slot = slotWidth();
+
+        // The ACTIVE pill slides between slots (eased): the eye follows ONE
+        // object moving, instead of a pill blinking out and another appearing
+        // (author request 2026-10-26).
+        if (tabCount() > 0)
+        {
+            const auto pill = juce::Rectangle<float> (
+                (float) kPad + slot * pillPos, 2.0f, slot,
+                (float) getHeight() - 4.0f);
+            g.setColour (accent().withAlpha (0.18f));
+            g.fillRoundedRectangle (pill, radius - 2.0f);
+            g.setColour (accent());
+            g.drawRoundedRectangle (pill, radius - 2.0f, 1.0f);
+        }
+
         for (int i = 0; i < tabCount(); ++i)
         {
             const auto r = juce::Rectangle<float> (
                 (float) kPad + slot * (float) i, 2.0f, slot,
                 (float) getHeight() - 4.0f);
             const bool on = i == active;
-            if (on)
-            {
-                g.setColour (accent().withAlpha (0.18f));
-                g.fillRoundedRectangle (r, radius - 2.0f);
-                g.setColour (accent());
-                g.drawRoundedRectangle (r, radius - 2.0f, 1.0f);
-            }
 
             auto textArea = r.reduced (8.0f, 0.0f);
             const auto glyph = onTabIcon != nullptr ? onTabIcon (i) : std::nullopt;
@@ -120,6 +133,7 @@ public:
         if (i >= 0 && i != active)
         {
             active = i;
+            startSlide();
             repaint();
             if (onTabSelected != nullptr)
                 onTabSelected (active);
@@ -133,14 +147,56 @@ public:
         if (index >= 0 && index < tabCount() && index != active)
         {
             active = index;
+            startSlide();
             repaint();
             if (onTabSelected != nullptr)
                 onTabSelected (active);
         }
     }
 
+    /** Advances the slide by `dt` seconds; the timer calls it, the gate drives
+        it so a headless test never depends on wall-clock timers. */
+    void stepAnimationForTest (double dt) { advanceAnimation (dt); }
+    float pillPositionForTest() const { return pillPos; }
+
 private:
     static constexpr int kPad = 4;
+
+    void startSlide()
+    {
+        targetPillPos = (float) juce::jmax (0, active);
+        if (std::abs (targetPillPos - pillPos) < 0.01f)
+        {
+            pillPos = targetPillPos;
+            stopTimer();
+            return;
+        }
+        if (! isTimerRunning())
+            startTimerHz (60);
+    }
+
+    void advanceAnimation (double dtSeconds)
+    {
+        const float target = targetPillPos;
+        const float delta = target - pillPos;
+        if (std::abs (delta) < 0.005f)
+        {
+            pillPos = target;
+            stopTimer();
+            repaint();
+            return;
+        }
+        // Exponential ease: fast at the start, settles without overshoot.
+        const float k = juce::jlimit (0.0f, 1.0f,
+                                      (float) (1.0 - std::exp (-dtSeconds * 18.0)));
+        pillPos += delta * k;
+        repaint();
+    }
+
+    void timerCallback() override
+    {
+        advanceAnimation (1.0 / 60.0);
+    }
 
     float slotWidth() const
     {
@@ -166,6 +222,8 @@ private:
 
     juce::StringArray tabLabels;
     int active = 0;
+    float pillPos = 0.0f;
+    float targetPillPos = 0.0f;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PillTabBar)
 };
