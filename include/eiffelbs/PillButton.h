@@ -50,6 +50,8 @@ public:
     void setFont (juce::Font f) { font = f; resized(); repaint(); }
     const juce::Font& getFont() const noexcept { return font; }
     void setTone (Tone t) { tone = t; repaint(); }
+    Tone getTone() const noexcept { return tone; }
+    bool isPrimary() const noexcept { return tone == Tone::primary; }
 
     /** The width this label needs (icon slot + text + padding). The label is
         juce::Button::getButtonText(), so setButtonText() keeps working as on
