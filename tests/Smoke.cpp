@@ -363,6 +363,12 @@ int main()
             check (field.chipDragDescriptionForTest (0)
                        == ebs::TokenField::dragDescription ("music.model"),
                    "a token chip names its own drag payload");
+            // Hand over the chip body, pointing hand over its cross.
+            const auto chip = juce::Rectangle<int> (4, 0, 100, 24);
+            check (field.chipCursorKindForTest (chip.getCentre()) == 1,
+                   "a chip body shows the DRAG hand");
+            check (field.chipCursorKindForTest ({ 3, 3 }) == 0,
+                   "empty field space is not a drag handle");
         }
 
         // THE MODEL FACTS: a searchable picker and the menu button that shows
@@ -732,6 +738,13 @@ int main()
             editor.dropVariableForTest ("music.model");
             check (editor.getText() == "Sound for {{music.model}}",
                    "variable editor: a dropped chip inserts its placeholder");
+            // The DROP POINT drives the caret: dropping on the FIRST line
+            // lands there, not wherever the caret happened to be.
+            editor.setMultiLine (true, true);
+            editor.setText ("first line\nsecond line", juce::dontSendNotification);
+            editor.dropVariableAtForTest ("music.duration", { 2, 4 });
+            check (editor.getText().startsWith ("{{music.duration}}first"),
+                   "variable editor: the caret follows the drop point");
             check (editor.isInterestedInDragSource (
                        juce::DragAndDropTarget::SourceDetails (
                            ebs::TokenField::dragDescription ("music.model"),

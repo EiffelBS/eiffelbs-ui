@@ -82,10 +82,19 @@ public:
         return d.description.toString().startsWith ("ebs.variable.");
     }
 
-    void itemDragEnter (const SourceDetails&) override
+    void itemDragEnter (const SourceDetails& d) override
     {
         dragOver = true;
+        moveCaretToDropPoint (d.localPosition);
         repaint();
+    }
+
+    void itemDragMove (const SourceDetails& d) override
+    {
+        // The DROP POINT is where the reader is pointing, exactly like a text
+        // drop: the caret follows the drag, so nobody has to place it first
+        // (author request 2026-10-26).
+        moveCaretToDropPoint (d.localPosition);
     }
 
     void itemDragExit (const SourceDetails&) override
@@ -104,6 +113,22 @@ public:
 
     /** Insert `{{id}}` at the caret (a drop and the suggestion list share this
         path, so both behave the same way). */
+    /** Move the caret to the character under a drop point. */
+    void moveCaretToDropPoint (juce::Point<int> localPosition)
+    {
+        const int index = getTextIndexAt (localPosition);
+        if (index >= 0)
+            setCaretPosition (juce::jlimit (0, getText().length(), index));
+    }
+
+    /** Drop seam used by the gate: aims the caret then inserts. */
+    void dropVariableAtForTest (const juce::String& id,
+                                juce::Point<int> localPosition)
+    {
+        moveCaretToDropPoint (localPosition);
+        insertVariable (id);
+    }
+
     void insertVariable (const juce::String& id)
     {
         if (id.isEmpty())

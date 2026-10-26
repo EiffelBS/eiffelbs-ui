@@ -330,18 +330,31 @@ public:
     /** A chip is also a DRAG SOURCE: dragging it into a text editor that
         accepts variables inserts the placeholder there (author request
         2026-10-26, phase B). Quietly a no-op outside a DragAndDropContainer. */
+    /** A chip body says "you can drag me" with a hand; its cross stays a
+        pointing hand (a click, not a drag). */
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const int index = chipAt (e.getPosition());
+        if (index < 0)
+        {
+            setMouseCursor (juce::MouseCursor::NormalCursor);
+            return;
+        }
+        setMouseCursor (crossRect (index).contains (e.getPosition())
+                            ? juce::MouseCursor::PointingHandCursor
+                            : juce::MouseCursor::DraggingHandCursor);
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        setMouseCursor (juce::MouseCursor::NormalCursor);
+    }
+
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (dragStarted || ! e.mouseWasDraggedSinceMouseDown())
             return;
-        int chip = -1;
-        for (int i = 0; i < (int) chipRects.size(); ++i)
-            if (chipRects[(size_t) i].contains (e.getMouseDownPosition())
-                && ! crossRect (i).contains (e.getMouseDownPosition()))
-            {
-                chip = i;
-                break;
-            }
+        const int chip = chipAt (e.getMouseDownPosition());
         if (chip < 0)
             return;
         auto* container = juce::DragAndDropContainer::findParentDragContainerFor
@@ -364,6 +377,14 @@ public:
     static juce::String dragDescription (const juce::String& id)
     {
         return "ebs.variable." + id;
+    }
+
+    int chipCursorKindForTest (juce::Point<int> p) const
+    {
+        const int index = chipAt (p);
+        if (index < 0)
+            return 0;
+        return crossRect (index).contains (p) ? 2 : 1;
     }
 
     juce::String chipDragDescriptionForTest (int index) const
@@ -748,6 +769,17 @@ private:
     SuggestionPopup popup;
     std::vector<Token> allowed;
     juce::StringArray chosen;
+    /** The chip under `p` whose BODY holds it (the cross is not a drag
+        handle). -1 when none. */
+    int chipAt (juce::Point<int> p) const
+    {
+        for (int i = 0; i < (int) chipRects.size(); ++i)
+            if (chipRects[(size_t) i].contains (p)
+                && ! crossRect (i).contains (p))
+                return i;
+        return -1;
+    }
+
     std::vector<juce::Rectangle<int>> chipRects;
     bool dragStarted = false;
     float textScale = 1.0f;
