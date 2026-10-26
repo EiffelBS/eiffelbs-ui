@@ -32,7 +32,8 @@
 namespace ebs
 {
 
-class ModelMenuButton : public juce::Component
+class ModelMenuButton : public juce::Component,
+                        public juce::SettableTooltipClient
 {
 public:
     ModelMenuButton()
@@ -55,6 +56,15 @@ public:
         };
         addChildComponent (picker);
         face.setButtonText ("server default");
+    }
+
+    /** Tooltip of the visible control. The FACE is what the pointer sits on,
+        so the text must land there; the component keeps it too so a host that
+        reads getTooltip() sees the same sentence. */
+    void setTooltip (const juce::String& text)
+    {
+        face.setTooltip (text);
+        juce::SettableTooltipClient::setTooltip (text);
     }
 
     // === The two facts the face shows ====================================

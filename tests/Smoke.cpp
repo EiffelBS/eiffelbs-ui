@@ -472,6 +472,14 @@ int main()
                    "PillButton follows the same destructive hover rule");
         }
 
+        // The model menu button forwards its tooltip to the visible face.
+        {
+            ebs::ModelMenuButton button;
+            button.setTooltip ("Which model runs the next turn");
+            check (button.getTooltip().contains ("next turn"),
+                   "a model menu button keeps its tooltip");
+        }
+
         // PILL BUTTON: icon + label, sized to its content, with a hover state
         // that actually changes the drawing (the author asked for the pill
         // look with a real mouseover).
