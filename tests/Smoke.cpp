@@ -387,6 +387,38 @@ int main()
                    "the menu button's model step reuses the shared picker's filter");
         }
 
+        // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
+        {
+            ebs::SplitterHandle rows (ebs::SplitterHandle::Orientation::rows);
+            rows.setPositionRange (60, 400);
+            rows.setPositionSilently (200);
+            int reported = -1;
+            rows.onPositionChanged = [&reported] (int p) { reported = p; };
+            rows.dragByForTest (50);
+            check (reported == 250, "a splitter reports the dragged position");
+            rows.dragByForTest (10000);
+            check (rows.getPositionValue() == 400,
+                   "a splitter clamps to the host's maximum");
+            rows.dragByForTest (-10000);
+            check (rows.getPositionValue() == 60,
+                   "a splitter clamps to the host's minimum");
+            rows.setSize (200, 12);
+            juce::Image img;
+            {
+                img = juce::Image (juce::Image::ARGB, rows.getWidth(),
+                                   rows.getHeight(), true);
+                juce::Graphics g (img);
+                rows.paintEntireComponent (g, true);
+            }
+            check (inkPixels (img) > 0, "a splitter paints its grip");
+            ebs::SplitterHandle cols (ebs::SplitterHandle::Orientation::columns);
+            cols.setPositionRange (100, 500);
+            cols.setPositionSilently (300);
+            cols.dragByForTest (25);
+            check (cols.getPositionValue() == 325,
+                   "a columns splitter drags horizontally");
+        }
+
         // ONE pill language: IconTextButton and PillButton paint the same
         // chrome, and a destructive glyph turns RED under the hover.
         {

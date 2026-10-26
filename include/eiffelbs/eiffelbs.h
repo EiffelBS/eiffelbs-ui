@@ -25,6 +25,7 @@
 #include "eiffelbs/LookAndFeel.h"
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/IconTextButton.h"
+#include "eiffelbs/SplitterHandle.h"
 #include "eiffelbs/PillPainter.h"
 #include "eiffelbs/PillButton.h"
 #include "eiffelbs/MenuChevronButton.h"
