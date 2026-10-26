@@ -472,6 +472,37 @@ int main()
                    "PillButton follows the same destructive hover rule");
         }
 
+        // CLEARABLE EDITOR: the clear x appears with text, the eye masks.
+        {
+            ebs::ClearableEditor editor;
+            editor.setSize (240, 24);
+            int cleared = 0;
+            editor.onCleared = [&cleared] { ++cleared; };
+            int toggles = 0;
+            editor.onRevealToggled = [&toggles] { ++toggles; };
+            editor.setText ("openrouter", juce::dontSendNotification);
+            editor.clickClearForTest();
+            check (editor.getText().isEmpty() && cleared == 1,
+                   "a clearable editor empties itself in one gesture");
+            editor.setSecretMode (true);
+            editor.setText ("sk-secret", juce::dontSendNotification);
+            check (editor.maskedForTest(),
+                   "a secret field is masked by default");
+            editor.clickRevealForTest();
+            check (! editor.maskedForTest() && toggles == 1,
+                   "the eye reveals the secret");
+            editor.clickRevealForTest();
+            check (editor.maskedForTest(), "the eye hides it again");
+            juce::Image img;
+            {
+                img = juce::Image (juce::Image::ARGB, editor.getWidth(),
+                                   editor.getHeight(), true);
+                juce::Graphics g (img);
+                editor.paintEntireComponent (g, true);
+            }
+            check (inkPixels (img) > 0, "a clearable editor paints");
+        }
+
         // PILL TAB BAR: labels + icons, one active slot, taps reported.
         {
             ebs::PillTabBar bar;
