@@ -691,6 +691,36 @@ int main()
             check (inkPixels (img) > 0, "a clearable editor paints");
         }
 
+        // VARIABLE EDITOR: the {{ list filters, inserts, and stays inside.
+        {
+            ebs::VariableTextEditor editor;
+            editor.setSize (320, 80);
+            editor.setVariables ({ { "music.description", "the box" },
+                                   { "music.duration", "seconds" },
+                                   { "music.model", "engine" },
+                                   { "assistant.datetime", "now" } });
+            editor.setText ("A {{mus", juce::dontSendNotification);
+            editor.setCaretPosition (7);   // after the whole typed prefix
+            editor.openSuggestionsForTest();
+            check (editor.suggestionsVisibleForTest()
+                       && editor.suggestionsCountForTest() == 3,
+                   "variable editor: the prefix filters the list");
+            editor.chooseSuggestionForTest (1);   // music.duration
+            check (editor.getText() == "A {{music.duration}}",
+                   "variable editor: picking inserts the placeholder");
+            editor.setText ("A {{zzz", juce::dontSendNotification);
+            editor.setCaretPosition (7);
+            editor.openSuggestionsForTest();
+            check (! editor.suggestionsVisibleForTest(),
+                   "variable editor: no match closes the list");
+            juce::Image img (juce::Image::ARGB, 320, 80, true);
+            {
+                juce::Graphics g (img);
+                editor.paintEntireComponent (g, true);
+            }
+            check (inkPixels (img) > 0, "a variable editor paints");
+        }
+
         // PILL TAB BAR: labels + icons, one active slot, taps reported.
         {
             ebs::PillTabBar bar;

@@ -27,6 +27,7 @@
 #include "eiffelbs/IconTextButton.h"
 #include "eiffelbs/SplitterHandle.h"
 #include "eiffelbs/ClearableEditor.h"
+#include "eiffelbs/VariableTextEditor.h"
 #include "eiffelbs/PillTabBar.h"
 #include "eiffelbs/PillPainter.h"
 #include "eiffelbs/PillButton.h"
