@@ -33,6 +33,7 @@
 #include "eiffelbs/PillButton.h"
 #include "eiffelbs/MenuChevronButton.h"
 #include "eiffelbs/SearchableModelPicker.h"
+#include "eiffelbs/FilterableComboBox.h"
 #include "eiffelbs/ModelMenuButton.h"
 #include "eiffelbs/DisclosureChevron.h"
 #include "eiffelbs/ExpansibleFrame.h"

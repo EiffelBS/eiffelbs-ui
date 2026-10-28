@@ -516,6 +516,39 @@ int main()
                    "the menu rows show the chevron that opens the next layer");
         }
 
+        // FILTERABLE COMBO BOX: a ComboBox-shaped control over the proven
+        // searchable popup (filter cross + group headers + scrolling).
+        {
+            ebs::FilterableComboBox box;
+            int notifications = 0;
+            box.onChange = [&notifications] { ++notifications; };
+            box.addItemWithGroup ("take-001.wav", 1, "Speech");
+            box.addItemWithGroup ("take-002.wav", 2, "Speech");
+            box.addItemWithGroup ("song-003.wav", 3, "Singing");
+            box.setTextWhenNothingSelected ("Choose a take");
+            check (box.getNumItems() == 3,
+                   "filterable combo exposes its rows like a ComboBox");
+            check (box.indexOfItemId (3) == 2 && box.getItemText (1) == "take-002.wav",
+                   "filterable combo keeps ComboBox item ids and texts");
+            box.setSelectedId (2, juce::sendNotificationSync);
+            check (box.getSelectedId() == 2 && box.getText() == "take-002.wav"
+                       && notifications == 1,
+                   "filterable combo selects by id and notifies once");
+            box.setSelectedId (2, juce::sendNotificationSync);
+            check (box.getSelectedId() == 2,
+                   "a same-id selection stays selected");
+            box.setSelectedItemIndex (0);
+            check (box.getSelectedId() == 1 && box.getSelectedItemIndex() == 0,
+                   "filterable combo addresses rows by index too");
+            check (box.matchingRowsForTest ("sing") == 1,
+                   "the filter matches labels and groups");
+            check (box.matchingRowsForTest ("take") == 2,
+                   "the filter narrows a group to its rows");
+            box.clear();
+            check (box.getNumItems() == 0 && box.getSelectedId() == 0,
+                   "clear drops rows and selection");
+        }
+
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
         {
             ebs::SplitterHandle rows (ebs::SplitterHandle::Orientation::rows);
