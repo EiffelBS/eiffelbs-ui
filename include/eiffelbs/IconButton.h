@@ -163,7 +163,11 @@ public:
                        // than borrowed - `wand` means "generate", `save`
                        // means "keep", and a plus is the shape a reader
                        // already reads as "one more".
-                       plus };
+                       plus,
+                       // A random draw (the TTS seed field): a cube with
+                       // pips. Added rather than borrowed - `sparkle` means
+                       // generate and `refresh` means re-read.
+                       dice };
 
     /** JUCE-standard per-instance / theme-level colour hooks. Resolution
      *  order: Component::setColour() override > LookAndFeel::
@@ -424,6 +428,29 @@ public:
             arms.lineTo (c.x, c.y + r);
             juce::PathStrokeType (2.0f).createStrokedPath (p, arms);
         }
+        else if (s == Shape::dice)
+        {
+            // Rounded square + five pips: readable at 14-22 px, stroked like
+            // the rest of the procedural set.
+            const auto r = box.reduced (iconSide * 0.12f);
+            juce::Path cube;
+            cube.addRoundedRectangle (r, 2.0f);
+            juce::PathStrokeType (1.6f).createStrokedPath (p, cube);
+            const auto dot = juce::jmax (1.2f, iconSide * 0.11f);
+            const auto c = box.getCentre();
+            juce::Path pips;
+            pips.addEllipse (c.x - dot, c.y - dot, dot * 2, dot * 2);
+            pips.addEllipse (r.getX() + dot * 1.6f, r.getY() + dot * 1.6f,
+                             dot * 2, dot * 2);
+            pips.addEllipse (r.getRight() - dot * 3.6f, r.getY() + dot * 1.6f,
+                             dot * 2, dot * 2);
+            pips.addEllipse (r.getX() + dot * 1.6f,
+                             r.getBottom() - dot * 3.6f, dot * 2, dot * 2);
+            pips.addEllipse (r.getRight() - dot * 3.6f,
+                             r.getBottom() - dot * 3.6f, dot * 2, dot * 2);
+            p.addPath (pips);
+        }
+
         else if (const char* glyph = svgFor (s))
         {
             const float scale = iconSide * 1.30f / 24.0f;
