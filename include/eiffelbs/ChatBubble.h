@@ -173,6 +173,13 @@ public:
 
     bool getShowBubble() const noexcept { return showBubble; }
 
+    /** Gate seam: where the copy affordance sits, so the host can prove it
+        follows the bubble's SIDE. */
+    juce::Rectangle<int> copyBoundsForTest() const
+    {
+        return copyButton.getBounds();
+    }
+
     std::function<void()> onCopy;
     std::function<void()> onHeightChanged;
     std::function<void (bool)> onExpandedToggled;
@@ -231,9 +238,17 @@ public:
         avatar.setBounds (side == Side::assistant ? 0 : w - avatarSide, 0,
                           avatarSide, avatarSide);
         if (showCopy)
-            copyButton.setBounds (0, juce::jmax (avatarSide,
-                                                 height - copyRowH + 1),
+        {
+            // The affordance belongs on ITS OWN side of the row: left under an
+            // answer, RIGHT under the user's blue bubble (author report
+            // 2026-10-28 - it sat under the wrong side of the question).
+            const int copyX = side == Side::user ? juce::jmax (0, w - copyButtonSide)
+                                                 : 0;
+            copyButton.setBounds (copyX,
+                                  juce::jmax (avatarSide,
+                                              height - copyRowH + 1),
                                   copyButtonSide, copyButtonSide);
+        }
     }
 
     void paint (juce::Graphics& g) override
