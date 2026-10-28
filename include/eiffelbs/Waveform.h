@@ -156,6 +156,16 @@ namespace ebs
             repaint();
         }
 
+        /** Where the PLAYED fill starts (seconds). 0 is the old behaviour;
+            a host that starts playback mid-file (a zone, a seek) sets this so
+            the green fill begins at the playhead instead of at the beginning
+            (author report 2026-10-28). */
+        void setFillStart (double seconds) noexcept
+        {
+            fillStartSec = juce::jmax (0.0, seconds);
+            repaint();
+        }
+
         /** Colour of the already-played part and of the playhead line. */
         void setPlayedColour (juce::Colour c)
         {
@@ -374,13 +384,16 @@ namespace ebs
                 if (state != PlayheadState::Stopped && playhead >= 0.0)
                 {
                     const double t = juce::jlimit (0.0, total, playhead);
-                    const int playedW = (int) std::ceil (
-                        (double) area.getWidth() * t / total);
-                    if (playedW > 0)
+                    const double from = juce::jlimit (0.0, total,
+                                                      fillStartSec);
+                    const int startX = secondsToX (from);
+                    const int playedW = juce::jmax (0,
+                        secondsToX (t) - startX + 1);
+                    if (playedW > 0 && t > from)
                     {
                         g.saveState();
                         g.reduceClipRegion (juce::Rectangle<int> (
-                            area.getX(), area.getY(), playedW,
+                            startX, area.getY(), playedW,
                             area.getHeight()));
                         g.setColour (played);
                         thumbnail.drawChannels (g, area, 0.0, total,
@@ -638,6 +651,7 @@ namespace ebs
         PlayheadState state = PlayheadState::Stopped;
         double playhead = -1.0;
         juce::Colour accent { ebs::accent() };
+        double fillStartSec = 0.0;   // played fill begins here
         /** The played part. A GREEN, not a brighter accent: the accent is a
             host choice (blue for a current take, grey for an old one) and the
             played part has to read as "played" in both, which a brighter grey
