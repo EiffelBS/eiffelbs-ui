@@ -302,6 +302,34 @@ public:
         setHoveredRow (visibleIndex);
     }
     void clearHoverForTest()            { setHoveredRow (-1); }
+    /** Optional FOOTER pickers (the take lists' "group by"): short labels
+        painted on the footer row; a click reports the index and the host
+        rebuilds its groups. Left-aligned, next to the count. */
+    void setFooterOptions (const juce::StringArray& labels, int active,
+                           std::function<void (int)> picked = {})
+    {
+        footerOptionLabels = labels;
+        footerOptionActive = active;
+        footerOptionPicked = std::move (picked);
+        if (popup != nullptr)
+            popup->repaint();
+    }
+
+    /** Rectangles the footer options would occupy at `width` (tests). */
+    std::vector<juce::Rectangle<int>> footerOptionRectsForTest (int width) const
+    {
+        std::vector<juce::Rectangle<int>> rects;
+        int x = 4;
+        for (const auto& label : footerOptionLabels)
+        {
+            const int w = (int) std::ceil (textWidthOf (label)) + 16;
+            rects.push_back ({ x, 0, w, 18 });
+            x += w + 2;
+        }
+        juce::ignoreUnused (width);
+        return rects;
+    }
+
     /** Rows eligible after the installed-only filter (the footer's Y). */
     int eligibleCountForTest() const    { return (int) eligible.size(); }
     /** The bottom "Manage models..." link: present only when the callback set. */
@@ -491,6 +519,9 @@ private:
     // === State ============================================================
     juce::StringArray ids, labels, details, groups;
     juce::StringArray installedIds;   // eligibility set (installed-only mode)
+    juce::StringArray footerOptionLabels;   // optional footer pickers
+    int               footerOptionActive = -1;
+    std::function<void (int)> footerOptionPicked;
     juce::String selectedIdValue;
     juce::String placeholder;
     juce::String searchText;
@@ -896,6 +927,28 @@ private:
             g.setFont (ebs::fontHint());
             g.drawText (owner->footerText(), footerCountArea,
                         juce::Justification::centredRight, true);
+            // Optional footer pickers (group-by). They read as small text
+            // buttons: the active one in accent ink, the rest dim.
+            {
+                int ox = footerArea.getX() + 4;
+                for (int i = 0; i < owner->footerOptionLabels.size(); ++i)
+                {
+                    const auto& label = owner->footerOptionLabels[i];
+                    const int w = (int) std::ceil (textWidthOf (label)) + 16;
+                    const juce::Rectangle<int> r (ox, footerArea.getY(), w,
+                                                  footerArea.getHeight());
+                    const bool active = i == owner->footerOptionActive;
+                    if (active)
+                    {
+                        g.setColour (ebs::accent().withAlpha (0.16f));
+                        g.fillRoundedRectangle (r.toFloat(), 4.0f);
+                    }
+                    g.setColour (active ? ebs::accent() : ebs::textDim());
+                    g.setFont (ebs::fontHint());
+                    g.drawText (label, r, juce::Justification::centred, true);
+                    ox += w + 2;
+                }
+            }
             // Left-aligned link on the SAME footer row. It reads as a link
             // (accent ink) and gains a tinted hover pill + pointing hand, so
             // the author can SEE that it is clickable.
@@ -981,6 +1034,27 @@ private:
             {
                 owner->activateManageLink();
                 return;
+            }
+            if (footerArea.contains (e.getPosition()))
+            {
+                int ox = footerArea.getX() + 4;
+                for (int i = 0; i < owner->footerOptionLabels.size(); ++i)
+                {
+                    const int w = (int) std::ceil (
+                        textWidthOf (owner->footerOptionLabels[i])) + 16;
+                    const juce::Rectangle<int> r (ox, footerArea.getY(), w,
+                                                  footerArea.getHeight());
+                    if (r.contains (e.getPosition()))
+                    {
+                        owner->footerOptionActive = i;
+                        if (owner->footerOptionPicked != nullptr)
+                            owner->footerOptionPicked (i);
+                        repaint();
+                        return;
+                    }
+                    ox += w + 2;
+                }
+                return;   // a click in the empty footer never picks a row
             }
             if (! listArea.contains (e.getPosition()))
                 return;

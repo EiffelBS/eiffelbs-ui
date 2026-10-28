@@ -147,6 +147,15 @@ public:
         picker.setTextWhenNothingSelected (text);
     }
 
+    /** Optional "group by" pickers in the popup footer: `labels` are short
+        segment names (Type / Model / Duration), `active` is the current one,
+        `picked` is fired with the new index (the host rebuilds its groups). */
+    void setGroupByOptions (const juce::StringArray& labels, int active,
+                            std::function<void (int)> picked = {})
+    {
+        picker.setFooterOptions (labels, active, std::move (picked));
+    }
+
     /** Open the filtered list programmatically (tests / keyboard helpers). */
     void showPopup() { picker.openForTest(); }
 

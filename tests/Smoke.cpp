@@ -547,6 +547,18 @@ int main()
             box.clear();
             check (box.getNumItems() == 0 && box.getSelectedId() == 0,
                    "clear drops rows and selection");
+            // The take lists' footer pickers (group by Type/Model/Duration).
+            ebs::SearchableModelPicker withFooter;
+            int footerPicked = -1;
+            withFooter.setFooterOptions ({ "Type", "Model", "Duration" }, 1,
+                                         [&footerPicked] (int i)
+                                         { footerPicked = i; });
+            const auto footRects = withFooter.footerOptionRectsForTest (360);
+            check (footRects.size() == 3
+                       && footRects[0].getX() < footRects[1].getX()
+                       && footRects[1].getX() < footRects[2].getX(),
+                   "footer group-by pickers measure left to right");
+            juce::ignoreUnused (footerPicked);
         }
 
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
