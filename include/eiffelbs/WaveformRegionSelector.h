@@ -62,6 +62,18 @@ public:
 
     /** The source length the gesture maps against. 0 = no selection
         possible (nothing loaded): every gesture is ignored. */
+    /** Hide the selector's OWN label strip (the zone readout above the band).
+        An Output frame already writes the zone on its own row, so the strip's
+        "Drag to select a zone" hint would sit over the waveform (SFX render
+        proof, 2026-10-29). The band and the gestures are untouched. */
+    void setLabelStripVisible (bool visible) noexcept
+    {
+        if (labelStripVisible == visible)
+            return;
+        labelStripVisible = visible;
+        repaint();
+    }
+
     void setTotalSeconds (double seconds) noexcept
     {
         const double next = (std::isfinite (seconds) && seconds > 0.0)
@@ -126,6 +138,7 @@ public:
     std::function<void (double, double)> onSelectionChanged;
     /** A plain click: seek the transport there (TTS waveform behaviour). */
     std::function<void (double)> onSeek;
+    bool labelStripVisible = true;
     std::function<void()> onSelectionCleared;
     /** Optional veto: return false and the gesture is ignored. */
     std::function<bool()> selectionAllowed;
@@ -155,6 +168,8 @@ public:
             g.fillRect (juce::Rectangle<float> (x0 - 1.5f, top, 3.0f, h));
             g.fillRect (juce::Rectangle<float> (x1 - 1.5f, top, 3.0f, h));
 
+            if (labelStripVisible)
+            {
             auto label = juce::String (startSel, 2) + " - " + juce::String (endSel, 2)
                        + " s  (" + juce::String (endSel - startSel, 2) + " s)";
             const auto font = ebs::fontHint();
@@ -169,14 +184,19 @@ public:
             g.setFont (font);
             g.drawText (label, tag.reduced (4, 0),
                         juce::Justification::centredLeft, true);
+            }
         }
         else
         {
-            g.setColour (ebs::accent().withAlpha (0.55f));
-            g.setFont (ebs::fontHint());
-            g.drawText ("Drag to select a zone", 6, (int) top + 2,
+            if (labelStripVisible)
+            {
+                g.setColour (ebs::accent().withAlpha (0.55f));
+                g.setFont (ebs::fontHint());
+                g.drawText ("Drag on the waveform to select a zone", 6,
+                            (int) top + 2,
                         getWidth() - 12, 14,
                         juce::Justification::centredLeft, true);
+            }
         }
     }
 

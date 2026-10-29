@@ -161,6 +161,7 @@ inline OutputFrame::OutputFrame (Bindings b) : bindings (std::move (b))
     clip.addAndMakeVisible (waveform);
     waveform.setInterceptsMouseClicks (false, false);
     clip.addAndMakeVisible (selector);
+    selector.setLabelStripVisible (false);   // the frame owns the zone readout
     selector.onSelectionChanged = [this] (double, double)
     { setPlaying (false); updateZone(); };
     selector.onSelectionCleared = [this] { setPlaying (false); updateZone(); };
