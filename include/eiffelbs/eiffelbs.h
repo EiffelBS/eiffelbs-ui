@@ -34,6 +34,8 @@
 #include "eiffelbs/MenuChevronButton.h"
 #include "eiffelbs/SearchableModelPicker.h"
 #include "eiffelbs/FilterableComboBox.h"
+#include "eiffelbs/WaveformRegionSelector.h"
+#include "eiffelbs/OutputFrame.h"
 #include "eiffelbs/ModelMenuButton.h"
 #include "eiffelbs/DisclosureChevron.h"
 #include "eiffelbs/ExpansibleFrame.h"
