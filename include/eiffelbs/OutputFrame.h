@@ -69,7 +69,7 @@ public:
         (SFX's tag chips). Not owned: the host keeps its lifetime; a null
         pointer removes the slot. */
     void setExtraComponent (juce::Component* component, int preferredWidth = 0,
-                            int preferredRowHeight = 30)
+                            int preferredRowHeight = 28)
     {
         if (extra == component)
         {
@@ -123,8 +123,8 @@ public:
     {
         int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 26;
         if (extra != nullptr)
-            body += 6 + juce::jmax (30, extraHeight) + 4;   // visible bottom gap
-        return ebs::bandHeaderHeight() + 2 * 10 + body;
+            body += 6 + juce::jmax (28, extraHeight);
+        return ebs::bandHeaderHeight() + 10 + 6 + body;   // top 10, bottom 6
     }
 
 private:
@@ -450,7 +450,8 @@ inline void OutputFrame::resized()
     band.setBounds (0, 0, frame.getWidth(), ebs::bandHeaderHeight());
     applyFlow (frame.getLocalBounds()
                    .withTrimmedTop (ebs::bandHeaderHeight())
-                   .reduced (10), true);
+                   .reduced (10)
+                   .withTrimmedBottom (4), true);   // bottom pad 6, not 10
 }
 
 inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply)
@@ -507,7 +508,8 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
     actionRow.removeFromLeft (8);
     if (extra == nullptr)
         placeIn (addButton, actionRow.removeFromRight (150).withHeight (26));
-    actionRow.removeFromRight (8);
+    if (extra == nullptr)   // keep the gap before Add; with an extra row the
+        actionRow.removeFromRight (8);   // NAME ends exactly where Add ends
     placeIn (nameCaption, actionRow.removeFromLeft (44));
     placeIn (nameEditor, actionRow.withTrimmedLeft (4)
                                 .withHeight (24)
@@ -519,12 +521,11 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
         // the action at its right (author request 2026-10-29).
         gap (6);
         auto extraRow = juce::Rectangle<int> (x, y, w,
-                                              juce::jmax (30, extraHeight));
+                                              juce::jmax (28, extraHeight));
         placeIn (addButton, extraRow.removeFromRight (150).withHeight (26));
         extraRow.removeFromRight (8);
         placeIn (*extra, extraRow);
-        y += juce::jmax (30, extraHeight);
-        gap (4);   // minimum visible space above the frame's lower border
+        y += juce::jmax (28, extraHeight);
     }
 }
 
