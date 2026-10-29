@@ -149,7 +149,13 @@ public:
         if (totalSec <= 0.0)
             return;
         const auto b = getLocalBounds().toFloat();
-        const float top = (float) ebs::Waveform::kLabelStripHeight;
+        // With the selector's OWN strip hidden (every Output frame and the
+        // Voice/SFX zones), the band must cover the WHOLE waveform - both
+        // stereo channels. Reserving the strip height left it on the bottom
+        // channel only (author report 2026-10-29).
+        const float top = labelStripVisible
+                              ? (float) ebs::Waveform::kLabelStripHeight
+                              : 0.0f;
         const float h = b.getHeight() - top;
         if (h <= 0.0f)
             return;
