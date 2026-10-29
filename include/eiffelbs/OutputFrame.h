@@ -244,6 +244,9 @@ inline OutputFrame::OutputFrame (Bindings b) : bindings (std::move (b))
                      "your DAW");
     frame.addAndMakeVisible (addButton);
     addButton.setFont (ebs::fontBody());
+    addButton.setTone (ebs::PillButton::Tone::primary);   // Add to ... is THE
+                                                          // action of the frame
+
     addButton.onClick = [this]
     {
         const auto file = exportForAction();
