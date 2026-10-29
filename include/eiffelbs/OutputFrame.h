@@ -121,7 +121,11 @@ public:
         a host stacking the frame in a page must not guess it. */
     int preferredHeight() const
     {
-        int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 26;
+        // MIRRORS applyFlow() row by row: zone(16) gap2 clip(62) gap6
+        // enhance(26) gap6 name(26), plus gap6 + the extra row when present.
+        // The old sum carried a phantom 32 px, which is exactly the empty
+        // band the author reported under the tag row (2026-10-29).
+        int body = 16 + 2 + 62 + 6 + 26 + 6 + 26;
         if (extra != nullptr)
             body += 6 + juce::jmax (28, extraHeight);
         return ebs::bandHeaderHeight() + 10 + 6 + body;   // top 10, bottom 6
