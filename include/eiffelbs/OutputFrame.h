@@ -68,18 +68,21 @@ public:
     /** Optional host widget shown between the drag handle and the action
         (SFX's tag chips). Not owned: the host keeps its lifetime; a null
         pointer removes the slot. */
-    void setExtraComponent (juce::Component* component, int preferredWidth = 0)
+    void setExtraComponent (juce::Component* component, int preferredWidth = 0,
+                            int preferredRowHeight = 30)
     {
         if (extra == component)
         {
-            extra = component;
             extraWidth = preferredWidth;
+            extraHeight = preferredRowHeight;
+            resized();
             return;
         }
         if (extra != nullptr && extra->getParentComponent() == &frame)
             frame.removeChildComponent (extra);
         extra = component;
         extraWidth = preferredWidth;
+        extraHeight = preferredRowHeight;
         if (extra != nullptr)
         {
             frame.addAndMakeVisible (*extra);
@@ -113,6 +116,17 @@ public:
     void paint (juce::Graphics& g) override { g.fillAll (ebs::bgPanel()); }
     void resized() override;
 
+public:
+    /** Exact height of band + body at the CURRENT settings (extras included):
+        a host stacking the frame in a page must not guess it. */
+    int preferredHeight() const
+    {
+        int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 30;
+        if (extra != nullptr)
+            body += juce::jmax (26, extraHeight) + 6;
+        return ebs::bandHeaderHeight() + 2 * 10 + body;
+    }
+
 private:
     void applyFlow (const juce::Rectangle<int>& body, bool apply);
     void updateTransport();
@@ -136,6 +150,7 @@ private:
     ebs::PillButton addButton { ebs::IconButton::Shape::plus, "Add to Takes" };
     juce::Component* extra = nullptr;   // optional host widget (tag chips)
     int extraWidth = 0;
+    int extraHeight = 30;
     bool playingNow = false;
     double sourceBase = 0.0;   // where the PLAYING file starts in the SOURCE
     double playEnd = 0.0;      // source seconds where playback must stop
@@ -486,6 +501,16 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
 
     // ONE row: play, hand, NAME, Add (author's order) - the name field lives
     // between the drag handle and the Add button.
+    if (extra != nullptr)
+    {
+        // Host extras (SFX's tag chips) get their OWN row: a chip field laid
+        // in the 26 px transport row showed nothing (author report 2026-10-29).
+        placeIn (*extra, juce::Rectangle<int> (x, y, w,
+                                               juce::jmax (26, extraHeight)));
+        y += juce::jmax (26, extraHeight);
+        gap (6);
+    }
+
     auto actionRow = juce::Rectangle<int> (x, y, w, 26);
     placeIn (playButton, actionRow.removeFromLeft (26).withHeight (26));
     actionRow.removeFromLeft (6);
