@@ -146,7 +146,10 @@ private:
     WaveformRegionSelector selector;
     juce::Label nameCaption;
     ebs::ClearableEditor nameEditor;
-    ebs::PillButton enhanceButton { ebs::IconButton::Shape::wand, "Enhance" };
+    // SPARKLE, not the wand glyph: the wand reads as three menu lines at
+    // 14 px (author report 2026-10-29). Sparkle is this design system's "AI /
+    // magic" mark.
+    ebs::PillButton enhanceButton { ebs::IconButton::Shape::sparkle, "Enhance" };
     juce::ToggleButton useEnhanced { "Use Enhanced" };
     juce::Label enhanceStatus;
     ebs::IconButton playButton { ebs::IconButton::Shape::play };
