@@ -459,6 +459,19 @@ public:
     {
         return popup != nullptr ? popup->offset : -1;
     }
+    /** Pixel position of the window (smooth scrolling seam): between two row
+        positions while a glide is in flight. */
+    double scrollPixelsForTest() const
+    {
+        return popup != nullptr ? popup->scrollPixels : 0.0;
+    }
+    /** Advance one 60 Hz animation tick (headless smoke). */
+    void animateScrollForTest()
+    {
+        if (popup != nullptr)
+            popup->timerCallback();
+    }
+
     void wheelScrollForTest (double deltaY)
     {
         if (popup == nullptr)
@@ -709,7 +722,8 @@ private:
         picker's own rhythm; a scrollbar and the wheel move the window through
         every row so a 90-model catalog is fully reachable. */
     struct PopupContent : juce::Component,
-                          private juce::ScrollBar::Listener
+                          private juce::ScrollBar::Listener,
+                          private juce::Timer
     {
         SearchableModelPicker* owner = nullptr;
         SearchField search;
@@ -720,7 +734,13 @@ private:
             has NO valueChanged() to override in JUCE 8). */
         juce::ScrollBar scroll { true };   // vertical
 
-        int offset = 0;        // display rows skipped above the top edge
+        int offset = 0;        // TARGET row skipped above the top edge
+        // Smooth scrolling (author request 2026-10-29): the window is drawn at
+        // a PIXEL position animated toward the target row, so a wheel notch
+        // glides instead of jumping three rows. `offset` stays the target so
+        // the keyboard, the bar and the tests keep their row contract.
+        double scrollPixels = 0.0;
+        double targetPixels = 0.0;
         double wheelAccum = 0.0;   // fractional wheel carry, in LINES per event
 
         explicit PopupContent (SearchableModelPicker* o) : owner (o)
@@ -791,6 +811,7 @@ private:
             const int total = owner != nullptr ? (int) owner->display.size() : 0;
             const int view = rowsBase.getHeight() / kRowH;
             offset = juce::jlimit (0, juce::jmax (0, total - view), offset);
+            snapScroll();   // a content change lands at once, no glide
             scroll.setRangeLimits (0.0, (double) juce::jmax (total, 1));
             // setCurrentRange sets thumb START and LENGTH in one call; a
             // thumb of length zero is the invisible bar the author reported.
@@ -817,7 +838,38 @@ private:
             if (clamped == offset)
                 return;
             offset = clamped;
-            repaint();
+            targetPixels = (double) offset * kRowH;
+            if (std::abs (targetPixels - scrollPixels) < 0.5)
+            {
+                scrollPixels = targetPixels;
+                repaint (listArea);
+                return;
+            }
+            startTimerHz (60);
+        }
+
+        /** Jump straight to the target (open, resize, content change): an
+            animated landing is for GESTURES, not for a fresh list. */
+        void snapScroll()
+        {
+            targetPixels = (double) offset * kRowH;
+            scrollPixels = targetPixels;
+            stopTimer();
+            repaint (listArea);
+        }
+
+        void timerCallback() override
+        {
+            const double diff = targetPixels - scrollPixels;
+            if (std::abs (diff) < 0.5)
+            {
+                scrollPixels = targetPixels;
+                stopTimer();
+                repaint (listArea);
+                return;
+            }
+            scrollPixels += diff * 0.38;   // ~60 Hz ease-out
+            repaint (listArea);
         }
 
         /** Scroll the given DISPLAY row into the window (centre-biased): used
@@ -838,6 +890,8 @@ private:
             setScrollOffset (target);   // async listener delivery, so apply now
             scroll.setCurrentRangeStart ((double) target,
                                      juce::dontSendNotification);
+            if (! isVisible())          // before the popup is on screen: land now
+                snapScroll();
         }
 
         /** On open, park the window at the current model's row. */
@@ -846,6 +900,7 @@ private:
             if (owner == nullptr)
                 return;
             ensureRowVisible (owner->displayRowOfModel (owner->highlighted));
+            snapScroll();
         }
 
         void paint (juce::Graphics& g) override
@@ -869,12 +924,20 @@ private:
                                           ? owner->hoveredIndex
                                           : owner->displayRowOfModel (owner->highlighted);
                 const int total = (int) owner->display.size();
-                const int view = area.getHeight() / kRowH;
-                for (int r = offset; r < total && r - offset < view; ++r)
+                const int firstRow = (int) std::floor (
+                    scrollPixels / (double) kRowH);
+                g.saveState();
+                g.reduceClipRegion (area);
+                for (int r = firstRow; r < total; ++r)
                 {
-                    auto rowArea = area.removeFromTop (kRowH);
-                    if (rowArea.isEmpty())
+                    const int rowTop = area.getY() + (int) std::lround (
+                        (double) r * kRowH - scrollPixels);
+                    if (rowTop >= area.getBottom())
                         break;
+                    if (rowTop + kRowH <= area.getY())
+                        continue;
+                    auto rowArea = juce::Rectangle<int> (
+                        area.getX(), rowTop, area.getWidth(), kRowH);
                     const RowEntry& ent = owner->display[(size_t) r];
                     if (ent.isHeader())
                     {
@@ -922,6 +985,7 @@ private:
                                           : owner->ids[idIndex],
                                       row, juce::Justification::centredLeft, 1);
                 }
+                g.restoreState();
             }
             g.setColour (ebs::textDim());
             g.setFont (ebs::fontHint());
@@ -1058,7 +1122,9 @@ private:
             }
             if (! listArea.contains (e.getPosition()))
                 return;
-            const int row = offset + (e.getPosition().y - listArea.getY()) / kRowH;
+            const int row = (int) std::floor (
+                ((double) (e.getPosition().y - listArea.getY()) + scrollPixels)
+                    / (double) kRowH);
             if (row >= 0 && row < (int) owner->display.size()
                 && ! owner->display[(size_t) row].isHeader())   // headers are not rows to pick
                 owner->pick (owner->display[(size_t) row].idIndex);

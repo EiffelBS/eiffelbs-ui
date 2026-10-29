@@ -470,6 +470,32 @@ int main()
             // headless popup gets a real resized(); the bar must be visible AND
             // carry a thumb as long as the window, and ONE Windows notch (deltaY
             // = 3) must move whole lines - about ten - in one step.
+            // SMOOTH SCROLL (author request 2026-10-29): a wheel notch moves
+            // a PIXEL position toward the target row, so the window glides.
+            {
+                ebs::SearchableModelPicker smooth;
+                juce::StringArray sIds, sLabels;
+                for (int i = 0; i < 40; ++i)
+                {
+                    sIds.add ("s" + juce::String (i));
+                    sLabels.add ("Smooth " + juce::String (i));
+                }
+                smooth.setItems (sIds, sLabels);
+                smooth.openHeadlessPopupForTest();
+                smooth.wheelScrollForTest (-3.0);   // ~10 rows
+                const auto target = smooth.scrollOffsetForTest();
+                const auto before = smooth.scrollPixelsForTest();
+                smooth.animateScrollForTest();
+                const auto mid = smooth.scrollPixelsForTest();
+                check (target > 0 && mid > before && mid < (double) target * 24.0,
+                       "the popup glides between two row positions");
+                for (int n = 0; n < 30; ++n)
+                    smooth.animateScrollForTest();
+                check (std::abs (smooth.scrollPixelsForTest()
+                                 - (double) target * 24.0) < 0.6,
+                       "the glide settles exactly on the target row");
+                smooth.closeHeadlessPopupForTest();
+            }
             grouped.openHeadlessPopupForTest();
             check (grouped.barVisibleForTest(),
                    "the popup shows its scrollbar when content scrolls");
