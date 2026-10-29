@@ -105,6 +105,8 @@ public:
     juce::File exportForAction();
     juce::String zoneText() const;
 
+    /** The name the export will carry (the field's current text). */
+    juce::String nameText() const { return nameEditor.getText().trim(); }
     bool useEnhancedForTest() const { return useEnhanced.getToggleState(); }
     bool hasZoneForTest() const { return selector.hasSelection(); }
 
