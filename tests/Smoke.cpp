@@ -587,6 +587,20 @@ int main()
             juce::ignoreUnused (footerPicked);
         }
 
+        // MARKDOWN + LINKS in a chat bubble: bold/italic/code are styled, bare
+        // URLs and [label](url) both expose a clickable row.
+        {
+            ebs::ChatBubble b;
+            b.setText ("**bold** and `code`\n"
+                       "See [Docs](https://example.com/docs) and "
+                       "https://example.org/page.");
+            const int h = b.requiredHeightForWidth (420);
+            b.setBounds (0, 0, 420, h);
+            check (b.linkRowCountForTest() == 2,
+                   "markdown links and bare URLs both become clickable rows");
+            check (h > 40, "a markdown body keeps a measurable height");
+        }
+
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
         {
             ebs::SplitterHandle rows (ebs::SplitterHandle::Orientation::rows);

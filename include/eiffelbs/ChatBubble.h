@@ -237,6 +237,20 @@ public:
         const int w = getWidth();
         avatar.setBounds (side == Side::assistant ? 0 : w - avatarSide, 0,
                           avatarSide, avatarSide);
+        syncLinkButtons();
+        {
+            const int left = bubbleLeftFor (w) + padH;
+            const int right = left + bubbleWidthFor (w) - 2 * padH;
+            int y = height - (showCopy ? copyRowH : 0)
+                        - (int) bodyLinks.size() * linkRowH;
+            for (size_t i = 0; i < linkButtons.size() && i < bodyLinks.size(); ++i)
+            {
+                linkButtons[i]->setBounds (left, y,
+                                           juce::jmax (40, right - left),
+                                           linkRowH - 2);
+                y += linkRowH;
+            }
+        }
         if (showCopy)
         {
             // The affordance belongs on ITS OWN side of the row: left under an
@@ -424,10 +438,16 @@ private:
         `code`, [label](url). The URL itself is not printed (a weather answer's
         links would double the paragraph); the label is accented, which is the
         same affordance the rest of the app uses for a link. */
+    struct BodyLink
+    {
+        juce::String label, url;
+    };
+
     static void appendInlineRuns (juce::AttributedString& as,
                                   const juce::String& line,
                                   juce::Font base, juce::Colour ink,
-                                  juce::Font mono)
+                                  juce::Font mono,
+                                  std::vector<BodyLink>* links = nullptr)
     {
         const auto styleOf = [] (juce::Font f, bool bold, bool italic)
         {
@@ -450,6 +470,40 @@ private:
         {
             const auto c = line[i];
             const auto next = i + 1 < line.length() ? line[i + 1] : juce::juce_wchar (0);
+            // BARE URLs: LLM answers print them without Markdown grammar.
+            // They are shown as links (accent) and recorded so the bubble can
+            // expose a clickable row (author request 2026-10-29).
+            if ((c == 'h' || c == 'H') && line.substring (i).startsWithIgnoreCase ("http"))
+            {
+                const bool https = line.substring (i).startsWithIgnoreCase ("https://");
+                if (https || line.substring (i).startsWithIgnoreCase ("http://"))
+                {
+                    int end = i;
+                    while (end < line.length())
+                    {
+                        const auto ch = line[end];
+                        if (ch == ' ' || ch == '\t' || ch == ')' || ch == ']'
+                            || ch == '>' || ch == '"' || ch == '\n')
+                            break;
+                        ++end;
+                    }
+                    // Trailing sentence punctuation belongs to the sentence.
+                    while (end > i && (line[end - 1] == '.' || line[end - 1] == ','
+                                       || line[end - 1] == ';'))
+                        --end;
+                    const auto url = line.substring (i, end).trim();
+                    if (url.length() > 8)
+                    {
+                        flush();
+                        as.append (url, styleOf (base, bold, italic),
+                                   ebs::accent());
+                        if (links != nullptr)
+                            links->push_back ({ url, url });
+                        i = end - 1;
+                        continue;
+                    }
+                }
+            }
             if (c == '`')
             {
                 flush();
@@ -477,8 +531,12 @@ private:
                 if (close > i && open == close + 1 && shut > open)
                 {
                     flush();
-                    as.append (line.substring (i + 1, close),
-                               styleOf (base, bold, italic), ebs::accent());
+                    const auto label = line.substring (i + 1, close);
+                    const auto url = line.substring (open + 1, shut).trim();
+                    as.append (label, styleOf (base, bold, italic),
+                               ebs::accent());
+                    if (links != nullptr)
+                        links->push_back ({ label, url });
                     i = shut;
                     continue;
                 }
@@ -501,7 +559,8 @@ private:
         component inside the bubble, which is out of scope for a transcript). */
     static juce::AttributedString markdownBody (const juce::String& raw,
                                                 juce::Font base,
-                                                juce::Colour ink)
+                                                juce::Colour ink,
+                                                std::vector<BodyLink>& linksOut)
     {
         const auto mono = ebs::createMonospaceFont (
             juce::jmax (9.0f, base.getHeight() * 0.92f));
@@ -570,8 +629,12 @@ private:
                     continue;
                 juce::String rendered;
                 for (auto cell : cells)
+                {
+                    juce::AttributedString sink;
+                    appendInlineRuns (sink, cell, base, ink, mono, &linksOut);
                     rendered << (rendered.isEmpty() ? "" : "  |  ")
                              << plainCell (cell);
+                }
                 as.append (rendered + "\n", mono, ink);
                 continue;
             }
@@ -592,7 +655,7 @@ private:
                                          base.getHeight() + 3.0f
                                              - (float) level));
                 f.setStyleFlags (juce::Font::bold);
-                appendInlineRuns (as, title, f, ink, mono);
+                appendInlineRuns (as, title, f, ink, mono, &linksOut);
                 as.append ("\n", f, ink);
                 continue;
             }
@@ -601,18 +664,19 @@ private:
                 as.append (juce::String::fromUTF8 ("\u258f "), mono,
                            ebs::textDim());
                 appendInlineRuns (as, trimmed.substring (2),
-                                 base, ebs::textDim(), mono);
+                                 base, ebs::textDim(), mono, &linksOut);
                 as.append ("\n", base, ink);
                 continue;
             }
             if (trimmed.startsWith ("- ") || trimmed.startsWith ("* "))
             {
                 as.append (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
-                appendInlineRuns (as, trimmed.substring (2), base, ink, mono);
+                appendInlineRuns (as, trimmed.substring (2), base, ink, mono,
+                                  &linksOut);
                 as.append ("\n", base, ink);
                 continue;
             }
-            appendInlineRuns (as, line, base, ink, mono);
+            appendInlineRuns (as, line, base, ink, mono, &linksOut);
             as.append ("\n", base, ink);
         }
         // fromLines keeps a trailing empty line after the last newline: drop
@@ -626,7 +690,24 @@ private:
         if (italic)
             f.setStyleFlags (juce::Font::italic);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
-        auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text());
+        bodyLinks.clear();
+        auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
+                                bodyLinks);
+        // One clickable row per DISTINCT target; the label is what the reader
+        // sees, the URL is what opens. Duplicates (same link cited twice) are
+        // one row.
+        {
+            std::vector<BodyLink> unique;
+            for (const auto& l : bodyLinks)
+            {
+                bool seen = false;
+                for (const auto& u : unique)
+                    if (u.url == l.url) { seen = true; break; }
+                if (! seen && unique.size() < 8)
+                    unique.push_back (l);
+            }
+            bodyLinks = std::move (unique);
+        }
         bodyLayout.createLayout (as, (float) textW);
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
@@ -647,6 +728,7 @@ private:
             height += 3;
         }
         height += padV + bodyH + padV;
+        height += (int) bodyLinks.size() * linkRowH;
         if (showCopy)
             height += copyRowH;
     }
@@ -696,6 +778,41 @@ private:
         }
     }
 
+    void syncLinkButtons()
+    {
+        while (linkButtons.size() < bodyLinks.size())
+        {
+            auto b = std::make_unique<juce::HyperlinkButton>();
+            b->setFont (ebs::fontHint(), false);
+            b->setColour (juce::HyperlinkButton::textColourId, ebs::accent());
+            b->setJustificationType (juce::Justification::centredLeft);
+            addAndMakeVisible (*b);
+            linkButtons.push_back (std::move (b));
+        }
+        for (size_t i = 0; i < linkButtons.size(); ++i)
+        {
+            auto& b = *linkButtons[i];
+            const bool used = i < bodyLinks.size();
+            b.setVisible (used);
+            if (! used)
+                continue;
+            auto label = bodyLinks[i].label;
+            if (label.length() > 64)
+                label = label.substring (0, 61) + "...";
+            if (b.getButtonText() != label)
+                b.setButtonText (label);
+            const juce::URL url (bodyLinks[i].url);
+            if (b.getURL() != url)
+                b.setURL (url);
+            b.setTooltip (bodyLinks[i].url);
+        }
+    }
+
+public:
+    /** Tests: how many clickable link rows this bubble exposes. */
+    int linkRowCountForTest() const noexcept { return (int) bodyLinks.size(); }
+
+private:
     Side  side        = Side::assistant;
     Tone  tone        = Tone::plain;
     bool  showCopy    = false;
@@ -712,11 +829,14 @@ private:
     static constexpr int headerH        = 15;
     static constexpr int copyRowH       = 18;
     static constexpr int copyButtonSide = 15;
+    static constexpr int linkRowH       = 18;
     static constexpr int corner         = 10;
     static constexpr int chevronSide    = 10;
     static constexpr int pillPad        = 5;
 
     juce::TextLayout bodyLayout;
+    std::vector<BodyLink> bodyLinks;
+    std::vector<std::unique_ptr<juce::HyperlinkButton>> linkButtons;
     int bodyH  = 0;
     int height = 0;
     int lastHeight = 0;
