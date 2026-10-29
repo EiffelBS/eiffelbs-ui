@@ -428,10 +428,12 @@ private:
         as.append (text, f, ebs::text());
         as.setWordWrap (juce::AttributedString::byWord);
         bodyLayout.createLayout (as, (float) textW);
-        // One pixel of slack: roundToInt truncates, and a layout rounded down
-        // by even half a point puts the last descender outside the bubble on
-        // some fonts - which reads as a message that overflows its own box.
-        bodyH = juce::roundToInt (bodyLayout.getHeight()) + 1;
+        // CEIL, then two pixels of slack. roundToInt truncates, and at the
+        // larger chat sizes the last line's descender ended up outside the
+        // bubble: a fractional line height MUST round up, and the extra pixel
+        // covers the layout's reported height not including the full glyph
+        // extents (author report 2026-10-29).
+        bodyH = (int) std::ceil (bodyLayout.getHeight()) + 2;
 
         height = 0;
         if (header.isNotEmpty())
