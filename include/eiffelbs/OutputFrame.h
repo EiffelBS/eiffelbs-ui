@@ -298,18 +298,19 @@ inline void OutputFrame::reloadWaveform()
 
 inline void OutputFrame::setAudio (const juce::File&)
 {
+    // Reset the ENHANCE choice FIRST: reloadWaveform() displays chosenFile(),
+    // and a tick left from the previous result made the NEW render show the
+    // PREVIOUS enhanced waveform while the transport played the new file -
+    // clicking Enhance was the only thing that refreshed it (author report
+    // 2026-10-29).
+    useEnhanced.setToggleState (false, juce::dontSendNotification);
+    useEnhanced.setEnabled (false);
     reloadWaveform();
     const auto base = chosenFile();
     if (base.existsAsFile())
         nameEditor.setText (bindings.defaultName ? bindings.defaultName()
                                                  : base.getFileNameWithoutExtension(),
                             juce::dontSendNotification);
-    // A NEW generation resets the Enhance choice: the chain is on demand, so a
-    // tick left over from the previous result must not claim the new one was
-    // enhanced (author decision 2026-10-28). The switch is DISABLED until an
-    // enhanced copy actually exists.
-    useEnhanced.setToggleState (false, juce::dontSendNotification);
-    useEnhanced.setEnabled (false);   // Enhance is on demand: no copy yet
     enhanceStatus.setText (base.existsAsFile() ? base.getFileName()
                                                : "no audio yet",
                            juce::dontSendNotification);
