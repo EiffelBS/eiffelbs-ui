@@ -44,6 +44,15 @@ namespace ebs
 class ChatBubble final : public juce::Component
 {
 public:
+
+    /** A clickable range in the rendered body: `start`/`end` are offsets in
+        the PROCESSED string the TextLayout was built from (the Markdown
+        markers are already gone). */
+    struct LinkSpan
+    {
+        int start = 0, end = 0;
+        juce::String url, label;
+    };
     /** Which speaker. Two sides, no third state. */
     enum class Side { user, assistant };
 
@@ -237,20 +246,6 @@ public:
         const int w = getWidth();
         avatar.setBounds (side == Side::assistant ? 0 : w - avatarSide, 0,
                           avatarSide, avatarSide);
-        syncLinkButtons();
-        {
-            const int left = bubbleLeftFor (w) + padH;
-            const int right = left + bubbleWidthFor (w) - 2 * padH;
-            int y = height - (showCopy ? copyRowH : 0)
-                        - (int) bodyLinks.size() * linkRowH;
-            for (size_t i = 0; i < linkButtons.size() && i < bodyLinks.size(); ++i)
-            {
-                linkButtons[i]->setBounds (left, y,
-                                           juce::jmax (40, right - left),
-                                           linkRowH - 2);
-                y += linkRowH;
-            }
-        }
         if (showCopy)
         {
             // The affordance belongs on ITS OWN side of the row: left under an
@@ -385,16 +380,69 @@ public:
                                   .toFloat());
     }
 
+    /** The link under `p`, or null. Hit-tested against the LAYOUT's runs: a
+        link was appended as its own accent run, and its range in the processed
+        string is what marks it clickable. This is why a link in the sentence
+        is clickable IN PLACE instead of being repeated in a footer. */
+    const LinkSpan* linkAt (juce::Point<int> p) const
+    {
+        if (linkSpans.empty() || bodyH <= 0)
+            return nullptr;
+        const int w = getWidth();
+        const int bw = bubbleWidthFor (w);
+        const int bx = bubbleLeftFor (w);
+        int y = 0;
+        if (header.isNotEmpty())
+        {
+            if (collapsible && ! expanded)
+                return nullptr;
+            y += headerH + 3;
+        }
+        const juce::Rectangle<int> bodyArea (bx + padH, y + padV,
+                                             bw - 2 * padH, bodyH);
+        if (! bodyArea.contains (p))
+            return nullptr;
+        const float lx = (float) (p.x - bodyArea.getX());
+        const float ly = (float) (p.y - bodyArea.getY());
+        for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+        {
+            auto& line = bodyLayout.getLine (i);
+            if (! line.getLineBoundsY().contains (ly))
+                continue;
+            for (auto* run : line.runs)
+            {
+                const auto xs = run->getRunBoundsX();
+                const juce::Range<float> runX (xs.getStart() + line.lineOrigin.x,
+                                               xs.getEnd() + line.lineOrigin.x);
+                if (! runX.contains (lx))
+                    continue;
+                for (const auto& span : linkSpans)
+                    if (run->stringRange.intersects (juce::Range<int> (
+                            span.start, span.end)))
+                        return &span;
+            }
+        }
+        return nullptr;
+    }
+
     void mouseMove (const juce::MouseEvent& e) override
     {
-        const bool over = collapsible && header.isNotEmpty()
-                       && headerPill.expanded (2, 2).contains (e.getPosition());
-        setMouseCursor (over ? juce::MouseCursor::PointingHandCursor
-                             : juce::MouseCursor::NormalCursor);
+        const bool overHeader = collapsible && header.isNotEmpty()
+                             && headerPill.expanded (2, 2)
+                                    .contains (e.getPosition());
+        const bool overLink = linkAt (e.getPosition()) != nullptr;
+        setMouseCursor (overHeader || overLink
+                            ? juce::MouseCursor::PointingHandCursor
+                            : juce::MouseCursor::NormalCursor);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (const auto* link = linkAt (e.getPosition()))
+        {
+            juce::URL (link->url).launchInDefaultBrowser();
+            return;
+        }
         if (! collapsible || header.isEmpty())
             return;
         if (! headerPill.expanded (2, 2).contains (e.getPosition()))
@@ -438,16 +486,12 @@ private:
         `code`, [label](url). The URL itself is not printed (a weather answer's
         links would double the paragraph); the label is accented, which is the
         same affordance the rest of the app uses for a link. */
-    struct BodyLink
-    {
-        juce::String label, url;
-    };
-
     static void appendInlineRuns (juce::AttributedString& as,
                                   const juce::String& line,
                                   juce::Font base, juce::Colour ink,
                                   juce::Font mono,
-                                  std::vector<BodyLink>* links = nullptr)
+                                  int& pos,
+                                  std::vector<LinkSpan>* spans = nullptr)
     {
         const auto styleOf = [] (juce::Font f, bool bold, bool italic)
         {
@@ -464,6 +508,7 @@ private:
             if (run.isEmpty())
                 return;
             as.append (run, styleOf (base, bold, italic), ink);
+            pos += run.length();
             run.clear();
         };
         for (int i = 0; i < line.length(); ++i)
@@ -495,10 +540,12 @@ private:
                     if (url.length() > 8)
                     {
                         flush();
+                        if (spans != nullptr)
+                            spans->push_back ({ pos, pos + url.length(),
+                                                url, url });
                         as.append (url, styleOf (base, bold, italic),
                                    ebs::accent());
-                        if (links != nullptr)
-                            links->push_back ({ url, url });
+                        pos += url.length();
                         i = end - 1;
                         continue;
                     }
@@ -509,8 +556,12 @@ private:
                 flush();
                 int end = line.indexOfChar (i + 1, '`');
                 if (end < 0) { run << c; continue; }
-                as.append (line.substring (i + 1, end), mono,
-                           ebs::accent().withMultipliedBrightness (1.1f));
+                {
+                    const auto code = line.substring (i + 1, end);
+                    as.append (code, mono,
+                               ebs::accent().withMultipliedBrightness (1.1f));
+                    pos += code.length();
+                }
                 i = end;
                 continue;
             }
@@ -533,10 +584,12 @@ private:
                     flush();
                     const auto label = line.substring (i + 1, close);
                     const auto url = line.substring (open + 1, shut).trim();
+                    if (spans != nullptr)
+                        spans->push_back ({ pos, pos + label.length(),
+                                            url, label });
                     as.append (label, styleOf (base, bold, italic),
                                ebs::accent());
-                    if (links != nullptr)
-                        links->push_back ({ label, url });
+                    pos += label.length();
                     i = shut;
                     continue;
                 }
@@ -560,12 +613,19 @@ private:
     static juce::AttributedString markdownBody (const juce::String& raw,
                                                 juce::Font base,
                                                 juce::Colour ink,
-                                                std::vector<BodyLink>& linksOut)
+                                                std::vector<LinkSpan>& spansOut)
     {
         const auto mono = ebs::createMonospaceFont (
             juce::jmax (9.0f, base.getHeight() * 0.92f));
         juce::AttributedString as;
         as.setWordWrap (juce::AttributedString::byWord);
+        int pos = 0;
+        const auto emit = [&] (const juce::String& t, juce::Font f,
+                               juce::Colour c)
+        {
+            as.append (t, f, c);
+            pos += t.length();
+        };
 
         const auto lines = juce::StringArray::fromLines (raw);
         bool inFence = false;
@@ -629,12 +689,8 @@ private:
                     continue;
                 juce::String rendered;
                 for (auto cell : cells)
-                {
-                    juce::AttributedString sink;
-                    appendInlineRuns (sink, cell, base, ink, mono, &linksOut);
                     rendered << (rendered.isEmpty() ? "" : "  |  ")
                              << plainCell (cell);
-                }
                 as.append (rendered + "\n", mono, ink);
                 continue;
             }
@@ -655,7 +711,7 @@ private:
                                          base.getHeight() + 3.0f
                                              - (float) level));
                 f.setStyleFlags (juce::Font::bold);
-                appendInlineRuns (as, title, f, ink, mono, &linksOut);
+                appendInlineRuns (as, title, f, ink, mono, pos, &spansOut);
                 as.append ("\n", f, ink);
                 continue;
             }
@@ -664,7 +720,7 @@ private:
                 as.append (juce::String::fromUTF8 ("\u258f "), mono,
                            ebs::textDim());
                 appendInlineRuns (as, trimmed.substring (2),
-                                 base, ebs::textDim(), mono, &linksOut);
+                                 base, ebs::textDim(), mono, pos, &spansOut);
                 as.append ("\n", base, ink);
                 continue;
             }
@@ -672,11 +728,11 @@ private:
             {
                 as.append (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
                 appendInlineRuns (as, trimmed.substring (2), base, ink, mono,
-                                  &linksOut);
+                                  pos, &spansOut);
                 as.append ("\n", base, ink);
                 continue;
             }
-            appendInlineRuns (as, line, base, ink, mono, &linksOut);
+            appendInlineRuns (as, line, base, ink, mono, pos, &spansOut);
             as.append ("\n", base, ink);
         }
         // fromLines keeps a trailing empty line after the last newline: drop
@@ -690,24 +746,9 @@ private:
         if (italic)
             f.setStyleFlags (juce::Font::italic);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
-        bodyLinks.clear();
+        linkSpans.clear();
         auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
-                                bodyLinks);
-        // One clickable row per DISTINCT target; the label is what the reader
-        // sees, the URL is what opens. Duplicates (same link cited twice) are
-        // one row.
-        {
-            std::vector<BodyLink> unique;
-            for (const auto& l : bodyLinks)
-            {
-                bool seen = false;
-                for (const auto& u : unique)
-                    if (u.url == l.url) { seen = true; break; }
-                if (! seen && unique.size() < 8)
-                    unique.push_back (l);
-            }
-            bodyLinks = std::move (unique);
-        }
+                                linkSpans);
         bodyLayout.createLayout (as, (float) textW);
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
@@ -728,7 +769,6 @@ private:
             height += 3;
         }
         height += padV + bodyH + padV;
-        height += (int) bodyLinks.size() * linkRowH;
         if (showCopy)
             height += copyRowH;
     }
@@ -778,39 +818,9 @@ private:
         }
     }
 
-    void syncLinkButtons()
-    {
-        while (linkButtons.size() < bodyLinks.size())
-        {
-            auto b = std::make_unique<juce::HyperlinkButton>();
-            b->setFont (ebs::fontHint(), false);
-            b->setColour (juce::HyperlinkButton::textColourId, ebs::accent());
-            b->setJustificationType (juce::Justification::centredLeft);
-            addAndMakeVisible (*b);
-            linkButtons.push_back (std::move (b));
-        }
-        for (size_t i = 0; i < linkButtons.size(); ++i)
-        {
-            auto& b = *linkButtons[i];
-            const bool used = i < bodyLinks.size();
-            b.setVisible (used);
-            if (! used)
-                continue;
-            auto label = bodyLinks[i].label;
-            if (label.length() > 64)
-                label = label.substring (0, 61) + "...";
-            if (b.getButtonText() != label)
-                b.setButtonText (label);
-            const juce::URL url (bodyLinks[i].url);
-            if (b.getURL() != url)
-                b.setURL (url);
-            b.setTooltip (bodyLinks[i].url);
-        }
-    }
-
 public:
     /** Tests: how many clickable link rows this bubble exposes. */
-    int linkRowCountForTest() const noexcept { return (int) bodyLinks.size(); }
+    int linkRowCountForTest() const noexcept { return (int) linkSpans.size(); }
 
 private:
     Side  side        = Side::assistant;
@@ -829,14 +839,12 @@ private:
     static constexpr int headerH        = 15;
     static constexpr int copyRowH       = 18;
     static constexpr int copyButtonSide = 15;
-    static constexpr int linkRowH       = 18;
     static constexpr int corner         = 10;
     static constexpr int chevronSide    = 10;
     static constexpr int pillPad        = 5;
 
     juce::TextLayout bodyLayout;
-    std::vector<BodyLink> bodyLinks;
-    std::vector<std::unique_ptr<juce::HyperlinkButton>> linkButtons;
+    std::vector<LinkSpan> linkSpans;   // clickable ranges in the body layout
     int bodyH  = 0;
     int height = 0;
     int lastHeight = 0;

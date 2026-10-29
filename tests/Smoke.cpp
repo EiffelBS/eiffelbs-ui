@@ -598,7 +598,7 @@ int main()
             b.setBounds (0, 0, 420, h);
             check (b.linkRowCountForTest() == 2,
                    "markdown links and bare URLs both become clickable rows");
-            check (h > 40, "a markdown body keeps a measurable height");
+            check (h > 24, "a markdown body keeps a measurable height");
         }
 
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
