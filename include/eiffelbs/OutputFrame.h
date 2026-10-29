@@ -121,9 +121,9 @@ public:
         a host stacking the frame in a page must not guess it. */
     int preferredHeight() const
     {
-        int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 30;
+        int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 26;
         if (extra != nullptr)
-            body += juce::jmax (26, extraHeight) + 6;
+            body += 6 + juce::jmax (30, extraHeight);
         return ebs::bandHeaderHeight() + 2 * 10 + body;
     }
 
@@ -499,29 +499,32 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
     y += 26;
     gap (6);
 
-    // ONE row: play, hand, NAME, Add (author's order) - the name field lives
-    // between the drag handle and the Add button.
-    if (extra != nullptr)
-    {
-        // Host extras (SFX's tag chips) get their OWN row: a chip field laid
-        // in the 26 px transport row showed nothing (author report 2026-10-29).
-        placeIn (*extra, juce::Rectangle<int> (x, y, w,
-                                               juce::jmax (26, extraHeight)));
-        y += juce::jmax (26, extraHeight);
-        gap (6);
-    }
-
+    // NAME row: play, hand, NAME (and Add when there is no host extra).
     auto actionRow = juce::Rectangle<int> (x, y, w, 26);
     placeIn (playButton, actionRow.removeFromLeft (26).withHeight (26));
     actionRow.removeFromLeft (6);
     placeIn (hand, actionRow.removeFromLeft (26).withHeight (26));
     actionRow.removeFromLeft (8);
-    placeIn (addButton, actionRow.removeFromRight (150).withHeight (26));
+    if (extra == nullptr)
+        placeIn (addButton, actionRow.removeFromRight (150).withHeight (26));
     actionRow.removeFromRight (8);
     placeIn (nameCaption, actionRow.removeFromLeft (44));
     placeIn (nameEditor, actionRow.withTrimmedLeft (4)
                                 .withHeight (24)
                                 .withY (actionRow.getY() + 1));
+    y += 26;
+    if (extra != nullptr)
+    {
+        // The host extra (SFX's tag chips) sits on the row BELOW Name, with
+        // the action at its right (author request 2026-10-29).
+        gap (6);
+        auto extraRow = juce::Rectangle<int> (x, y, w,
+                                              juce::jmax (30, extraHeight));
+        placeIn (addButton, extraRow.removeFromRight (150).withHeight (26));
+        extraRow.removeFromRight (8);
+        placeIn (*extra, extraRow);
+        y += juce::jmax (30, extraHeight);
+    }
 }
 
 } // namespace ebs
