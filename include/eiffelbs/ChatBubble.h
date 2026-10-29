@@ -420,13 +420,213 @@ private:
     /** Rebuild the measured layout for the width the caller is about to
      *  give. Nothing here touches the bounds: setBounds() comes from the
      *  caller and triggers resized(), which places the children. */
+    /** Inline Markdown -> styled runs. Supported: **bold**, *italic*,
+        `code`, [label](url). The URL itself is not printed (a weather answer's
+        links would double the paragraph); the label is accented, which is the
+        same affordance the rest of the app uses for a link. */
+    static void appendInlineRuns (juce::AttributedString& as,
+                                  const juce::String& line,
+                                  juce::Font base, juce::Colour ink,
+                                  juce::Font mono)
+    {
+        const auto styleOf = [] (juce::Font f, bool bold, bool italic)
+        {
+            int flags = 0;
+            if (bold)   flags |= juce::Font::bold;
+            if (italic) flags |= juce::Font::italic;
+            f.setStyleFlags (flags);
+            return f;
+        };
+        bool bold = false, italic = false;
+        juce::String run;
+        const auto flush = [&]
+        {
+            if (run.isEmpty())
+                return;
+            as.append (run, styleOf (base, bold, italic), ink);
+            run.clear();
+        };
+        for (int i = 0; i < line.length(); ++i)
+        {
+            const auto c = line[i];
+            const auto next = i + 1 < line.length() ? line[i + 1] : juce::juce_wchar (0);
+            if (c == '`')
+            {
+                flush();
+                int end = line.indexOfChar (i + 1, '`');
+                if (end < 0) { run << c; continue; }
+                as.append (line.substring (i + 1, end), mono,
+                           ebs::accent().withMultipliedBrightness (1.1f));
+                i = end;
+                continue;
+            }
+            if ((c == '*' || c == '_') && next == c)   // **bold** / __bold__
+            {
+                flush();
+                bold = ! bold;
+                ++i;
+                continue;
+            }
+            if (c == '[')
+            {
+                const int close = line.indexOfChar (i + 1, ']');
+                const int open  = close >= 0 ? line.indexOfChar (close + 1, '(')
+                                             : -1;
+                const int shut  = open >= 0 ? line.indexOfChar (open + 1, ')')
+                                            : -1;
+                if (close > i && open == close + 1 && shut > open)
+                {
+                    flush();
+                    as.append (line.substring (i + 1, close),
+                               styleOf (base, bold, italic), ebs::accent());
+                    i = shut;
+                    continue;
+                }
+            }
+            if (c == '*' || c == '_')
+            {
+                flush();
+                italic = ! italic;
+                continue;
+            }
+            run << c;
+        }
+        flush();
+    }
+
+    /** The whole body as Markdown-aware styled text. The BLOCK subset is the
+        one LLM answers actually use: headings, bullets, numbered items,
+        quotes, fenced code, horizontal rules and pipe TABLES (drawn as an
+        aligned monospace block - a real column layout would need its own
+        component inside the bubble, which is out of scope for a transcript). */
+    static juce::AttributedString markdownBody (const juce::String& raw,
+                                                juce::Font base,
+                                                juce::Colour ink)
+    {
+        const auto mono = ebs::createMonospaceFont (
+            juce::jmax (9.0f, base.getHeight() * 0.92f));
+        juce::AttributedString as;
+        as.setWordWrap (juce::AttributedString::byWord);
+
+        const auto lines = juce::StringArray::fromLines (raw);
+        bool inFence = false;
+        for (int n = 0; n < lines.size(); ++n)
+        {
+            auto line = lines[n];
+            if (line.trimStart().startsWith ("```"))
+            {
+                inFence = ! inFence;
+                continue;
+            }
+            if (inFence)
+            {
+                as.append (line + "\n", mono, ebs::textDim());
+                continue;
+            }
+
+            auto trimmed = line.trim();
+            if (trimmed.isEmpty())
+            {
+                as.append ("\n", base, ink);
+                continue;
+            }
+            // Table cells keep their WORDS: a raw [label](url) inside a
+            // monospace row would show the Markdown, not the text.
+            const auto plainCell = [] (juce::String cell)
+            {
+                int at = 0;
+                while ((at = cell.indexOfChar (at, '[')) >= 0)
+                {
+                    const int close = cell.indexOfChar (at + 1, ']');
+                    const int open  = close >= 0 ? cell.indexOfChar (close + 1,
+                                                                     '(') : -1;
+                    const int shut  = open >= 0 ? cell.indexOfChar (open + 1,
+                                                                    ')') : -1;
+                    if (close < 0 || open != close + 1 || shut < 0)
+                        break;
+                    cell = cell.substring (0, at)
+                         + cell.substring (at + 1, close)
+                         + cell.substring (shut + 1);
+                }
+                cell = cell.replace ("**", "").replace ("__", "")
+                           .replace ("`", "").replace ("*", "")
+                           .replace ("_", "").trim();
+                return cell;
+            };
+            // Table separator line (|---|---|) carries no content.
+            if (trimmed.startsWith ("|") && trimmed.endsWith ("|"))
+            {
+                const auto inner = trimmed.substring (1, trimmed.length() - 1);
+                auto cells = juce::StringArray::fromTokens (inner, "|", {});
+                bool separator = true;
+                for (auto cell : cells)
+                {
+                    cell = cell.trim();
+                    for (const auto ch : cell)
+                        if (ch != '-' && ch != ':' && ch != ' ')
+                            separator = false;
+                }
+                if (separator)
+                    continue;
+                juce::String rendered;
+                for (auto cell : cells)
+                    rendered << (rendered.isEmpty() ? "" : "  |  ")
+                             << plainCell (cell);
+                as.append (rendered + "\n", mono, ink);
+                continue;
+            }
+            if (trimmed == "---" || trimmed == "***" || trimmed == "___")
+            {
+                as.append (juce::String::repeatedString ("\u2500", 18) + "\n",
+                           mono, ebs::textDim());
+                continue;
+            }
+            if (trimmed.startsWith ("#"))
+            {
+                int level = 0;
+                while (level < trimmed.length() && trimmed[level] == '#')
+                    ++level;
+                auto title = trimmed.substring (level).trim();
+                auto f = base;
+                f.setHeight (juce::jmax (base.getHeight(),
+                                         base.getHeight() + 3.0f
+                                             - (float) level));
+                f.setStyleFlags (juce::Font::bold);
+                appendInlineRuns (as, title, f, ink, mono);
+                as.append ("\n", f, ink);
+                continue;
+            }
+            if (trimmed.startsWith ("> "))
+            {
+                as.append (juce::String::fromUTF8 ("\u258f "), mono,
+                           ebs::textDim());
+                appendInlineRuns (as, trimmed.substring (2),
+                                 base, ebs::textDim(), mono);
+                as.append ("\n", base, ink);
+                continue;
+            }
+            if (trimmed.startsWith ("- ") || trimmed.startsWith ("* "))
+            {
+                as.append (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
+                appendInlineRuns (as, trimmed.substring (2), base, ink, mono);
+                as.append ("\n", base, ink);
+                continue;
+            }
+            appendInlineRuns (as, line, base, ink, mono);
+            as.append ("\n", base, ink);
+        }
+        // fromLines keeps a trailing empty line after the last newline: drop
+        // the extra blank so a bubble does not grow a phantom line.
+        return as;
+    }
+
     void layOutForWidth (int w)
     {
-        const auto f = ebs::fontBody().withHeight (bodyPts);
+        auto f = ebs::fontBody().withHeight (bodyPts);
+        if (italic)
+            f.setStyleFlags (juce::Font::italic);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
-        juce::AttributedString as;
-        as.append (text, f, ebs::text());
-        as.setWordWrap (juce::AttributedString::byWord);
+        auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text());
         bodyLayout.createLayout (as, (float) textW);
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
