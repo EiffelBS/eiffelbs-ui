@@ -123,7 +123,7 @@ public:
     {
         int body = 16 + 2 + 62 + 6 + 26 + 6 + 26 + 6 + 26;
         if (extra != nullptr)
-            body += 6 + juce::jmax (30, extraHeight);
+            body += 6 + juce::jmax (30, extraHeight) + 4;   // visible bottom gap
         return ebs::bandHeaderHeight() + 2 * 10 + body;
     }
 
@@ -524,6 +524,7 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
         extraRow.removeFromRight (8);
         placeIn (*extra, extraRow);
         y += juce::jmax (30, extraHeight);
+        gap (4);   // minimum visible space above the frame's lower border
     }
 }
 
