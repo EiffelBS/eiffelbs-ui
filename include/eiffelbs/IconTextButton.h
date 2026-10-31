@@ -81,6 +81,8 @@ namespace ebs
             repaint();
         }
 
+        const juce::Font& getFont() const noexcept { return font; }
+
         /** Test seam: paint the SAME path with an explicit hover state. */
         void paintForTest (juce::Graphics& g, bool over, bool down)
         {

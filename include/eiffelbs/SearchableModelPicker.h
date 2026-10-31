@@ -131,6 +131,48 @@ public:
     }
     bool isInstalledOnly() const { return installedOnly; }
 
+    /** The hint the popup's search field shows when it is empty. A host that lists
+        templates, prompts, voices or takes names its OWN nouns here; the default
+        keeps model wording for every existing consumer. */
+    void setSearchHint (const juce::String& hint)
+    {
+        if (searchHintText == hint)
+            return;
+        searchHintText = hint;
+        if (popup != nullptr)
+        {
+            popup->refreshSearchField();
+            popup->repaint();
+        }
+    }
+
+    /** The line the list paints when nothing matches. Same host-language rule as
+        setSearchHint, same default, so an existing consumer sees exactly what it saw before. */
+    void setEmptyStateText (const juce::String& text)
+    {
+        if (emptyStateTextValue == text)
+            return;
+        emptyStateTextValue = text;
+        if (popup != nullptr)
+            popup->repaint();
+    }
+
+    /** Gate seams for the host-named wording: what the setters stored. */
+    juce::String searchHint() const      { return searchHintText; }
+    juce::String emptyStateText() const  { return emptyStateTextValue; }
+
+    /** How many rows the popup shows before it scrolls (headers included).
+        The default is 10, which every existing model catalog keeps; a host
+        whose list reads better taller (chat templates, a short catalog with
+        categories) raises it for the NEXT open - an open popup keeps its
+        size until it is reopened. Clamped to 4..24 so a popup can never be
+        smaller than its search row or taller than the available screen. */
+    void setMaxVisibleRows (int rows)
+    {
+        viewRowsLimit = juce::jlimit (4, 24, rows);
+    }
+    int maxVisibleRows() const { return viewRowsLimit; }
+
     /** Mark which ids the caller considers installed/eligible. Only consulted
         when setInstalledOnly(true) is in force. */
     void setInstalledIds (const juce::StringArray& idsThatAreInstalled)
@@ -355,11 +397,10 @@ public:
                          onManageModels != nullptr, link, count);
         return count;
     }
-    /** The named empty state the popup shows when nothing matches. */
+    /** The named empty state the popup shows when nothing matches, in the host's words. */
     juce::String emptyStateForTest() const
     {
-        return filtered.empty() ? juce::String ("no models available")
-                                : juce::String();
+        return filtered.empty() ? emptyStateTextValue : juce::String();
     }
 
     // === Grouping + scroll seams =========================================
@@ -392,7 +433,7 @@ public:
         the whole complaint ("la liste n'est plus scrollable"). */
     int viewRowsForTest() const
     {
-        return juce::jmin (PopupContent::kMaxViewRows,
+        return juce::jmin (viewRowsLimit,
                            juce::jmax (1, (int) display.size()));
     }
     int scrollRangeForTest() const
@@ -433,7 +474,7 @@ public:
         if (popup == nullptr)
         {
             auto* content = new PopupContent (this);
-            content->setSize (360, 26 + 4 + PopupContent::kMaxViewRows * PopupContent::kRowH
+            content->setSize (360, 26 + 4 + viewRowsForTest() * PopupContent::kRowH
                                  + PopupContent::kFooterH + 8);   // resized()'s padding
             popup = content;   // SafePointer mirrors the live popup, as openPopup does
         }
@@ -547,6 +588,11 @@ private:
     bool installedOnly = false;
     bool hover = false;
     bool openState = false;
+
+    /** The popup wording, host-named. Defaults keep every existing consumer exactly as
+        before (model catalogs); the assistant's template list speaks templates. */
+    juce::String searchHintText = "Search models...", emptyStateTextValue = "no models available";
+    int viewRowsLimit = 10;   // rows shown at open; setMaxVisibleRows raises it
 
     void applyFilter()
     {
@@ -750,7 +796,11 @@ private:
             search.setColour (juce::TextEditor::textColourId, ebs::text());
             search.setColour (juce::TextEditor::backgroundColourId, ebs::bgDark());
             search.setColour (juce::TextEditor::outlineColourId, ebs::panelBorder());
-            search.setTextToShowWhenEmpty ("Search models...", ebs::textDim());
+            // The host names the noun: templates / voices / prompts get their own hint,
+            // model catalogs keep the default.
+            search.setTextToShowWhenEmpty (o != nullptr ? o->searchHintText
+                                                        : juce::String ("Search models..."),
+                                           ebs::textDim());
             search.onTextChange = [this]
             {
                 if (owner != nullptr)
@@ -768,7 +818,10 @@ private:
             addAndMakeVisible (scroll);
             // The height formula pays for resized()'s reduced(4) TOP AND BOTTOM
             // (8 px), or the window lands one row short and shows 9 rows.
-            setSize (360, 26 + 4 + kMaxViewRows * kRowH + kFooterH + 8);
+            setSize (360, 26 + 4
+                          + (o != nullptr ? o->viewRowsLimit : kDefaultViewRows)
+                                * kRowH
+                          + kFooterH + 8);
         }
 
         ~PopupContent() override
@@ -783,9 +836,17 @@ private:
             setScrollOffset ((int) (newRangeStart + 0.5));
         }
 
+        /** Re-read the host-named hint on construction and whenever setSearchHint changes it later. */
+        void refreshSearchField()
+        {
+            search.setTextToShowWhenEmpty (owner != nullptr ? owner->searchHintText
+                                                            : juce::String ("Search models..."),
+                                           ebs::textDim());
+        }
+
         static constexpr int kRowH = 24;
         static constexpr int kFooterH = 18;   // ONE row: link left, count right
-        static constexpr int kMaxViewRows = 10;   // rows the popup shows at open
+        static constexpr int kDefaultViewRows = 10;   // rows shown at open
         static constexpr int kBarW = 12;          // scrollbar strip when content scrolls
 
         void resized() override
@@ -913,7 +974,8 @@ private:
             {
                 g.setColour (ebs::textDim());
                 g.setFont (ebs::fontHint());
-                g.drawText ("no models available", area,
+                // The host-named empty state, with the model default for existing consumers.
+                g.drawText (owner->emptyStateTextValue, area,
                             juce::Justification::centred, true);
             }
             else
@@ -1183,7 +1245,7 @@ private:
         if (anchorShowing)
         {
             auto content = std::make_unique<PopupContent> (this);
-            const int rows = viewRowsForTest();   // jmin(kMaxViewRows, display size)
+            const int rows = viewRowsForTest();   // jmin(viewRowsLimit, display size)
             content->setSize (juce::jmax (280, getWidth() - 2),
                               26 + 4 + rows * PopupContent::kRowH
                                   + PopupContent::kFooterH + 8);   // resized()'s padding

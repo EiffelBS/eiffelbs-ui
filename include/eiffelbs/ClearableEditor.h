@@ -94,12 +94,12 @@ public:
             drawEye (g, eye, getPasswordCharacter() != 0);
             x -= kSlot;
         }
-        if (stripShowsClear)
+        if (stripShowsClear && clearIsVisible())
         {
             const auto clear = juce::Rectangle<int> (x - kSlot, 0, kSlot, h)
-                                   .withSizeKeepingCentre (16, 16);
+                                   .withSizeKeepingCentre (12, 12);
             g.setColour (hovered == Part::clear ? danger()
-                                                : textDim().withAlpha (0.85f));
+                                                : textDim().withAlpha (0.65f));
             drawCross (g, clear);
         }
     }
@@ -128,12 +128,32 @@ private:
         juce::TextEditor::mouseMove (e);
     }
 
+    void mouseEnter (const juce::MouseEvent& e) override
+    {
+        juce::TextEditor::mouseEnter (e);
+        repaint();   // the clear X appears with the pointer, not on the next tick
+    }
+
     void mouseExit (const juce::MouseEvent& e) override
     {
         setHovered (Part::none);
         juce::TextEditor::mouseExit (e);
+        repaint();   // and disappears with it
     }
 
+protected:
+    void focusGained (FocusChangeType cause) override
+    {
+        juce::TextEditor::focusGained (cause);
+        repaint();
+    }
+    void focusLost (FocusChangeType cause) override
+    {
+        juce::TextEditor::focusLost (cause);
+        repaint();
+    }
+
+private:
     void mouseDown (const juce::MouseEvent& e) override
     {
         const auto part = partAt (e.getPosition());
@@ -152,7 +172,16 @@ private:
 
 private:
     enum class Part { none, clear, reveal };
-    static constexpr int kSlot = 20;
+    static constexpr int kSlot = 16;
+
+    /** The clear X is an affordance, not decoration: it shows while the field
+        has text AND the reader is in it (focus or pointer), so a small numeric
+        field is not permanently crowded by a badge. */
+    bool clearIsVisible() const
+    {
+        return stripShowsClear
+            && (hasKeyboardFocus (false) || isMouseOverOrDragging());
+    }
 
     int reservedRight() const { return kSlot + (secretMode ? kSlot : 0) + 4; }
 
@@ -173,7 +202,7 @@ private:
                 return Part::reveal;
             x -= kSlot;
         }
-        if (stripShowsClear
+        if (clearIsVisible()
             && juce::Rectangle<int> (x - kSlot, 0, kSlot, area.getHeight())
                    .contains (p))
             return Part::clear;
@@ -216,9 +245,9 @@ private:
 
     static void drawCross (juce::Graphics& g, juce::Rectangle<int> r)
     {
-        auto a = r.toFloat().reduced (2.0f);
-        g.drawLine (a.getX(), a.getY(), a.getRight(), a.getBottom(), 1.6f);
-        g.drawLine (a.getRight(), a.getY(), a.getX(), a.getBottom(), 1.6f);
+        auto a = r.toFloat().reduced (1.5f);
+        g.drawLine (a.getX(), a.getY(), a.getRight(), a.getBottom(), 1.2f);
+        g.drawLine (a.getRight(), a.getY(), a.getX(), a.getBottom(), 1.2f);
     }
 
     /** The SAME glyph pair the rest of the app uses (Library's hidden

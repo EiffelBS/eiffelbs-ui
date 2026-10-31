@@ -50,6 +50,7 @@ public:
         editor.setColour (juce::TextEditor::textColourId, ebs::text());
         editor.setColour (juce::TextEditor::backgroundColourId, ebs::bgDark());
         editor.setColour (juce::TextEditor::outlineColourId, ebs::panelBorder());
+        editor.setFont (ebs::fontHint());
         editor.setTextToShowWhenEmpty (placeholder, ebs::textDim());
         editor.onTextChange = [this]
         { if (onTextChanged != nullptr) onTextChanged(); };

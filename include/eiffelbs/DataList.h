@@ -25,6 +25,7 @@
 #include <eiffelbs/Theme.h>
 #include <eiffelbs/Fonts.h>
 #include <eiffelbs/IconButton.h>
+#include <eiffelbs/ClearableEditor.h>
 
 #include <functional>
 #include <algorithm>
@@ -999,7 +1000,7 @@ private:
     // the table so they float above JUCE's RowComponents).
     juce::OwnedArray<GripOverlay> gripOverlays;
 
-    juce::TextEditor searchBox;
+    ClearableEditor searchBox;
     juce::ComboBox viewBox;
     juce::TableListBox table { "DataList", this };
 

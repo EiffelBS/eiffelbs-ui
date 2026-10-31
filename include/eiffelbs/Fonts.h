@@ -50,8 +50,11 @@ namespace ebs
     }
 
     /** Set the process-wide UI type scale (clamped to a sane 0.75..1.6).
-        Call once at start-up, before creating components; setTypeScale is not
-        a per-widget control and is not meant to change while a UI is live. */
+        Call once at start-up, before creating components. A host that wants a
+        LIVE change must also re-apply the fonts its components cached and
+        re-run their layouts (OpenTimbre does this in ui/AppTypeScale.h); this
+        setter alone only moves the paint-time helpers. It is never a
+        per-widget control. */
     inline void setUiTypeScale (float scale) noexcept
     {
         uiTypeScaleRef() = juce::jlimit (0.75f, 1.6f, scale);
