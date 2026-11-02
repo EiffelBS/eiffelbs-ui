@@ -878,13 +878,12 @@ private:
             const int hi = SearchableModelPicker::popupHeightForRows (24);
             const int h = juce::jlimit (lo, hi, resizeStartH
                                                + e.getDistanceFromDragStartY());
+            // ONLY the content is resized: juce::CallOutBox re-fits itself
+            // from it (childBoundsChanged -> updatePosition), and it knows its
+            // OWN border size. Resizing the box by hand with a guessed border
+            // painted it one frame short, which is what made the bottom edge
+            // vanish exactly while dragging it.
             setSize (getWidth(), h);
-            // The CallOutBox is a component of its own: growing the CONTENT
-            // alone would leave the frame around it at the old size and clip
-            // the rows that were just revealed.
-            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
-                box->setSize (box->getWidth(), h + 2 * 8);
-            resized();
         }
 
         void mouseUp (const juce::MouseEvent&) override { resizing = false; }
