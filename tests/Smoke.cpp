@@ -1119,6 +1119,14 @@ int main()
         check (pressedImg.getPixelAt (60, 4).getBrightness()
                    < pressedImg.getPixelAt (60, 60).getBrightness(),
                "the pressed-outline well still reads sunken");
+        // The relief is a PAIR: dark under the top edge, LIT along the bottom.
+        // One fade alone reads as "slightly darker at the top", not as a
+        // recess - and a 3 px fade at 28 % was invisible on a dark card. The
+        // highlight sits just inside the border (the rect runs 2..78, so the
+        // lit band is around row 76, on top of the 1 px outline).
+        check (pressedImg.getPixelAt (60, 76).getBrightness()
+                   > pressedImg.getPixelAt (60, 60).getBrightness(),
+               "the well's bottom edge is lit, which is what makes it sunken");
 
         // StatusBar: thread-safe logLine (we ARE the message thread here)
         // followed by a real paint pass.
@@ -1331,6 +1339,35 @@ int main()
                 };
                 check (! caretChild() && reader.getLogText() == textBefore,
                        "the log view is read-only: no caret, no edit surface");
+            }
+
+            // 5a) SELECTION (v0.68.1): the reader must be able to take a
+            //     line out of the log. Selecting across a FOLD copies the
+            //     paragraph back without the fold, and a double-click takes
+            //     the whole logical line.
+            {
+                ebs::LogView sel;
+                sel.setSize (320, 240);
+                sel.reset ({ "alpha beta gamma", "second line" });
+                sel.getEditor().selectForTest (0, 0, 1, 6);
+                check (sel.getEditor().getSelectedText() == "alpha beta gamma\nsecond",
+                       "a drag selection copies across logical lines");
+                // A wrapped line is ONE logical line: its fold rows copy with
+                // no newline between them.
+                ebs::LogView folded;
+                folded.setSize (260, 240);
+                folded.reset ({ juce::String::repeatedString ("word ", 60) });
+                const int rows = folded.getEditor().getNumLines();
+                folded.getEditor().selectForTest (0, 0, rows - 1,
+                                                  folded.getEditor()
+                                                        .getAllText().trim().length());
+                check (rows > 1
+                           && folded.getEditor().getSelectedText()
+                                  .indexOfChar ('\n') < 0,
+                       "a wrapped line copies as one line");
+                folded.getEditor().clearSelection();
+                check (! folded.getEditor().hasSelection(),
+                       "the selection can be cleared");
             }
 
             // 5b) WRAPPING (v0.68.0). A line wider than the window FOLDS into

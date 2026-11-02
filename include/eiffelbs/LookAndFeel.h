@@ -118,30 +118,47 @@ namespace ebs
      *  well, and a drop zone holding a waveform wants less contrast than an
      *  empty one.
      *
-     *  The inner shadow is the load-bearing part: a dark hairline just inside the
-     *  top edge (light comes from above, so a sunken edge is dark at the top),
-     *  fading over 3 px, inset from the curve so it never paints over the border. */
+     *  THE RELIEF IS A PAIR, NOT A GRADIENT. One dark fade at the top only
+     *  reads as "this box is slightly darker at the top"; what makes a surface
+     *  read SUNKEN is the lit bottom edge that the same light leaves under a
+     *  recess. So the well paints a 6 px shadow under its top edge at 45 % and
+     *  a 1 px highlight along its bottom, inset past the corner curve. Measured
+     *  complaint behind this (2026-11-02): a 3 px fade at 28 % was invisible on
+     *  a card that is already dark. */
     inline void drawInsetFrame (juce::Graphics& g,
                                 const juce::Rectangle<float>& bounds,
                                 juce::Colour fill = bgInset())
     {
         constexpr float corner = frameCornerRadius;
+        const bool dark = isDark();
 
         g.setColour (fill);
         g.fillRoundedRectangle (bounds, corner);
 
-        // The inner shadow: 3 px of black fading out, inset from the curve so
+        // The inner shadow: 6 px of black fading out, inset from the curve so
         // it never paints over the border.
-        const auto top = bounds.reduced (2.0f, 0.0f).withHeight (3.0f);
+        const auto top = bounds.reduced (2.0f, 0.0f).withHeight (dark ? 6.0f : 5.0f);
         g.setGradientFill (juce::ColourGradient (
-            juce::Colours::black.withAlpha (isDark() ? 0.28f : 0.14f),
+            juce::Colours::black.withAlpha (dark ? 0.45f : 0.20f),
             top.getX(), top.getY(),
             juce::Colours::transparentBlack,
             top.getX(), top.getBottom(), false));
         g.fillRect (top);
 
-        g.setColour (fill.darker (isDark() ? 0.18f : 0.10f));
+        // The border first, then the lit bottom edge ON TOP of it: the 1 px
+        // outline lands on the same rows, and a highlight painted before it is
+        // erased by the very line it was meant to lift (measured in the smoke
+        // test: the bottom row read DARKER than the fill).
+        g.setColour (fill.darker (dark ? 0.22f : 0.12f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+
+        // Inset past the corner curve so the highlight never runs into a
+        // rounded corner, where it would read as a seam.
+        g.setColour (juce::Colours::white.withAlpha (dark ? 0.10f : 0.65f));
+        g.fillRect (juce::Rectangle<float> (bounds.getX() + corner,
+                                            bounds.getBottom() - 2.5f,
+                                            bounds.getWidth() - 2.0f * corner,
+                                            1.5f));
     }
 
     /** Rounded framed panel component used by apps as a drop-in group
