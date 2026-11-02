@@ -1317,13 +1317,11 @@ int main()
                        && tail.getLogText().trim().endsWith ("newest"),
                    "a tail-following window survives a front-drop");
 
-            // 5) READ-ONLY SURFACE: no caret is painted into a document the
-            //    user cannot edit (a blinking caret would claim otherwise),
-            //    and typing at the caret changes nothing.
+            // 5) READ-ONLY SURFACE: the view owns no caret and exposes no
+            //    edit entry point (a caret would claim a document the user
+            //    cannot change), and the text is exactly what was handed in.
             {
                 const auto textBefore = reader.getLogText();
-                reader.getEditor().moveCaretToEnd (false);
-                reader.getEditor().insertTextAtCaret ("MUST NOT APPEAR");
                 const auto caretChild = [&reader]
                 {
                     for (auto* child : reader.getEditor().getChildren())
@@ -1331,10 +1329,28 @@ int main()
                             return true;
                     return false;
                 };
-                check (reader.getEditor().isReadOnly()
-                           && ! caretChild()
-                           && reader.getLogText() == textBefore,
-                       "the log view is read-only, paints no caret, takes no edit");
+                check (! caretChild() && reader.getLogText() == textBefore,
+                       "the log view is read-only: no caret, no edit surface");
+            }
+
+            // 5b) WRAPPING (v0.68.0). A line wider than the window FOLDS into
+            //     several display rows, which is what lets the surface scroll
+            //     vertically only: the reader never loses the start of an
+            //     engine error off the right edge.
+            {
+                ebs::LogView wrapped;
+                wrapped.setSize (320, 240);
+                const auto longLine = juce::String::repeatedString (
+                    "engine refused because the model directory holds two files ",
+                    12);
+                wrapped.reset ({ longLine, "short" });
+                check (wrapped.getEditor().getNumLines() > 2
+                           && wrapped.getLogLineCount() == 2,
+                       "a long log line folds into display rows");
+                // Scrolling stays anchored on a ROW: the tail is still the
+                // tail, and a reader who scrolls up is left where they were.
+                check (wrapped.isShowingTail(),
+                       "a wrapped log still opens on its tail");
             }
 
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow

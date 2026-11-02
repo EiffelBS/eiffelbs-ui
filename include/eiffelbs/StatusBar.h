@@ -93,6 +93,7 @@
 // redefines both classes in any TU that also pulls the module in.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <array>
+#include <cmath>
 #include <atomic>
 #include <deque>
 #include <map>
@@ -158,6 +159,259 @@ public:
 
 inline LogWindow* LogWindow::liveWindow = nullptr;
 
+/** The Log window's read-only text surface.
+
+    A WRAPPING, line-oriented view. Long lines are folded at the window width,
+    so the log never grows a horizontal scrollbar: a reader can always see the
+    START of every line, which a horizontally-scrolled code grid takes away at
+    exactly the moment a long engine error matters.
+
+    Why not the obvious components:
+      - juce::CodeEditorComponent (this view's predecessor) never wraps and
+        scrolls in both directions by design - it is a code grid;
+      - juce::TextEditor wraps and can be read-only, but it keeps a CARET and
+        a selection model, and it exposes no line-scrolling (the tail-follow /
+        "keep the reader's line" policy below needs one).
+
+    Line indices here are DISPLAY rows: a wrapped line occupies several of
+    them. That is what the scroll anchoring counts, and why the policy below
+    still holds when the window is narrow enough to wrap everything.
+
+    Copy: there is no selection (a caret in a log claims an edit surface), so
+    the right-click menu copies the WHOLE log - the one thing a reader
+    actually does with an engine error. */
+class LogText : public juce::Component,
+                private juce::ScrollBar::Listener
+{
+public:
+    LogText()
+    {
+        setOpaque (true);
+        scrollBar.setRangeLimits (0.0, 1.0);
+        scrollBar.setCurrentRange (0.0, 1.0);
+        scrollBar.setAutoHide (false);
+        scrollBar.addListener (this);
+        addAndMakeVisible (scrollBar);
+    }
+
+    ~LogText() override { scrollBar.removeListener (this); }
+
+    /** Log text is read at a glance, not studied: 12.5 px keeps a full
+        window of lines readable without the oversized body type the code
+        grid used to draw (13 px monospace at 100 % looked like a heading). */
+    static constexpr float kFontHeight = 12.5f;
+
+    juce::Font font() const { return createFont (kFontHeight); }
+
+    // --- content ---------------------------------------------------------
+    void setLines (const std::vector<juce::String>& lines)
+    {
+        logical = lines;
+        rewrapAll();
+        setFirstRow (0);
+    }
+
+    void appendLines (const std::vector<juce::String>& lines)
+    {
+        if (lines.empty())
+            return;
+        for (const auto& l : lines)
+        {
+            logical.push_back (l);
+            wrapOne (l);
+        }
+        updateScrollBar();
+        repaint();
+    }
+
+    /** Drop the `n` OLDEST logical lines (the history cap). Display rows go
+        with them, so the caller's "slide up by n" arithmetic stays true. */
+    void dropFromFront (int n)
+    {
+        if (n <= 0)
+            return;
+        n = juce::jmin (n, (int) logical.size());
+        logical.erase (logical.begin(), logical.begin() + n);
+        rewrapAll();
+    }
+
+    juce::String getAllText() const
+    {
+        juce::String out;
+        for (const auto& l : logical)
+            out << l << "\n";
+        return out;
+    }
+
+    int logicalLineCount() const { return (int) logical.size(); }
+
+    // --- scrolling (the surface LogView drives) --------------------------
+    int  getFirstLineOnScreen() const { return firstRow; }
+    int  getNumLinesOnScreen() const  { return visibleRows(); }
+    int  getNumLines() const          { return (int) rows.size(); }
+
+    void scrollToLine (int row) { setFirstRow (row); }
+    /** Kept for the caller's vocabulary: this view has no caret, so "to the
+        end" IS "the last row is on screen". */
+    void moveCaretToEnd (bool) { setFirstRow (getNumLines()); }
+    void scrollToKeepCaretOnScreen() { setFirstRow (getNumLines()); }
+    bool isHighlightActive() const { return false; }
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (bgDark());
+        const int rh = rowHeight();
+        if (rh <= 0)
+            return;
+        g.setFont (font());
+        g.setColour (text());
+        int y = 0;
+        for (int i = firstRow; i < (int) rows.size() && y < getHeight();
+             ++i, y += rh)
+            g.drawText (rows[(size_t) i], textLeft(), y, textWidth(), rh,
+                        juce::Justification::centredLeft, false);
+    }
+
+    void resized() override
+    {
+        scrollBar.setBounds (getWidth() - kScrollWidth, 0, kScrollWidth,
+                             getHeight());
+        // A narrower window folds MORE rows, so the anchor is remembered as a
+        // row and restored after the rewrap: resizing must not throw the
+        // reader back to the top of a long log.
+        const int was = firstRow;
+        rewrapAll();
+        setFirstRow (was);
+    }
+
+    void mouseWheelMove (const juce::MouseEvent&,
+                         const juce::MouseWheelDetails& d) override
+    {
+        setFirstRow (firstRow - juce::roundToInt (d.deltaY * 6.0f));
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (! e.mods.isPopupMenu())
+            return;
+        juce::PopupMenu menu;
+        menu.addItem (1, "Copy all");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+            [safe = juce::Component::SafePointer<LogText> (this)] (int choice)
+            {
+                if (choice == 1 && safe != nullptr)
+                    juce::SystemClipboard::copyTextToClipboard (safe->getAllText());
+            });
+    }
+
+private:
+    static constexpr int kScrollWidth = 12;
+
+    int rowHeight() const
+    {
+        return juce::jmax (10, juce::roundToInt (font().getHeight()) + 3);
+    }
+    int textLeft() const   { return 8; }
+    int textWidth() const
+    {
+        return juce::jmax (60, getWidth() - kScrollWidth - 2 * textLeft());
+    }
+    int visibleRows() const
+    {
+        return juce::jmax (1, getHeight() / rowHeight());
+    }
+
+    void setFirstRow (int row)
+    {
+        const int last = juce::jmax (0, getNumLines() - 1);
+        firstRow = juce::jlimit (0, last, row);
+        updateScrollBar();
+        repaint();
+    }
+
+    void updateScrollBar()
+    {
+        const auto total = (double) juce::jmax (1, getNumLines());
+        scrollBar.setRangeLimits (0.0, total);
+        scrollBar.setCurrentRange ((double) firstRow,
+                                   (double) juce::jmin (visibleRows(),
+                                                        getNumLines()),
+                                   juce::dontSendNotification);
+    }
+
+    void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override
+    {
+        const int row = (int) std::floor (newRangeStart);
+        if (row != firstRow)
+        {
+            firstRow = juce::jmax (0, row);
+            repaint();
+        }
+    }
+
+    void rewrapAll()
+    {
+        rows.clear();
+        for (const auto& l : logical)
+            wrapOne (l);
+        updateScrollBar();
+        repaint();
+    }
+
+    /** Fold ONE logical line into display rows at the current width.
+
+        Fast path first: a line that already fits is one row and costs a
+        single measurement - which is the overwhelming majority of log lines,
+        so the fold never becomes a per-paint cost. Only an over-long line is
+        walked character by character, breaking at the last space seen (and
+        hard-splitting a word wider than the view). */
+    void wrapOne (const juce::String& line)
+    {
+        if (line.isEmpty())
+        {
+            rows.push_back ({});
+            return;
+        }
+        const auto f = font();
+        const int maxW = textWidth();
+        if (juce::roundToInt (f.getStringWidthFloat (line)) <= maxW)
+        {
+            rows.push_back (line);
+            return;
+        }
+        juce::String current;
+        int lastSpace = -1;
+        for (int i = 0; i < line.length(); ++i)
+        {
+            const auto ch = line[i];
+            current += juce::String::charToString (ch);
+            if (ch == ' ')
+                lastSpace = current.length() - 1;
+            if (current.length() > 1
+                && juce::roundToInt (f.getStringWidthFloat (current)) > maxW)
+            {
+                if (lastSpace > 0)
+                {
+                    rows.push_back (current.substring (0, lastSpace));
+                    current = current.substring (lastSpace + 1);
+                }
+                else
+                {
+                    rows.push_back (current.dropLastCharacters (1));
+                    current = current.getLastCharacters (1);
+                }
+                lastSpace = -1;
+            }
+        }
+        rows.push_back (current);
+    }
+
+    std::vector<juce::String> logical;   // the history, one entry per log line
+    std::vector<juce::String> rows;      // the same text, folded for this width
+    int firstRow = 0;
+    juce::ScrollBar scrollBar { false };  // vertical only: the view wraps
+};
+
 /** Content of the Log window: a truncation notice above a read-only view of
     the live history. Public (not nested) so the smoke test can exercise the
     append / drop / scroll policy with no desktop window at all.
@@ -195,12 +449,7 @@ public:
         behaviour a click on the bar has always had. */
     void reset (const std::vector<juce::String>& lines)
     {
-        juce::String text;
-        for (const auto& line : lines)
-            text << line << "\n";
-
-        document.replaceAllContent (text);
-        document.clearUndoHistory();   // replaceAllContent does not clear it
+        editor.setLines (lines);
         showTail();
     }
 
@@ -219,12 +468,7 @@ public:
 
         if (droppedFromFront > 0)
         {
-            const auto end = droppedFromFront >= document.getNumLines()
-                                 ? document.getNumCharacters()
-                                 : juce::CodeDocument::Position (document,
-                                                                  droppedFromFront, 0)
-                                       .getPosition();
-            document.deleteSection (0, end);
+            editor.dropFromFront (droppedFromFront);
             // Dropping from the front slides every remaining line UP by
             // `droppedFromFront`: scrolling by the same amount keeps the
             // SAME text at the top of the view (and clamps to the start when
@@ -233,15 +477,7 @@ public:
                 editor.scrollToLine (juce::jmax (0, wasFirstLine - droppedFromFront));
         }
 
-        if (! lines.empty())
-        {
-            juce::String text;
-            for (const auto& line : lines)
-                text << line << "\n";
-            document.insertText (document.getNumCharacters(), text);
-        }
-
-        document.clearUndoHistory();   // a read-only view needs no undo stack
+        editor.appendLines (lines);
 
         if (follow)
             showTail();
@@ -250,32 +486,20 @@ public:
     /** True when the newest line is the last one on screen. */
     bool isShowingTail() const
     {
-        const auto numLines = document.getNumLines();
+        const auto numLines = editor.getNumLines();
         return numLines <= 1
             || editor.getFirstLineOnScreen() + editor.getNumLinesOnScreen()
                    >= numLines - 1;
     }
 
-    /** Park the view on the newest line (and on the caret, so navigation
-        continues from there - but never over an active selection). */
-    void showTail()
-    {
-        if (! editor.isHighlightActive())
-            editor.moveCaretToEnd (false);
-        editor.scrollToKeepCaretOnScreen();
-    }
+    /** Park the view on the newest line. */
+    void showTail() { editor.moveCaretToEnd (false); }
 
     // --- inspection (smoke test, and consumers embedding the view) -------
-    juce::String getLogText() const            { return document.getAllContent(); }
-    /** Log lines held by the view. The document keeps a trailing empty
-        line (every line is terminated), so the count is one less than
-        getNumLines(). */
-    int         getLogLineCount() const
-    {
-        return juce::jmax (0, document.getNumLines() - 1);
-    }
-    juce::CodeEditorComponent& getEditor()     { return editor; }
-    const juce::CodeEditorComponent& getEditor() const { return editor; }
+    juce::String getLogText() const            { return editor.getAllText(); }
+    int         getLogLineCount() const        { return editor.logicalLineCount(); }
+    LogText&       getEditor()                 { return editor; }
+    const LogText& getEditor() const           { return editor; }
 
     void paint (juce::Graphics& g) override
     {
@@ -298,83 +522,10 @@ public:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (LogView)
 
 private:
-    /** juce::CodeEditorComponent with NO caret: the log is a document to
-        READ, and a blinking caret would claim it can be edited.
-
-        JUCE creates the caret as a CHILD component in lookAndFeelChanged()
-        (base ctor and every later L&F change) and re-shows it from several
-        paths we cannot override - the document-change notification included.
-        So the caret is simply detached once it exists: the component keeps
-        owning it, it just never enters the paint tree. Read-only, selection
-        and Ctrl+C are untouched. */
-    class Editor : public juce::CodeEditorComponent
-    {
-    public:
-        explicit Editor (juce::CodeDocument& doc)
-            : juce::CodeEditorComponent (doc, /*no tokeniser*/ nullptr)
-        {
-            setReadOnly (true);
-            setLineNumbersShown (false);
-            setWantsKeyboardFocus (true);
-            setTabSize (4, true);
-            setScrollbarThickness (12);
-            setFont (createMonospaceFont (13.0f));
-            setColour (juce::CodeEditorComponent::backgroundColourId, bgDark());
-            setColour (juce::CodeEditorComponent::defaultTextColourId, text());
-            setColour (juce::CodeEditorComponent::highlightColourId, accentSoft());
-            dropCaret();
-        }
-
-        void lookAndFeelChanged() override
-        {
-            juce::CodeEditorComponent::lookAndFeelChanged();
-            dropCaret();     // a fresh caret component was just added
-        }
-
-        void caretPositionMoved() override
-        {
-            juce::CodeEditorComponent::caretPositionMoved();
-            dropCaret();
-        }
-
-        void focusGained (FocusChangeType type) override
-        {
-            juce::CodeEditorComponent::focusGained (type);
-            dropCaret();
-        }
-
-        void focusLost (FocusChangeType type) override
-        {
-            juce::CodeEditorComponent::focusLost (type);
-            dropCaret();
-        }
-
-    private:
-        void dropCaret()
-        {
-            juce::CaretComponent* caret = nullptr;
-            for (auto* child : getChildren())
-                if (auto* c = dynamic_cast<juce::CaretComponent*> (child))
-                {
-                    caret = c;
-                    break;
-                }
-
-            if (caret == nullptr)
-                return;
-
-            caret->setVisible (false);
-            caret->setColour (juce::CaretComponent::caretColourId,
-                              juce::Colours::transparentBlack);
-            removeChildComponent (caret);
-        }
-    };
-
     static constexpr int kNoticeHeight = 18;
 
-    juce::CodeDocument document;
-    Editor             editor { document };
-    juce::Label        notice;
+    LogText     editor;
+    juce::Label notice;
 };
 
 class StatusBar : public juce::Component,
@@ -1115,8 +1266,8 @@ private:
         // DialogWindow has NO resizable ctor arg (that 4th bool is
         // addToDesktop): resizability must be turned on EXPLICITLY here.
         window->setResizable (true, true);            // + corner grip handle
-        window->setResizeLimits (420, 300, 1600, 1200);
-        window->centreAroundComponent (getParentComponent(), 560, 420);
+        window->setResizeLimits (520, 340, 1920, 1400);
+        window->centreAroundComponent (getParentComponent(), 940, 640);
         LogWindow::liveWindow = window;
         window->setVisible (true);
     }
