@@ -721,9 +721,13 @@ private:
                 if (it != tags.end() && it->second.isNotEmpty())
                     values.addIfNotAlreadyThere (it->second);
             }
-            if (values.size() <= 2)
+            // A row appears as soon as ONE real value exists: "fits" alone
+            // is information (everything fits in the free memory the meter
+            // read), and hiding it looked like the filter was never wired.
+            // Only a dimension with no value at all stays hidden.
+            if (values.size() < 2)
             {
-                tagFilters[dim] = "All";   // nothing to split
+                tagFilters[dim] = "All";
                 continue;
             }
             auto& active = tagFilters[dim];
