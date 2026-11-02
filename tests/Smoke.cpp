@@ -1333,6 +1333,35 @@ int main()
                        "the log view is read-only: no caret, no edit surface");
             }
 
+            // 5a) SELECTION (v0.68.1): the reader must be able to take a
+            //     line out of the log. Selecting across a FOLD copies the
+            //     paragraph back without the fold, and a double-click takes
+            //     the whole logical line.
+            {
+                ebs::LogView sel;
+                sel.setSize (320, 240);
+                sel.reset ({ "alpha beta gamma", "second line" });
+                sel.getEditor().selectForTest (0, 0, 1, 6);
+                check (sel.getEditor().getSelectedText() == "alpha beta gamma\nsecond",
+                       "a drag selection copies across logical lines");
+                // A wrapped line is ONE logical line: its fold rows copy with
+                // no newline between them.
+                ebs::LogView folded;
+                folded.setSize (260, 240);
+                folded.reset ({ juce::String::repeatedString ("word ", 60) });
+                const int rows = folded.getEditor().getNumLines();
+                folded.getEditor().selectForTest (0, 0, rows - 1,
+                                                  folded.getEditor()
+                                                        .getAllText().trim().length());
+                check (rows > 1
+                           && folded.getEditor().getSelectedText()
+                                  .indexOfChar ('\n') < 0,
+                       "a wrapped line copies as one line");
+                folded.getEditor().clearSelection();
+                check (! folded.getEditor().hasSelection(),
+                       "the selection can be cleared");
+            }
+
             // 5b) WRAPPING (v0.68.0). A line wider than the window FOLDS into
             //     several display rows, which is what lets the surface scroll
             //     vertically only: the reader never loses the start of an
