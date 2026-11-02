@@ -94,6 +94,8 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <array>
 #include <cmath>
+#include <limits>
+#include <utility>
 #include <atomic>
 #include <deque>
 #include <map>
@@ -161,25 +163,27 @@ inline LogWindow* LogWindow::liveWindow = nullptr;
 
 /** The Log window's read-only text surface.
 
-    A WRAPPING, line-oriented view. Long lines are folded at the window width,
-    so the log never grows a horizontal scrollbar: a reader can always see the
-    START of every line, which a horizontally-scrolled code grid takes away at
-    exactly the moment a long engine error matters.
+    A WRAPPING, line-oriented view with a real SELECTION. Long lines are
+    folded at the window width, so the log never grows a horizontal
+    scrollbar: a reader can always see the START of every line, which a
+    horizontally-scrolled code grid takes away at exactly the moment a long
+    engine error matters.
 
     Why not the obvious components:
       - juce::CodeEditorComponent (this view's predecessor) never wraps and
         scrolls in both directions by design - it is a code grid;
       - juce::TextEditor wraps and can be read-only, but it keeps a CARET and
-        a selection model, and it exposes no line-scrolling (the tail-follow /
-        "keep the reader's line" policy below needs one).
+        exposes no line-scrolling (the tail-follow / "keep the reader's line"
+        policy below needs one).
+
+    Selection is over DISPLAY rows, because that is what is on screen: drag to
+    select, double-click for the logical line, Ctrl+C (or the right-click
+    menu) to copy. A wrapped line copies back WITHOUT the fold, so a copied
+    paragraph is the paragraph the engine printed, not one line per row.
 
     Line indices here are DISPLAY rows: a wrapped line occupies several of
     them. That is what the scroll anchoring counts, and why the policy below
-    still holds when the window is narrow enough to wrap everything.
-
-    Copy: there is no selection (a caret in a log claims an edit surface), so
-    the right-click menu copies the WHOLE log - the one thing a reader
-    actually does with an engine error. */
+    still holds when the window is narrow enough to wrap everything. */
 class LogText : public juce::Component,
                 private juce::ScrollBar::Listener
 {
@@ -187,6 +191,7 @@ public:
     LogText()
     {
         setOpaque (true);
+        setWantsKeyboardFocus (true);
         scrollBar.setRangeLimits (0.0, 1.0);
         scrollBar.setCurrentRange (0.0, 1.0);
         scrollBar.setAutoHide (false);
@@ -207,6 +212,7 @@ public:
     void setLines (const std::vector<juce::String>& lines)
     {
         logical = lines;
+        clearSelection();
         rewrapAll();
         setFirstRow (0);
     }
@@ -218,20 +224,22 @@ public:
         for (const auto& l : lines)
         {
             logical.push_back (l);
-            wrapOne (l);
+            wrapOne (l, (int) logical.size() - 1);
         }
         updateScrollBar();
         repaint();
     }
 
     /** Drop the `n` OLDEST logical lines (the history cap). Display rows go
-        with them, so the caller's "slide up by n" arithmetic stays true. */
+        with them, so the caller's "slide up by n" arithmetic stays true. A
+        selection cannot survive a renumbering, so it is dropped. */
     void dropFromFront (int n)
     {
         if (n <= 0)
             return;
         n = juce::jmin (n, (int) logical.size());
         logical.erase (logical.begin(), logical.begin() + n);
+        clearSelection();
         rewrapAll();
     }
 
@@ -245,6 +253,49 @@ public:
 
     int logicalLineCount() const { return (int) logical.size(); }
 
+    // --- selection -------------------------------------------------------
+    bool hasSelection() const
+    {
+        if (! anchor.isValid() || ! cursor.isValid())
+            return false;
+        return anchor.row != cursor.row || anchor.ch != cursor.ch;
+    }
+
+    /** The selected text. Rows that belong to the SAME logical line are
+        joined without a newline, so a wrapped paragraph copies whole. */
+    juce::String getSelectedText() const
+    {
+        if (! hasSelection())
+            return {};
+        const auto [a, b] = ordered();
+        juce::String out;
+        for (int r = a.row; r <= b.row && r < (int) rows.size(); ++r)
+        {
+            int from = 0, to = 0;
+            selectionSpan (r, from, to);
+            out << rows[(size_t) r].substring (from, to);
+            if (r < b.row && r + 1 < (int) rowLogical.size()
+                && rowLogical[(size_t) (r + 1)] != rowLogical[(size_t) r])
+                out << "\n";
+        }
+        return out;
+    }
+
+    void clearSelection()
+    {
+        anchor = {};
+        cursor = {};
+        repaint();
+    }
+
+    /** Test hook: select from one display position to another. */
+    void selectForTest (int rowA, int chA, int rowB, int chB)
+    {
+        anchor = { rowA, chA };
+        cursor = { rowB, chB };
+        repaint();
+    }
+
     // --- scrolling (the surface LogView drives) --------------------------
     int  getFirstLineOnScreen() const { return firstRow; }
     int  getNumLinesOnScreen() const  { return visibleRows(); }
@@ -255,8 +306,9 @@ public:
         end" IS "the last row is on screen". */
     void moveCaretToEnd (bool) { setFirstRow (getNumLines()); }
     void scrollToKeepCaretOnScreen() { setFirstRow (getNumLines()); }
-    bool isHighlightActive() const { return false; }
+    bool isHighlightActive() const { return hasSelection(); }
 
+    // --- painting / input ------------------------------------------------
     void paint (juce::Graphics& g) override
     {
         g.fillAll (bgDark());
@@ -264,12 +316,27 @@ public:
         if (rh <= 0)
             return;
         g.setFont (font());
-        g.setColour (text());
         int y = 0;
         for (int i = firstRow; i < (int) rows.size() && y < getHeight();
              ++i, y += rh)
-            g.drawText (rows[(size_t) i], textLeft(), y, textWidth(), rh,
+        {
+            const auto& rowText = rows[(size_t) i];
+            int from = 0, to = 0;
+            if (hasSelection() && selectionSpan (i, from, to) && to > from)
+            {
+                const auto pre = font().getStringWidthFloat (
+                    rowText.substring (0, from));
+                const auto sel = font().getStringWidthFloat (
+                    rowText.substring (from, to));
+                g.setColour (accentSoft().withAlpha (0.35f));
+                g.fillRect (juce::Rectangle<float> (
+                    (float) textLeft() + pre, (float) y,
+                    juce::jmax (2.0f, sel), (float) rh));
+            }
+            g.setColour (text());
+            g.drawText (rowText, textLeft(), y, textWidth(), rh,
                         juce::Justification::centredLeft, false);
+        }
     }
 
     void resized() override
@@ -280,6 +347,7 @@ public:
         // row and restored after the rewrap: resizing must not throw the
         // reader back to the top of a long log.
         const int was = firstRow;
+        clearSelection();          // row indices just changed meaning
         rewrapAll();
         setFirstRow (was);
     }
@@ -292,20 +360,156 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (! e.mods.isPopupMenu())
+        if (e.mods.isPopupMenu())
+        {
+            showMenu();
             return;
-        juce::PopupMenu menu;
-        menu.addItem (1, "Copy all");
-        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
-            [safe = juce::Component::SafePointer<LogText> (this)] (int choice)
-            {
-                if (choice == 1 && safe != nullptr)
-                    juce::SystemClipboard::copyTextToClipboard (safe->getAllText());
-            });
+        }
+        grabKeyboardFocus();
+        anchor = hitTest (e.position);
+        cursor = anchor;
+        dragging = true;
+        repaint();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! dragging)
+            return;
+        cursor = hitTest (e.position);
+        repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { dragging = false; }
+
+    /** Double-click selects the whole LOGICAL line - the fold rows of one
+        wrapped line are one line to the reader, so they must be one line to
+        the selection too. */
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        const auto p = hitTest (e.position);
+        if (! p.isValid() || p.row >= (int) rowLogical.size())
+            return;
+        const int lg = rowLogical[(size_t) p.row];
+        int first = p.row, last = p.row;
+        while (first > 0 && rowLogical[(size_t) (first - 1)] == lg)
+            --first;
+        while (last + 1 < (int) rowLogical.size()
+               && rowLogical[(size_t) (last + 1)] == lg)
+            ++last;
+        anchor = { first, 0 };
+        cursor = { last, rows[(size_t) last].length() };
+        repaint();
+    }
+
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key.getModifiers().isCommandDown()
+            && (key.getTextCharacter() == 'c' || key.getTextCharacter() == 'C'))
+        {
+            copySelection();
+            return true;
+        }
+        if (key.getKeyCode() == juce::KeyPress::escapeKey)
+        {
+            clearSelection();
+            return true;
+        }
+        if (key.getModifiers().isCommandDown()
+            && (key.getTextCharacter() == 'a' || key.getTextCharacter() == 'A'))
+        {
+            anchor = { 0, 0 };
+            if (! rows.empty())
+                cursor = { (int) rows.size() - 1,
+                           rows.back().length() };
+            repaint();
+            return true;
+        }
+        return false;
     }
 
 private:
+    struct Pos
+    {
+        int row = -1;
+        int ch  = 0;
+        bool isValid() const { return row >= 0; }
+    };
+
     static constexpr int kScrollWidth = 12;
+
+    std::pair<Pos, Pos> ordered() const
+    {
+        auto a = anchor, b = cursor;
+        if (b.row < a.row || (b.row == a.row && b.ch < a.ch))
+            std::swap (a, b);
+        return { a, b };
+    }
+
+    /** The character span this row contributes to the selection. */
+    bool selectionSpan (int row, int& from, int& to) const
+    {
+        if (! hasSelection())
+            return false;
+        const auto [a, b] = ordered();
+        if (row < a.row || row > b.row)
+            return false;
+        const int len = rows[(size_t) row].length();
+        from = juce::jlimit (0, len, row == a.row ? a.ch : 0);
+        to   = juce::jlimit (0, len, row == b.row ? b.ch : len);
+        return true;
+    }
+
+    Pos hitTest (juce::Point<float> p) const
+    {
+        if (rows.empty())
+            return {};
+        const int rh = rowHeight();
+        int row = firstRow + (int) std::floor (p.y / (float) rh);
+        row = juce::jlimit (0, (int) rows.size() - 1, row);
+        const auto& rowText = rows[(size_t) row];
+        const auto f = font();
+        int best = 0;
+        int bestD = std::numeric_limits<int>::max();
+        int w = 0;
+        for (int i = 0; i <= rowText.length(); ++i)
+        {
+            const int d = std::abs (textLeft() + w - juce::roundToInt (p.x));
+            if (d < bestD)
+            {
+                bestD = d;
+                best  = i;
+            }
+            if (i < rowText.length())
+                w += juce::roundToInt (
+                    f.getStringWidthFloat (rowText.substring (i, i + 1)));
+        }
+        return { row, best };
+    }
+
+    void copySelection()
+    {
+        const auto text = getSelectedText();
+        if (text.isNotEmpty())
+            juce::SystemClipboard::copyTextToClipboard (text);
+    }
+
+    void showMenu()
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "Copy", hasSelection());
+        menu.addItem (2, "Copy all");
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+            [safe = juce::Component::SafePointer<LogText> (this)] (int choice)
+            {
+                if (safe == nullptr)
+                    return;
+                if (choice == 1)
+                    safe->copySelection();
+                else if (choice == 2)
+                    juce::SystemClipboard::copyTextToClipboard (safe->getAllText());
+            });
+    }
 
     int rowHeight() const
     {
@@ -352,8 +556,9 @@ private:
     void rewrapAll()
     {
         rows.clear();
-        for (const auto& l : logical)
-            wrapOne (l);
+        rowLogical.clear();
+        for (int i = 0; i < (int) logical.size(); ++i)
+            wrapOne (logical[(size_t) i], i);
         updateScrollBar();
         repaint();
     }
@@ -365,49 +570,61 @@ private:
         so the fold never becomes a per-paint cost. Only an over-long line is
         walked character by character, breaking at the last space seen (and
         hard-splitting a word wider than the view). */
-    void wrapOne (const juce::String& line)
+    void wrapOne (const juce::String& line, int logicalIndex)
     {
+        auto push = [this, logicalIndex] (const juce::String& row)
+        {
+            rows.push_back (row);
+            rowLogical.push_back (logicalIndex);
+        };
+
         if (line.isEmpty())
         {
-            rows.push_back ({});
+            push ({});
             return;
         }
         const auto f = font();
         const int maxW = textWidth();
         if (juce::roundToInt (f.getStringWidthFloat (line)) <= maxW)
         {
-            rows.push_back (line);
+            push (line);
             return;
         }
         juce::String current;
         int lastSpace = -1;
+        int w = 0;
         for (int i = 0; i < line.length(); ++i)
         {
             const auto ch = line[i];
-            current += juce::String::charToString (ch);
+            const juce::String one = juce::String::charToString (ch);
+            current += one;
+            w += juce::roundToInt (f.getStringWidthFloat (one));
             if (ch == ' ')
                 lastSpace = current.length() - 1;
-            if (current.length() > 1
-                && juce::roundToInt (f.getStringWidthFloat (current)) > maxW)
+            if (current.length() > 1 && w > maxW)
             {
                 if (lastSpace > 0)
                 {
-                    rows.push_back (current.substring (0, lastSpace));
+                    push (current.substring (0, lastSpace));
                     current = current.substring (lastSpace + 1);
                 }
                 else
                 {
-                    rows.push_back (current.dropLastCharacters (1));
+                    push (current.dropLastCharacters (1));
                     current = current.getLastCharacters (1);
                 }
                 lastSpace = -1;
+                w = juce::roundToInt (f.getStringWidthFloat (current));
             }
         }
-        rows.push_back (current);
+        push (current);
     }
 
     std::vector<juce::String> logical;   // the history, one entry per log line
     std::vector<juce::String> rows;      // the same text, folded for this width
+    std::vector<int>          rowLogical;  // row -> its logical line
+    Pos anchor, cursor;
+    bool dragging = false;
     int firstRow = 0;
     juce::ScrollBar scrollBar { false };  // vertical only: the view wraps
 };
