@@ -178,7 +178,7 @@ public:
 
     static constexpr int kPopupRowH    = 24;
     static constexpr int kPopupFooterH = 18;
-    static constexpr int kPopupHeaderH = 30;   // search row + its gap
+    static constexpr int kPopupHeaderH = 36;   // top grip band + search row + gap
     static constexpr int kPopupPad     = 8;    // resized()'s reduced(4) x2
 
     void setMaxVisibleRows (int rows)
@@ -474,8 +474,7 @@ public:
     {
         PopupContent content (this);
         const int rows = viewRowsForTest();
-        content.setSize (width, 26 + 4 + rows * PopupContent::kRowH
-                            + PopupContent::kFooterH + 8);   // resized()'s padding
+        content.setSize (width, popupHeightForRows (rows));
         content.paintEntireComponent (g, true);
     }
 
@@ -488,8 +487,7 @@ public:
         if (popup == nullptr)
         {
             auto* content = new PopupContent (this);
-            content->setSize (360, 26 + 4 + viewRowsForTest() * PopupContent::kRowH
-                                 + PopupContent::kFooterH + 8);   // resized()'s padding
+            content->setSize (360, popupHeightForRows (viewRowsForTest()));
             popup = content;   // SafePointer mirrors the live popup, as openPopup does
         }
     }
@@ -860,33 +858,73 @@ private:
         static constexpr int kRowH = 24;
         static constexpr int kFooterH = 18;   // ONE row: link left, count right
         static constexpr int kDefaultViewRows = 10;   // rows shown at open
-        static constexpr int kGripH = 8;      // bottom strip that resizes
+        static constexpr int kGripH = 6;       // side/top strip that resizes
+        static constexpr int kBottomGripH = 8; // bottom strip
 
-        /** The bottom strip RESIZES the popup, the way every list in the app
-            grows: a long voice or model list is worth more than the ten rows
-            it opens with, and the reader is the one who knows how many. */
+        /** Which EDGE the pointer is on (0 none). Every edge resizes: a
+            picker whose button sits near the bottom of the screen can only be
+            made taller UPWARD, and a long model label is unreadable in a
+            narrow menu. */
+        enum class Edge { none, bottom, top, left, right };
+
+        Edge edgeAt (const juce::MouseEvent& e) const
+        {
+            const auto p = e.getPosition();
+            if (p.y >= getHeight() - kBottomGripH)      return Edge::bottom;
+            if (p.y <= kGripH)                          return Edge::top;
+            if (p.x <= kGripH)                          return Edge::left;
+            if (p.x >= getWidth() - kGripH)             return Edge::right;
+            return Edge::none;
+        }
+
         bool nearGrip (const juce::MouseEvent& e) const
         {
-            return e.y >= getHeight() - kGripH;
+            return edgeAt (e) != Edge::none;
+        }
+
+        juce::MouseCursor cursorFor (Edge e) const
+        {
+            switch (e)
+            {
+                case Edge::top:    return juce::MouseCursor::UpDownResizeCursor;
+                case Edge::bottom: return juce::MouseCursor::UpDownResizeCursor;
+                case Edge::left:   return juce::MouseCursor::LeftRightResizeCursor;
+                case Edge::right:  return juce::MouseCursor::LeftRightResizeCursor;
+                default:           return juce::MouseCursor::NormalCursor;
+            }
         }
 
         void mouseDrag (const juce::MouseEvent& e) override
         {
-            if (! resizing)
+            if (resizeEdge == Edge::none)
                 return;
             const int lo = SearchableModelPicker::popupHeightForRows (4);
             const int hi = SearchableModelPicker::popupHeightForRows (24);
-            const int h = juce::jlimit (lo, hi, resizeStartH
-                                               + e.getDistanceFromDragStartY());
+            // GROWING FROM THE TOP is the whole point for a picker near the
+            // bottom of the screen: the drag distance is inverted, so pulling
+            // up adds rows instead of removing them.
+            const int dy = e.getDistanceFromDragStartY();
+            const int dx = e.getDistanceFromDragStartX();
+            int w = resizeStartW;
+            int h = resizeStartH;
+            if (resizeEdge == Edge::top)         h = resizeStartH - dy;
+            else if (resizeEdge == Edge::bottom) h = resizeStartH + dy;
+            else if (resizeEdge == Edge::left)   w = resizeStartW - dx;
+            else if (resizeEdge == Edge::right)  w = resizeStartW + dx;
+            w = juce::jlimit (240, 900, w);
+            h = juce::jlimit (lo, hi, h);
             // ONLY the content is resized: juce::CallOutBox re-fits itself
             // from it (childBoundsChanged -> updatePosition), and it knows its
             // OWN border size. Resizing the box by hand with a guessed border
             // painted it one frame short, which is what made the bottom edge
             // vanish exactly while dragging it.
-            setSize (getWidth(), h);
+            setSize (w, h);
         }
 
-        void mouseUp (const juce::MouseEvent&) override { resizing = false; }
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            resizeEdge = Edge::none;
+        }
 
         /** Three ticks in the corner: the only sign that the edge is live. */
         void paintOverChildren (juce::Graphics& g) override
@@ -897,13 +935,18 @@ private:
                 g.fillRect (x + i * 3, y - i * 3 - 2, 2, 2);
         }
 
-        bool resizing = false;
+        Edge resizeEdge = Edge::none;
         int  resizeStartH = 0;
+        int  resizeStartW = 0;
         static constexpr int kBarW = 12;          // scrollbar strip when content scrolls
 
         void resized() override
         {
             auto b = getLocalBounds().reduced (4);
+            // The TOP strip is reserved before the search field: a resize
+            // handle that overlaps a text field steals the click that was
+            // meant to focus it.
+            b.removeFromTop (kGripH);
             search.setBounds (b.removeFromTop (24));
             b.removeFromTop (4);
             footerArea = b.removeFromBottom (kFooterH);
@@ -1148,8 +1191,7 @@ private:
 
         void mouseMove (const juce::MouseEvent& e) override
         {
-            setMouseCursor (nearGrip (e) ? juce::MouseCursor::UpDownResizeCursor
-                                         : juce::MouseCursor::NormalCursor);
+            setMouseCursor (cursorFor (edgeAt (e)));
             if (owner == nullptr)
                 return;
             const bool overLink = owner->onManageModels != nullptr
@@ -1210,9 +1252,10 @@ private:
             // The bottom strip belongs to the RESIZE, before any row hit: the
             // footer is paged by a click, and a reader who grabs the edge is
             // asking for more rows, not for another page.
-            resizing = nearGrip (e);
+            resizeEdge = edgeAt (e);
             resizeStartH = getHeight();
-            if (resizing)
+            resizeStartW = getWidth();
+            if (resizeEdge != Edge::none)
                 return;
             if (owner == nullptr)
                 return;
