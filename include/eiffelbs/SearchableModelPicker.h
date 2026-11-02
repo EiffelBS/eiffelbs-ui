@@ -181,8 +181,13 @@ public:
     static constexpr int kPopupHeaderH = 36;   // top grip band + search row + gap
     static constexpr int kPopupPad     = 8;    // resized()'s reduced(4) x2
 
-    /** ALPHABETICAL ordering (opt-in, off by default so a host that curates
-        an order - "recommended first" - keeps it).
+    /** ALPHABETICAL ordering - the DEFAULT for every picker in the app.
+
+        A list a reader browses is searched by name, so the order must be the
+        one the names have, not the one a catalogue happened to load in. A host
+        that genuinely curates an order (a "recommended" section pinned first)
+        turns it OFF with setAlphabetical(false); that is the exception and it
+        has to be written down at the call site.
 
         Groups stay together and their order stays the one the host declared:
         the sort happens INSIDE each group, so a header never moves and a run
@@ -699,7 +704,7 @@ private:
         before (model catalogs); the assistant's template list speaks templates. */
     juce::String searchHintText = "Search models...", emptyStateTextValue = "no models available";
     int viewRowsLimit = 10;   // rows shown at open; setMaxVisibleRows raises it
-    bool alphabetical = false;
+    bool alphabetical = true;   // the app-wide default
 
     /** One chip row per TAG DIMENSION, values in first-seen order with "All"
         first. The picked callback only moves this picker's own state: the

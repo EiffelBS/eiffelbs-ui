@@ -1420,6 +1420,13 @@ int main()
                 ordered.setItems ({ "a", "b", "c", "d" },
                                   { "zulu", "alpha", "mike", "bravo" },
                                   {}, { "G1", "G1", "G2", "G2" });
+                // ALPHABETICAL IS THE DEFAULT (v0.73.0): a fresh picker
+                // ordered its rows before anyone asked.
+                ebs::SearchableModelPicker fresh;
+                fresh.setItems ({ "a", "b" }, { "zulu", "alpha" });
+                check (fresh.isAlphabetical()
+                           && fresh.labelForTest (0) == "alpha",
+                       "alphabetical is the default order");
                 ordered.setAlphabetical (true);
                 // Visible rows alternate header / rows: 0 = "G1" header,
                 // 3 = "G2" header, so the ROWS are at 1, 2 and 4, 5.
