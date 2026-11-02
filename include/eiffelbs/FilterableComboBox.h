@@ -159,6 +159,9 @@ public:
     /** Rows shown when the popup opens (4..24). A voice or template list is
         worth more rows than a model catalog's ten. */
     void setMaxVisibleRows (int rows) { picker.setMaxVisibleRows (rows); }
+
+    /** Alphabetical order inside each group (groups keep the host's order). */
+    void setAlphabetical (bool on) { picker.setAlphabetical (on); }
     int  maxVisibleRows() const { return picker.maxVisibleRows(); }
 
     /** Open the filtered list programmatically (tests / keyboard helpers). */

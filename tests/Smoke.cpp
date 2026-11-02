@@ -1412,6 +1412,31 @@ int main()
                        "back to All restores every row");
             }
 
+            // 5f) ORDER (v0.72.0): off by default (a host may curate), and
+            //     when on it sorts INSIDE each group - the header keeps
+            //     opening its run and the group order never moves.
+            {
+                ebs::SearchableModelPicker ordered;
+                ordered.setItems ({ "a", "b", "c", "d" },
+                                  { "zulu", "alpha", "mike", "bravo" },
+                                  {}, { "G1", "G1", "G2", "G2" });
+                ordered.setAlphabetical (true);
+                // Visible rows alternate header / rows: 0 = "G1" header,
+                // 3 = "G2" header, so the ROWS are at 1, 2 and 4, 5.
+                check (ordered.isAlphabetical()
+                           && ordered.labelForTest (0).isEmpty()
+                           && ordered.labelForTest (1) == "alpha"
+                           && ordered.labelForTest (2) == "zulu"
+                           && ordered.labelForTest (3).isEmpty()
+                           && ordered.labelForTest (4) == "bravo"
+                           && ordered.labelForTest (5) == "mike",
+                       "alphabetical sorts inside each group, groups untouched");
+                ordered.setAlphabetical (false);
+                check (ordered.labelForTest (1) == "zulu"
+                           && ordered.labelForTest (2) == "alpha",
+                       "turning it off restores the host's own order");
+            }
+
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
             //    closeButton and NOTHING else, and DocumentWindow maps
             //    requiredButtons to the peer flags - so the window was born

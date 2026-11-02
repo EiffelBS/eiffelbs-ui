@@ -181,6 +181,29 @@ public:
     static constexpr int kPopupHeaderH = 36;   // top grip band + search row + gap
     static constexpr int kPopupPad     = 8;    // resized()'s reduced(4) x2
 
+    /** ALPHABETICAL ordering (opt-in, off by default so a host that curates
+        an order - "recommended first" - keeps it).
+
+        Groups stay together and their order stays the one the host declared:
+        the sort happens INSIDE each group, so a header never moves and a run
+        never splits. Ungrouped rows form their own leading run and are sorted
+        the same way, which is what keeps a sentinel row like "default" where
+        the host put it (first). */
+    void setAlphabetical (bool on)
+    {
+        if (alphabetical == on)
+            return;
+        alphabetical = on;
+        applyFilter();
+        if (popup != nullptr)
+        {
+            popup->updateScroll();
+            popup->repaint();
+        }
+        repaint();
+    }
+    bool isAlphabetical() const noexcept { return alphabetical; }
+
     void setMaxVisibleRows (int rows)
     {
         viewRowsLimit = juce::jlimit (4, 24, rows);
@@ -445,6 +468,16 @@ public:
 
     /** Rows eligible after the installed-only filter (the footer's Y). */
     int eligibleCountForTest() const    { return (int) eligible.size(); }
+    /** Label of the row at VISIBLE index `i` (header rows answer ""). */
+    juce::String labelForTest (int visibleIndex) const
+    {
+        if (visibleIndex < 0 || visibleIndex >= (int) display.size())
+            return {};
+        const int item = display[(size_t) visibleIndex].idIndex;
+        if (item < 0)
+            return {};
+        return item < labels.size() ? labels[item] : ids[item];
+    }
     /** The bottom "Manage models..." link: present only when the callback set. */
     bool manageLinkVisibleForTest() const { return onManageModels != nullptr; }
     void clickManageLinkForTest()       { activateManageLink(); }
@@ -666,6 +699,7 @@ private:
         before (model catalogs); the assistant's template list speaks templates. */
     juce::String searchHintText = "Search models...", emptyStateTextValue = "no models available";
     int viewRowsLimit = 10;   // rows shown at open; setMaxVisibleRows raises it
+    bool alphabetical = false;
 
     /** One chip row per TAG DIMENSION, values in first-seen order with "All"
         first. The picked callback only moves this picker's own state: the
@@ -767,26 +801,53 @@ private:
         // Headers follow their models: a header row opens each run of same-group
         // rows, and an empty group contributes nothing - it can never show over
         // an emptied run. Ungrouped hosts get the flat list unchanged.
+        // ORDER: insertion unless the host asked for alphabetical. The sort
+        // is applied to POSITIONS, never to the group structure: a header
+        // keeps opening its run, and the groups keep the order the host
+        // declared (a "recommended" group stays first).
+        auto labelOf = [this] (int i)
+        {
+            return i >= 0 && i < labels.size() && labels[i].isNotEmpty()
+                       ? labels[i] : ids[i];
+        };
+        auto byLabel = [&labelOf] (int a, int b)
+        { return labelOf (a).compareIgnoreCase (labelOf (b)) < 0; };
+
         display.clear();
         juce::String lastGroup;   // run tracker for header placement
+        std::vector<int> run;     // rows of the CURRENT run, sorted as a unit
+        auto flushRun = [&]
+        {
+            if (alphabetical && run.size() > 1)
+                std::stable_sort (run.begin(), run.end(), byLabel);
+            for (const int i : run)
+                display.push_back (RowEntry{ {}, i });
+            run.clear();
+        };
         for (const int i : filtered)
         {
             const bool hasGroup = grouped && i < groups.size()
                                    && groups[i].isNotEmpty();
             if (! hasGroup)
             {
-                lastGroup = {};   // an ungrouped model resets the run tracker
-                display.push_back (RowEntry{ {}, i });
+                // An ungrouped row resets the run tracker: it belongs to the
+                // leading (or trailing) ungrouped run, sorted on its own.
+                if (lastGroup.isNotEmpty())
+                    flushRun();
+                lastGroup = {};   // ungrouped: no header, sorted separately
+                run.push_back (i);
                 continue;
             }
             const auto g = groups[i];
             if (g != lastGroup)
             {
+                flushRun();
                 display.push_back (RowEntry{ g, -1 });
-                lastGroup = g;   // the header opens its run: a reader sees THEIR server first
+                lastGroup = g;   // the header opens its run
             }
-            display.push_back (RowEntry{ {}, i });
+            run.push_back (i);
         }
+        flushRun();
         if (highlighted >= (int) filtered.size())
             highlighted = juce::jmax (0, (int) filtered.size() - 1);
         if (hoveredIndex >= (int) display.size())
