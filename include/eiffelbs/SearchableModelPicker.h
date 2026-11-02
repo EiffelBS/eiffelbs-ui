@@ -382,6 +382,43 @@ public:
         std::function<void (int)> picked;
     };
 
+    /** TAG-DRIVEN filters: the host supplies one map of values per item
+        (task, language, quantization, "fits my gpu"...) plus the dimensions
+        it wants offered. The picker derives the chips, keeps one active value
+        per dimension, and filters its OWN rows - no rebuild callback, so two
+        dimensions compose by construction instead of by the host re-deriving
+        the list twice.
+
+        A dimension whose values do not split the list is not offered, and a
+        value that disappears from the catalogue falls back to "All".
+
+        FAMILY is deliberately NOT one of these: on a long list it is a wall
+        of chips. It belongs in the list as GROUP HEADERS (setItems' groups),
+        where the search already narrows by typing a family name. */
+    void setItemTags (std::vector<std::map<juce::String, juce::String>> perItem,
+                      const juce::StringArray& dimensions)
+    {
+        itemTags = std::move (perItem);
+        tagDimensions = dimensions;
+        refreshTagRows();
+    }
+
+    /** Test hook: apply a chip pick exactly as a click does. */
+    void pickTagFilterForTest (const juce::String& dimension,
+                               const juce::String& value)
+    {
+        tagFilters[dimension] = value;
+        refreshTagRows();
+        applyFilter();
+    }
+
+    /** The value currently filtering `dimension` ("All" when unfiltered). */
+    juce::String tagFilterFor (const juce::String& dimension) const
+    {
+        const auto it = tagFilters.find (dimension);
+        return it == tagFilters.end() ? juce::String ("All") : it->second;
+    }
+
     void setFilterRows (std::vector<FilterRow> rows)
     {
         filterRows = std::move (rows);
@@ -607,6 +644,9 @@ private:
     juce::StringArray installedIds;   // eligibility set (installed-only mode)
     juce::StringArray footerOptionLabels;   // optional footer pickers
     std::vector<FilterRow> filterRows;       // optional filter rows (family, quant...)
+    std::vector<std::map<juce::String, juce::String>> itemTags;
+    juce::StringArray tagDimensions;
+    std::map<juce::String, juce::String> tagFilters;
     int               footerOptionActive = -1;
     std::function<void (int)> footerOptionPicked;
     juce::String selectedIdValue;
@@ -627,6 +667,48 @@ private:
     juce::String searchHintText = "Search models...", emptyStateTextValue = "no models available";
     int viewRowsLimit = 10;   // rows shown at open; setMaxVisibleRows raises it
 
+    /** One chip row per TAG DIMENSION, values in first-seen order with "All"
+        first. The picked callback only moves this picker's own state: the
+        rows are already here. */
+    void refreshTagRows()
+    {
+        std::vector<FilterRow> rows;
+        for (const auto& dim : tagDimensions)
+        {
+            juce::StringArray values { "All" };
+            for (const auto& tags : itemTags)
+            {
+                const auto it = tags.find (dim);
+                if (it != tags.end() && it->second.isNotEmpty())
+                    values.addIfNotAlreadyThere (it->second);
+            }
+            if (values.size() <= 2)
+            {
+                tagFilters[dim] = "All";   // nothing to split
+                continue;
+            }
+            auto& active = tagFilters[dim];
+            if (! values.contains (active))
+                active = "All";
+            rows.push_back ({ values, values.indexOf (active),
+                [this, dim, values] (int picked)
+                {
+                    tagFilters[dim] = values[juce::jlimit (0, values.size() - 1,
+                                                           picked)];
+                    refreshTagRows();
+                    applyFilter();
+                    if (popup != nullptr)
+                    {
+                        popup->updateScroll();
+                        popup->repaint();
+                    }
+                    repaint();
+                } });
+        }
+        filterRows = std::move (rows);
+        repaint();
+    }
+
     void applyFilter()
     {
         eligible.clear();
@@ -636,6 +718,27 @@ private:
             // INSTALLED-ONLY: a row the caller did not mark is not eligible at
             // all - it is not listed, and it is not counted in the footer.
             if (installedOnly && ! installedIds.contains (ids[i]))
+                continue;
+            // TAG DIMENSIONS: every active filter must match, on top of the
+            // installed test - one skip is enough to hide the row.
+            bool tagHit = true;
+            for (const auto& [dim, want] : tagFilters)
+            {
+                if (want == "All")
+                    continue;
+                const std::map<juce::String, juce::String>* tags = nullptr;
+                if (i < (int) itemTags.size())
+                    tags = &itemTags[(size_t) i];
+                const auto it = tags != nullptr ? tags->find (dim)
+                                                : std::map<juce::String,
+                                                           juce::String>::const_iterator {};
+                if (tags == nullptr || it == tags->end() || it->second != want)
+                {
+                    tagHit = false;
+                    break;
+                }
+            }
+            if (! tagHit)
                 continue;
             eligible.push_back (i);
         }

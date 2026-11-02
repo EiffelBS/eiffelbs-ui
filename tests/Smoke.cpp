@@ -1387,6 +1387,31 @@ int main()
                        "the footer reserves one row per filter plus its own");
             }
 
+            // 5e) TAG FILTERS (v0.71.0): the picker derives the chips from the
+            //     values it holds and filters its own rows, so two dimensions
+            //     compose without the host rebuilding anything.
+            {
+                ebs::SearchableModelPicker tagged;
+                tagged.setItems ({ "m1", "m2", "m3" },
+                                 { "one", "two", "three" });
+                tagged.setItemTags ({ { { "quantization", "f32" } },
+                                      { { "quantization", "q8_0" } },
+                                      { { "quantization", "f32" } } },
+                                    { "quantization" });
+                check (tagged.tagFilterFor ("quantization") == "All",
+                       "a tag dimension starts unfiltered");
+                tagged.setFilterRows ({});   // host keeps its own rows out of it
+                check (tagged.eligibleCountForTest() == 3,
+                       "every row is eligible before a tag is picked");
+                tagged.pickTagFilterForTest ("quantization", "q8_0");
+                check (tagged.eligibleCountForTest() == 1
+                           && tagged.tagFilterFor ("quantization") == "q8_0",
+                       "a tag chip narrows the eligible rows to its value");
+                tagged.pickTagFilterForTest ("quantization", "All");
+                check (tagged.eligibleCountForTest() == 3,
+                       "back to All restores every row");
+            }
+
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
             //    closeButton and NOTHING else, and DocumentWindow maps
             //    requiredButtons to the peer flags - so the window was born
