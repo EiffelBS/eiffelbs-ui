@@ -182,6 +182,10 @@ inline OutputFrame::OutputFrame (Bindings b) : bindings (std::move (b))
     clip.setInterceptsMouseClicks (false, true);
     clip.addAndMakeVisible (waveform);
     waveform.setInterceptsMouseClicks (false, false);
+    // The frame body IS the surface: the waveform's own block would be a
+    // rectangle of the page colour inside a card, which is what the author saw
+    // in every tab's OUTPUT frame (2026-11-02).
+    waveform.setBackgroundVisible (false);
     clip.addAndMakeVisible (selector);
     selector.setLabelStripVisible (false);   // the frame owns the zone readout
     selector.onSelectionChanged = [this] (double, double)
