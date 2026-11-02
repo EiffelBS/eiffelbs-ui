@@ -1370,6 +1370,23 @@ int main()
                        "a voice list can ask for more rows than a catalog");
             }
 
+            // 5d) FILTER ROWS (v0.70.0): each extra dimension costs its own
+            //     footer row, and the row count is what the popup reserves -
+            //     a filter must never sit on top of a model row.
+            {
+                check (ebs::SearchableModelPicker::popupHeightForRows (10, 3)
+                           - ebs::SearchableModelPicker::popupHeightForRows (10, 1)
+                       == 2 * 18,
+                       "two filter rows add two footer rows of height");
+                ebs::SearchableModelPicker picker;
+                std::vector<ebs::SearchableModelPicker::FilterRow> rows;
+                rows.push_back ({ { "All", "universr" }, 0, {} });
+                rows.push_back ({ { "All", "f32", "q8_0" }, 1, {} });
+                picker.setFilterRows (rows);
+                check (picker.footerRowCount() == 3,
+                       "the footer reserves one row per filter plus its own");
+            }
+
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
             //    closeButton and NOTHING else, and DocumentWindow maps
             //    requiredButtons to the peer flags - so the window was born

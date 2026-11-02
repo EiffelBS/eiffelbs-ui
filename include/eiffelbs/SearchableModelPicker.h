@@ -170,10 +170,10 @@ public:
     /** The popup's height at `rows` visible rows. ONE definition: the
         CallOutBox asks for it, and the resize handle clamps with it, so a
         dragged popup can never disagree with the one that opens. */
-    static int popupHeightForRows (int rows)
+    static int popupHeightForRows (int rows, int footerRows = 1)
     {
         return kPopupHeaderH + juce::jmax (1, rows) * kPopupRowH
-             + kPopupFooterH + kPopupPad;
+             + juce::jmax (1, footerRows) * kPopupFooterH + kPopupPad;
     }
 
     static constexpr int kPopupRowH    = 24;
@@ -370,6 +370,26 @@ public:
         if (popup != nullptr)
             popup->repaint();
     }
+
+    /** EXTRA filter rows ABOVE the footer line: one row per dimension
+        (family, quantization...). Each carries its own chip set and active
+        index, so two filters can narrow one list without a dialog. A row is
+        chips only - the link and the count stay on the footer line. */
+    struct FilterRow
+    {
+        juce::StringArray labels;
+        int active = 0;
+        std::function<void (int)> picked;
+    };
+
+    void setFilterRows (std::vector<FilterRow> rows)
+    {
+        filterRows = std::move (rows);
+        repaint();
+    }
+
+    /** Rows the popup must reserve under the list (extra rows + the line). */
+    int footerRowCount() const { return 1 + (int) filterRows.size(); }
 
     /** Rectangles the footer options would occupy at `width` (tests). */
     std::vector<juce::Rectangle<int>> footerOptionRectsForTest (int width) const
@@ -586,6 +606,7 @@ private:
     juce::StringArray ids, labels, details, groups;
     juce::StringArray installedIds;   // eligibility set (installed-only mode)
     juce::StringArray footerOptionLabels;   // optional footer pickers
+    std::vector<FilterRow> filterRows;       // optional filter rows (family, quant...)
     int               footerOptionActive = -1;
     std::function<void (int)> footerOptionPicked;
     juce::String selectedIdValue;
@@ -785,8 +806,15 @@ private:
     {
         SearchableModelPicker* owner = nullptr;
         SearchField search;
-        juce::Rectangle<int> listArea, footerArea, manageLinkArea,
+        juce::Rectangle<int> listArea, footerArea, filterArea, manageLinkArea,
                              footerCountArea, rowsBase;
+
+        /** One filter row's rect inside filterArea. */
+        juce::Rectangle<int> filterRowArea (int index) const
+        {
+            return filterArea.withTrimmedTop (kFooterH * index)
+                             .withHeight (kFooterH);
+        }
 
         /** The scrollbar reports moves through onValueChange (juce::ScrollBar
             has NO valueChanged() to override in JUCE 8). */
@@ -831,8 +859,8 @@ private:
             // The height formula pays for resized()'s reduced(4) TOP AND BOTTOM
             // (8 px), or the window lands one row short and shows 9 rows.
             setSize (360, SearchableModelPicker::popupHeightForRows (
-                              o != nullptr ? o->viewRowsLimit
-                                           : kDefaultViewRows));
+                              o != nullptr ? o->viewRowsLimit : kDefaultViewRows,
+                              o != nullptr ? o->footerRowCount() : 1));
         }
 
         ~PopupContent() override
@@ -949,7 +977,14 @@ private:
             b.removeFromTop (kGripH);
             search.setBounds (b.removeFromTop (24));
             b.removeFromTop (4);
-            footerArea = b.removeFromBottom (kFooterH);
+            // The footer BLOCK: extra filter rows above, the link/count line
+            // at the very bottom. Reserving the block first keeps the list
+            // area honest - a filter row added later cannot overlap a row.
+            const int rows = owner != nullptr ? owner->footerRowCount() : 1;
+            auto footerBlock = b.removeFromBottom (kFooterH * juce::jmax (1, rows));
+            filterArea = footerBlock.removeFromTop (
+                kFooterH * (owner != nullptr ? (int) owner->filterRows.size() : 0));
+            footerArea = footerBlock;
             SearchableModelPicker::layoutFooterRow (
                 footerArea, owner != nullptr && owner->onManageModels != nullptr,
                 manageLinkArea, footerCountArea);
@@ -1144,6 +1179,32 @@ private:
                 }
                 g.restoreState();
             }
+            // EXTRA filter rows: chips only, same ink and pill as the footer
+            // line's group-by options, one dimension per row.
+            if (owner != nullptr)
+                for (int r = 0; r < (int) owner->filterRows.size(); ++r)
+                {
+                    const auto& row = owner->filterRows[(size_t) r];
+                    const auto area = filterRowArea (r);
+                    int ox = area.getX() + 4;
+                    for (int i = 0; i < row.labels.size(); ++i)
+                    {
+                        const int w = (int) std::ceil (textWidthOf (row.labels[i])) + 16;
+                        const juce::Rectangle<int> chip (ox, area.getY(), w,
+                                                         area.getHeight());
+                        const bool active = i == row.active;
+                        if (active)
+                        {
+                            g.setColour (ebs::accent().withAlpha (0.16f));
+                            g.fillRoundedRectangle (chip.toFloat(), 4.0f);
+                        }
+                        g.setColour (active ? ebs::accent() : ebs::textDim());
+                        g.setFont (ebs::fontHint());
+                        g.drawText (row.labels[i], chip,
+                                    juce::Justification::centred, true);
+                        ox += w + 2;
+                    }
+                }
             g.setColour (ebs::textDim());
             g.setFont (ebs::fontHint());
             g.drawText (owner->footerText(), footerCountArea,
@@ -1259,6 +1320,34 @@ private:
                 return;
             if (owner == nullptr)
                 return;
+            // Extra filter rows own their clicks: a chip press reports its
+            // index and the host rebuilds the list it feeds.
+            for (int r = 0; r < (int) owner->filterRows.size(); ++r)
+            {
+                const auto area = filterRowArea (r);
+                if (! area.contains (e.getPosition()))
+                    continue;
+                auto& row = owner->filterRows[(size_t) r];
+                int ox = area.getX() + 4;
+                for (int i = 0; i < row.labels.size(); ++i)
+                {
+                    const int w = (int) std::ceil (textWidthOf (row.labels[i])) + 16;
+                    if (juce::Rectangle<int> (ox, area.getY(), w,
+                                              area.getHeight())
+                            .contains (e.getPosition()))
+                    {
+                        row.active = i;
+                        const auto picked = row.picked;
+                        owner->repaint();
+                        repaint();
+                        if (picked != nullptr)
+                            picked (i);
+                        return;
+                    }
+                    ox += w + 2;
+                }
+                return;
+            }
             if (owner->onManageModels != nullptr && ! manageLinkArea.isEmpty()
                 && manageLinkArea.contains (e.getPosition()))
             {
@@ -1351,7 +1440,7 @@ private:
             auto content = std::make_unique<PopupContent> (this);
             const int rows = viewRowsForTest();   // jmin(viewRowsLimit, display size)
             content->setSize (juce::jmax (280, getWidth() - 2),
-                              popupHeightForRows (rows));
+                              popupHeightForRows (rows, footerRowCount()));
             popup = content.get();
             const auto anchorBounds = anchorComponent != nullptr
                                           ? anchorComponent->getScreenBounds()
