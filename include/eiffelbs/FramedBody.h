@@ -6,7 +6,11 @@
 // original copyright (C) 2026 EiffelBS).
 //
 // A plain child component that paints the shared EiffelBS frame language
-// (continuous rounded bgPanel body + soft accent border via drawFramePlain).
+// (continuous rounded bgCard body + neutral border via drawCardFrame).
+// It is a GROUP nested in a page, so it takes the CARD surface: painting the
+// page surface here made a card and the page it sits on the same pixels
+// (measured on the OpenTimbre Voice tab, 2026-11-02: both #373A3E, so a page
+// built from frames read as one flat slab).
 // Titles remain the caller's job: add plain labels fully inside the frame.
 
 #pragma once
@@ -21,7 +25,7 @@ namespace ebs
     {
         void paint (juce::Graphics& g) override
         {
-            drawFramePlain (g, getLocalBounds().toFloat());
+            drawCardFrame (g, getLocalBounds().toFloat());
         }
     };
 } // namespace ebs

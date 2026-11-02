@@ -1080,12 +1080,45 @@ int main()
                    "the pause glyph leaves its centre empty (two bars, one gap)");
         }
 
-        // FramedBody: paints the shared frame language.
+        // FramedBody: paints the shared frame language, on the CARD surface.
+        // The point of the assertion is the SEPARATION: a group nested in a
+        // page must not paint the page colour, or a page built from frames
+        // reads as one flat slab (measured on the OpenTimbre Voice tab,
+        // 2026-11-02: page and frame both #373A3E).
+        check (ebs::bgCard() != ebs::bgPanel(),
+               "the card surface is a step away from the page surface");
         ebs::FramedBody body;
         const auto bodyImg = renderToImage (100, 80, [&] (juce::Graphics& g)
             { body.setBounds (0, 0, 80, 60); body.paint (g); });
-        checkPixel (bodyImg, { 40, 30 }, ebs::bgPanel(),
-                    "FramedBody paints the shared frame");
+        checkPixel (bodyImg, { 40, 30 }, ebs::bgCard(),
+                    "FramedBody paints the card surface, not the page");
+
+        // A WELL sunk into a card: darker than the card, and darker than the
+        // page in the dark theme, so a drop zone cannot read as another card.
+        check (ebs::bgInset() != ebs::bgCard() && ebs::bgInset() != ebs::bgPanel(),
+               "the inset surface is its own step");
+        const auto wellImg = renderToImage (120, 80, [&] (juce::Graphics& g)
+            { ebs::drawInsetFrame (g, juce::Rectangle<float> (2.0f, 2.0f, 116.0f, 76.0f)); });
+        checkPixel (wellImg, { 60, 60 }, ebs::bgInset(),
+                    "a well paints the inset surface");
+        // The inner shadow sits under the top edge, so the same column is
+        // DARKER at the top than at the bottom: that gradient is the relief.
+        check (wellImg.getPixelAt (60, 4).getBrightness()
+                   < wellImg.getPixelAt (60, 60).getBrightness(),
+               "the inset shadow darkens the top edge, so the well reads sunken");
+
+        // The SAME well with the CARD's own fill: equal to its container and
+        // told apart by the relief alone. This is the variant the Voice tab's
+        // drop zones use - the author asked for it over a darker well, which
+        // reads as a hole under a waveform.
+        const auto pressedImg = renderToImage (120, 80, [&] (juce::Graphics& g)
+            { ebs::drawInsetFrame (g, juce::Rectangle<float> (2.0f, 2.0f, 116.0f, 76.0f),
+                                   ebs::bgCard()); });
+        checkPixel (pressedImg, { 60, 60 }, ebs::bgCard(),
+                    "a pressed-outline well keeps its card's fill");
+        check (pressedImg.getPixelAt (60, 4).getBrightness()
+                   < pressedImg.getPixelAt (60, 60).getBrightness(),
+               "the pressed-outline well still reads sunken");
 
         // StatusBar: thread-safe logLine (we ARE the message thread here)
         // followed by a real paint pass.
@@ -2868,8 +2901,9 @@ int main()
             return img;
         };
 
-        // Inside the band: the strip tint painted over the frame body, not a raw accent.
-        const auto tint = renderToImage (w, tallH, [&] (juce::Graphics& g) { g.setColour (ebs::bgPanel()); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); g.setColour (ebs::accent().withAlpha (0.10f)); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); }).getPixelAt (10, 3);
+        // Inside the band: the strip tint painted over the CARD body (a group
+        // nested in a page), not a raw accent and not the page colour.
+        const auto tint = renderToImage (w, tallH, [&] (juce::Graphics& g) { g.setColour (ebs::bgCard()); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); g.setColour (ebs::accent().withAlpha (0.10f)); g.fillRect (juce::Rectangle<int> (0, 0, w, tallH)); }).getPixelAt (10, 3);
         // The extreme corner is OUTSIDE the rounded path, so the square edge of the strip
         // must never show: black means the band followed the frame curve.
         // The SAME frame with no spine at all is the reference for what a frame paints by itself.
@@ -3525,7 +3559,7 @@ int main()
             juce::Image headRef (juce::Image::ARGB, 300, bh, true);
             {
                 juce::Graphics rg (headRef);
-                rg.setColour (ebs::bgPanel());          rg.fillRect (juce::Rectangle<int> (0, 0, 300, bh));
+                rg.setColour (ebs::bgCard());           rg.fillRect (juce::Rectangle<int> (0, 0, 300, bh));
                 rg.setColour (ebs::accent().withAlpha (0.10f)); rg.fillRect (juce::Rectangle<int> (0, 0, 300, bh));
             }
 
@@ -3587,11 +3621,12 @@ int main()
                 return img;
             };
 
-            // The tint the band paints over a frame body, computed exactly as the paint does it: bgPanel under an
+            // The tint the band paints over a CARD body (a group nested in a
+            // page), computed exactly as the paint does it: bgCard under an
             // accent wash at 10 %. Compared as a colour, not against the palette.
             const auto tint = renderToImage (w, h, [&] (juce::Graphics& g)
             {
-                g.setColour (ebs::bgPanel());          g.fillRect (juce::Rectangle<int> (0, 0, w, h));
+                g.setColour (ebs::bgCard());           g.fillRect (juce::Rectangle<int> (0, 0, w, h));
                 g.setColour (ebs::accent().withAlpha (0.10f)); g.fillRect (juce::Rectangle<int> (0, 0, w, h));
             }).getPixelAt (30, h - 2);   // inside the band, left of where a caption sits
 

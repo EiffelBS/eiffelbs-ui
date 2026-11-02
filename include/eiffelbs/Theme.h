@@ -96,11 +96,47 @@ namespace ebs
                         : juce::Colour::fromString ("#FFF0F1F5");
     }
 
-    /** Panel background (cards, blocks, framed groups). */
+    /** Panel background (the PAGE layer: a whole tab page, a window body). */
     inline juce::Colour bgPanel()
     {
         return isDark() ? juce::Colour::fromString ("#FF373A3E")
                         : juce::Colour::fromString ("#FFE8E9ED");
+    }
+
+    /** Card background (a GROUP nested in a page: a titled frame, an
+        expandable block).
+
+        WHY IT IS A THIRD VALUE AND NOT `bgPanel`. A page IS a panel body
+        (`drawFramePlain`), and a titled frame nested in it was painted with the
+        same `bgPanel` - so the card and the page behind it were the SAME
+        pixels, and the border was the only thing left saying "this is a
+        group". Measured on the Voice tab (2026-11-02): page and frame both
+        #373A3E. One step away from the page is what makes a group read as a
+        group, in either theme direction (darker in the dark theme, lighter in
+        the light one, so the card always separates from the page rather than
+        from the controls). */
+    inline juce::Colour bgCard()
+    {
+        return isDark() ? juce::Colour::fromString ("#FF2E3136")
+                        : juce::Colour::fromString ("#FFF4F5F8");
+    }
+
+    /** Inset background (a WELL inside a card: a drop zone, a read-only field,
+        a list body).
+
+        WHY A FOURTH VALUE. A card has two kinds of children: things that sit
+        ON it (buttons, sliders) and things sunk INTO it (a drop target, a
+        value well). Painting both with the card colour made the drop zones
+        vanish into the card the way the card used to vanish into the page
+        (reported on the Voice tab, 2026-11-02: the zones inside SOURCE
+        PERFORMANCE / TARGET VOICE still read as the page). A well must be
+        DARKER than the card in the dark theme and slightly darker than the
+        page in the light one, so it reads as sunken rather than as another
+        card. */
+    inline juce::Colour bgInset()
+    {
+        return isDark() ? juce::Colour::fromString ("#FF232529")
+                        : juce::Colour::fromString ("#FFDCDEE3");
     }
 
     /** Accent colour (primary interactive elements: titles, arrows, checks). */

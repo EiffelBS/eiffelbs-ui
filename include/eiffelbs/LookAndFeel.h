@@ -76,6 +76,74 @@ namespace ebs
         drawGroupFrame (g, bounds);
     }
 
+    /** A GROUP nested in a page: same frame language, one surface step away
+     *  from the page, neutral border.
+
+     *  WHY IT EXISTS. `drawFramePlain` paints a PAGE body (bgPanel), and a
+     *  titled frame nested in a page used to call the same primitive: the card
+     *  and the page behind it were the same pixels, so a page made of frames
+     *  read as one flat slab (measured on the Voice tab, 2026-11-02: page and
+     *  frame both #373A3E). This variant paints `bgCard()` instead - darker
+     *  than the page in the dark theme, lighter in the light one - so the card
+     *  separates from the page while the controls inside it stay legible. The
+     *  border is `panelBorder()` and not the accent: an accent edge on every
+     *  group makes every group look selected, which is exactly the signal the
+     *  accent is for. */
+    inline void drawCardFrame (juce::Graphics& g,
+                               const juce::Rectangle<float>& bounds)
+    {
+        constexpr float corner = frameCornerRadius;
+
+        g.setColour (bgCard());
+        g.fillRoundedRectangle (bounds, corner);
+
+        g.setColour (panelBorder());
+        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+    }
+
+    /** A WELL sunk into a card: a drop zone, a read-only field, a list body.
+
+     *  WHY IT EXISTS. A card has children that sit ON it (buttons, sliders) and
+     *  children sunk INTO it. Painting both with the card surface made the
+     *  wells vanish into the card exactly the way the card used to vanish into
+     *  the page - reported on the Voice tab (2026-11-02): the drop zones inside
+     *  SOURCE PERFORMANCE / TARGET VOICE still read as the tab background.
+
+     *  RELIEF, NOT COLOUR - `fill` is the caller's choice. The default
+     *  `bgInset()` is a well one step BELOW its card; passing the card's own
+     *  surface instead gives a well that is the same colour as its container and
+     *  is told apart by the inner shadow and the border ALONE (the "pressed
+     *  outline" a form uses when the field has no fill of its own). Both are
+     *  supported on purpose: which one reads better depends on what sits in the
+     *  well, and a drop zone holding a waveform wants less contrast than an
+     *  empty one.
+     *
+     *  The inner shadow is the load-bearing part: a dark hairline just inside the
+     *  top edge (light comes from above, so a sunken edge is dark at the top),
+     *  fading over 3 px, inset from the curve so it never paints over the border. */
+    inline void drawInsetFrame (juce::Graphics& g,
+                                const juce::Rectangle<float>& bounds,
+                                juce::Colour fill = bgInset())
+    {
+        constexpr float corner = frameCornerRadius;
+
+        g.setColour (fill);
+        g.fillRoundedRectangle (bounds, corner);
+
+        // The inner shadow: 3 px of black fading out, inset from the curve so
+        // it never paints over the border.
+        const auto top = bounds.reduced (2.0f, 0.0f).withHeight (3.0f);
+        g.setGradientFill (juce::ColourGradient (
+            juce::Colours::black.withAlpha (isDark() ? 0.28f : 0.14f),
+            top.getX(), top.getY(),
+            juce::Colours::transparentBlack,
+            top.getX(), top.getBottom(), false));
+        g.fillRect (top);
+
+        g.setColour (fill.darker (isDark() ? 0.18f : 0.10f));
+        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
+    }
+
     /** Rounded framed panel component used by apps as a drop-in group
      *  body (see FramedBody.h). Declared after the class below. */
 

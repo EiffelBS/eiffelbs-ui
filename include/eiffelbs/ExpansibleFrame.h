@@ -93,9 +93,10 @@ namespace ebs
 
         void paint (juce::Graphics& g) override
         {
-            // The shared frame language: continuous rounded body + soft
-            // accent border. Children are added after, so they paint over.
-            drawFramePlain (g, getLocalBounds().toFloat());
+            // A collapsible block is a GROUP nested in a page, so it takes the
+            // card surface: painting the page surface here made it vanish into
+            // the page body (see drawCardFrame).
+            drawCardFrame (g, getLocalBounds().toFloat());
         }
 
         void resized() override
