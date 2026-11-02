@@ -101,65 +101,6 @@ namespace ebs
         g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
     }
 
-    /** A WELL sunk into a card: a drop zone, a read-only field, a list body.
-
-     *  WHY IT EXISTS. A card has children that sit ON it (buttons, sliders) and
-     *  children sunk INTO it. Painting both with the card surface made the
-     *  wells vanish into the card exactly the way the card used to vanish into
-     *  the page - reported on the Voice tab (2026-11-02): the drop zones inside
-     *  SOURCE PERFORMANCE / TARGET VOICE still read as the tab background.
-
-     *  RELIEF, NOT COLOUR - `fill` is the caller's choice. The default
-     *  `bgInset()` is a well one step BELOW its card; passing the card's own
-     *  surface instead gives a well that is the same colour as its container and
-     *  is told apart by the inner shadow and the border ALONE (the "pressed
-     *  outline" a form uses when the field has no fill of its own). Both are
-     *  supported on purpose: which one reads better depends on what sits in the
-     *  well, and a drop zone holding a waveform wants less contrast than an
-     *  empty one.
-     *
-     *  THE RELIEF IS A PAIR, NOT A GRADIENT. One dark fade at the top only
-     *  reads as "this box is slightly darker at the top"; what makes a surface
-     *  read SUNKEN is the lit bottom edge that the same light leaves under a
-     *  recess. So the well paints a 6 px shadow under its top edge at 45 % and
-     *  a 1 px highlight along its bottom, inset past the corner curve. Measured
-     *  complaint behind this (2026-11-02): a 3 px fade at 28 % was invisible on
-     *  a card that is already dark. */
-    inline void drawInsetFrame (juce::Graphics& g,
-                                const juce::Rectangle<float>& bounds,
-                                juce::Colour fill = bgInset())
-    {
-        constexpr float corner = frameCornerRadius;
-        const bool dark = isDark();
-
-        g.setColour (fill);
-        g.fillRoundedRectangle (bounds, corner);
-
-        // The inner shadow: 6 px of black fading out, inset from the curve so
-        // it never paints over the border.
-        const auto top = bounds.reduced (2.0f, 0.0f).withHeight (dark ? 6.0f : 5.0f);
-        g.setGradientFill (juce::ColourGradient (
-            juce::Colours::black.withAlpha (dark ? 0.45f : 0.20f),
-            top.getX(), top.getY(),
-            juce::Colours::transparentBlack,
-            top.getX(), top.getBottom(), false));
-        g.fillRect (top);
-
-        // The border first, then the lit bottom edge ON TOP of it: the 1 px
-        // outline lands on the same rows, and a highlight painted before it is
-        // erased by the very line it was meant to lift (measured in the smoke
-        // test: the bottom row read DARKER than the fill).
-        g.setColour (fill.darker (dark ? 0.22f : 0.12f));
-        g.drawRoundedRectangle (bounds.reduced (0.5f), corner, 1.0f);
-
-        // Inset past the corner curve so the highlight never runs into a
-        // rounded corner, where it would read as a seam.
-        g.setColour (juce::Colours::white.withAlpha (dark ? 0.10f : 0.65f));
-        g.fillRect (juce::Rectangle<float> (bounds.getX() + corner,
-                                            bounds.getBottom() - 2.5f,
-                                            bounds.getWidth() - 2.0f * corner,
-                                            1.5f));
-    }
 
     /** Rounded framed panel component used by apps as a drop-in group
      *  body (see FramedBody.h). Declared after the class below. */

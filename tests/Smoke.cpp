@@ -1093,40 +1093,7 @@ int main()
         checkPixel (bodyImg, { 40, 30 }, ebs::bgCard(),
                     "FramedBody paints the card surface, not the page");
 
-        // A WELL sunk into a card: darker than the card, and darker than the
-        // page in the dark theme, so a drop zone cannot read as another card.
-        check (ebs::bgInset() != ebs::bgCard() && ebs::bgInset() != ebs::bgPanel(),
-               "the inset surface is its own step");
-        const auto wellImg = renderToImage (120, 80, [&] (juce::Graphics& g)
-            { ebs::drawInsetFrame (g, juce::Rectangle<float> (2.0f, 2.0f, 116.0f, 76.0f)); });
-        checkPixel (wellImg, { 60, 60 }, ebs::bgInset(),
-                    "a well paints the inset surface");
-        // The inner shadow sits under the top edge, so the same column is
-        // DARKER at the top than at the bottom: that gradient is the relief.
-        check (wellImg.getPixelAt (60, 4).getBrightness()
-                   < wellImg.getPixelAt (60, 60).getBrightness(),
-               "the inset shadow darkens the top edge, so the well reads sunken");
 
-        // The SAME well with the CARD's own fill: equal to its container and
-        // told apart by the relief alone. This is the variant the Voice tab's
-        // drop zones use - the author asked for it over a darker well, which
-        // reads as a hole under a waveform.
-        const auto pressedImg = renderToImage (120, 80, [&] (juce::Graphics& g)
-            { ebs::drawInsetFrame (g, juce::Rectangle<float> (2.0f, 2.0f, 116.0f, 76.0f),
-                                   ebs::bgCard()); });
-        checkPixel (pressedImg, { 60, 60 }, ebs::bgCard(),
-                    "a pressed-outline well keeps its card's fill");
-        check (pressedImg.getPixelAt (60, 4).getBrightness()
-                   < pressedImg.getPixelAt (60, 60).getBrightness(),
-               "the pressed-outline well still reads sunken");
-        // The relief is a PAIR: dark under the top edge, LIT along the bottom.
-        // One fade alone reads as "slightly darker at the top", not as a
-        // recess - and a 3 px fade at 28 % was invisible on a dark card. The
-        // highlight sits just inside the border (the rect runs 2..78, so the
-        // lit band is around row 76, on top of the 1 px outline).
-        check (pressedImg.getPixelAt (60, 76).getBrightness()
-                   > pressedImg.getPixelAt (60, 60).getBrightness(),
-               "the well's bottom edge is lit, which is what makes it sunken");
 
         // StatusBar: thread-safe logLine (we ARE the message thread here)
         // followed by a real paint pass.

@@ -121,24 +121,6 @@ namespace ebs
                         : juce::Colour::fromString ("#FFF4F5F8");
     }
 
-    /** Inset background (a WELL inside a card: a drop zone, a read-only field,
-        a list body).
-
-        WHY A FOURTH VALUE. A card has two kinds of children: things that sit
-        ON it (buttons, sliders) and things sunk INTO it (a drop target, a
-        value well). Painting both with the card colour made the drop zones
-        vanish into the card the way the card used to vanish into the page
-        (reported on the Voice tab, 2026-11-02: the zones inside SOURCE
-        PERFORMANCE / TARGET VOICE still read as the page). A well must be
-        DARKER than the card in the dark theme and slightly darker than the
-        page in the light one, so it reads as sunken rather than as another
-        card. */
-    inline juce::Colour bgInset()
-    {
-        return isDark() ? juce::Colour::fromString ("#FF232529")
-                        : juce::Colour::fromString ("#FFDCDEE3");
-    }
-
     /** Accent colour (primary interactive elements: titles, arrows, checks). */
     inline juce::Colour accent()
     {

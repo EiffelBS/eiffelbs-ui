@@ -116,6 +116,22 @@ namespace ebs
 
         // === Source =========================================================
 
+        /** Whether the widget paints its own background block.
+
+            ON by default: on a page the widget is a distinct panel and the fill
+            is what makes it read as one. OFF is for a parent that already owns
+            the surface (a card, a well), where a block of `bgPanel` under the
+            trace is the page colour in the wrong place. */
+        void setBackgroundVisible (bool shouldShow)
+        {
+            if (backgroundVisible == shouldShow)
+                return;
+            backgroundVisible = shouldShow;
+            repaint();
+        }
+
+        bool isBackgroundVisible() const noexcept { return backgroundVisible; }
+
         /** The audio to show. An empty file, or one with no decodable audio,
             answers ReadyState::Empty - which is NOT Loading: a take with no
             audio will never finish loading, and a component that cannot tell
@@ -357,7 +373,13 @@ namespace ebs
 
         void paint (juce::Graphics& g) override
         {
-            g.fillAll (ebs::bgPanel());
+            // The widget paints its own page-coloured block by default: right on
+            // a page, wrong inside a CARD, where a block of the page colour reads
+            // as a foreign rectangle under the trace. A parent that owns the
+            // surface turns it off and lets its own fill show through (measured
+            // on the OpenTimbre Voice tab, 2026-11-02).
+            if (backgroundVisible)
+                g.fillAll (ebs::bgPanel());
             const auto area = paintArea();
             const double total = totalSeconds();
 
@@ -649,6 +671,8 @@ namespace ebs
         juce::File file;
         ReadyState ready = ReadyState::Empty;
         PlayheadState state = PlayheadState::Stopped;
+        /** Painted as a background block unless a parent owns the surface. */
+        bool backgroundVisible = true;
         double playhead = -1.0;
         juce::Colour accent { ebs::accent() };
         double fillStartSec = 0.0;   // played fill begins here
