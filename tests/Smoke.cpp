@@ -1444,6 +1444,29 @@ int main()
                        "turning it off restores the host's own order");
             }
 
+            // 5g) NOTHING TO SEPARATE, NOTHING SHOWN (v0.74.0): a tag row
+            //     needs two REAL values, and a single group gets no header.
+            {
+                ebs::SearchableModelPicker lone;
+                lone.setItems ({ "only" }, { "Only model" },
+                               {}, { "solo" });
+                lone.setItemTags ({ { { "quantization", "f32" } } },
+                                  { "quantization" });
+                check (lone.labelForTest (0) == "Only model",
+                       "a one-row list carries no group header");
+                check (lone.footerRowCount() == 1,
+                       "a one-value dimension keeps only the footer line");
+
+                ebs::SearchableModelPicker split;
+                split.setItems ({ "a", "b", "c" }, { "A", "B", "C" });
+                split.setItemTags ({ { { "quantization", "f32" } },
+                                     { { "quantization", "q8_0" } },
+                                     { { "quantization", "f32" } } },
+                                   { "quantization" });
+                check (split.footerRowCount() == 2,
+                       "two real values earn their filter row");
+            }
+
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
             //    closeButton and NOTHING else, and DocumentWindow maps
             //    requiredButtons to the peer flags - so the window was born

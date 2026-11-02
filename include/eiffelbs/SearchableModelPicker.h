@@ -721,11 +721,12 @@ private:
                 if (it != tags.end() && it->second.isNotEmpty())
                     values.addIfNotAlreadyThere (it->second);
             }
-            // A row appears as soon as ONE real value exists: "fits" alone
-            // is information (everything fits in the free memory the meter
-            // read), and hiding it looked like the filter was never wired.
-            // Only a dimension with no value at all stays hidden.
-            if (values.size() < 2)
+            // A ROW THAT SEPARATES NOTHING IS NOT SHOWN. "All" plus one real
+            // value is not a choice: a single row, or a catalogue whose
+            // weights are all f32, has nothing to narrow, and a filter that
+            // cannot change the list is noise. Two real values (three
+            // including "All") is the floor.
+            if (values.size() <= 2)
             {
                 tagFilters[dim] = "All";
                 continue;
@@ -865,9 +866,21 @@ private:
             for (const int i : rows)
                 display.push_back (RowEntry{ {}, i });
         };
+        // ...and neither is a header over the ONLY group: with one distinct
+        // family the title names nothing the list does not already say, and
+        // it costs a row of height in every popup.
+        //
+        // The count is taken over the WHOLE list, not over the filtered view:
+        // a search that narrows to one provider must still show that
+        // provider's header, because the header says which one it is.
+        juce::StringArray distinctGroups;
+        for (const auto& g : groups)
+            if (g.isNotEmpty())
+                distinctGroups.addIfNotAlreadyThere (g);
         emit (ungrouped, {});
+        const bool oneGroupOnly = distinctGroups.size() <= 1;
         for (auto& g : groupOrder)
-            emit (buckets[g], g);
+            emit (buckets[g], oneGroupOnly ? juce::String() : g);
 
         if (highlighted >= (int) filtered.size())
             highlighted = juce::jmax (0, (int) filtered.size() - 1);
