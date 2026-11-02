@@ -404,8 +404,11 @@ public:
 
     bool keyPressed (const juce::KeyPress& key) override
     {
+        // KEY CODE, not the text character: with Ctrl held the character is
+        // not 'c' (it is 0 or a control code), which is why Ctrl+C did
+        // nothing and only the context menu copied.
         if (key.getModifiers().isCommandDown()
-            && (key.getTextCharacter() == 'c' || key.getTextCharacter() == 'C'))
+            && (key.getKeyCode() == 'C' || key.getKeyCode() == 'c'))
         {
             copySelection();
             return true;
@@ -416,7 +419,7 @@ public:
             return true;
         }
         if (key.getModifiers().isCommandDown()
-            && (key.getTextCharacter() == 'a' || key.getTextCharacter() == 'A'))
+            && (key.getKeyCode() == 'A' || key.getKeyCode() == 'a'))
         {
             anchor = { 0, 0 };
             if (! rows.empty())
