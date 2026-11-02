@@ -803,13 +803,14 @@ private:
             }
             filtered.push_back (i);
         }
-        // Headers follow their models: a header row opens each run of same-group
-        // rows, and an empty group contributes nothing - it can never show over
-        // an emptied run. Ungrouped hosts get the flat list unchanged.
-        // ORDER: insertion unless the host asked for alphabetical. The sort
-        // is applied to POSITIONS, never to the group structure: a header
-        // keeps opening its run, and the groups keep the order the host
-        // declared (a "recommended" group stays first).
+
+        display.clear();
+        // GROUPING IS BY GROUP, not by run: a host that lists
+        // "audiocpp-native:stable_audio" and "audiocpp-cli:stable_audio" in two
+        // places used to get TWO "STABLE_AUDIO" headers, which reads as two
+        // different families. One header per distinct group, in the order the
+        // first row of that group appeared; rows keep their relative order
+        // (sorted when alphabetical is on).
         auto labelOf = [this] (int i)
         {
             return i >= 0 && i < labels.size() && labels[i].isNotEmpty()
@@ -818,41 +819,52 @@ private:
         auto byLabel = [&labelOf] (int a, int b)
         { return labelOf (a).compareIgnoreCase (labelOf (b)) < 0; };
 
-        display.clear();
-        juce::String lastGroup;   // run tracker for header placement
-        std::vector<int> run;     // rows of the CURRENT run, sorted as a unit
-        auto flushRun = [&]
+        if (! grouped)
         {
-            if (alphabetical && run.size() > 1)
-                std::stable_sort (run.begin(), run.end(), byLabel);
-            for (const int i : run)
+            std::vector<int> flat (filtered.begin(), filtered.end());
+            if (alphabetical && flat.size() > 1)
+                std::stable_sort (flat.begin(), flat.end(), byLabel);
+            for (const int i : flat)
                 display.push_back (RowEntry{ {}, i });
-            run.clear();
-        };
+            return;
+        }
+
+        // Bucket the eligible rows by group, remembering the order each group
+        // first appeared. Ungrouped rows form the leading section.
+        std::vector<int> ungrouped;
+        std::vector<juce::String> groupOrder;
+        std::map<juce::String, std::vector<int>> buckets;
         for (const int i : filtered)
         {
-            const bool hasGroup = grouped && i < groups.size()
-                                   && groups[i].isNotEmpty();
+            const bool hasGroup = i < groups.size() && groups[i].isNotEmpty();
             if (! hasGroup)
             {
-                // An ungrouped row resets the run tracker: it belongs to the
-                // leading (or trailing) ungrouped run, sorted on its own.
-                if (lastGroup.isNotEmpty())
-                    flushRun();
-                lastGroup = {};   // ungrouped: no header, sorted separately
-                run.push_back (i);
+                ungrouped.push_back (i);
                 continue;
             }
-            const auto g = groups[i];
-            if (g != lastGroup)
+            auto it = buckets.find (groups[i]);
+            if (it == buckets.end())
             {
-                flushRun();
-                display.push_back (RowEntry{ g, -1 });
-                lastGroup = g;   // the header opens its run
+                groupOrder.push_back (groups[i]);
+                it = buckets.emplace (groups[i], std::vector<int> {}).first;
             }
-            run.push_back (i);
+            it->second.push_back (i);
         }
-        flushRun();
+        auto emit = [&] (std::vector<int>& rows, const juce::String& header)
+        {
+            if (rows.empty())
+                return;
+            if (alphabetical && rows.size() > 1)
+                std::stable_sort (rows.begin(), rows.end(), byLabel);
+            if (header.isNotEmpty())
+                display.push_back (RowEntry{ header, -1 });
+            for (const int i : rows)
+                display.push_back (RowEntry{ {}, i });
+        };
+        emit (ungrouped, {});
+        for (auto& g : groupOrder)
+            emit (buckets[g], g);
+
         if (highlighted >= (int) filtered.size())
             highlighted = juce::jmax (0, (int) filtered.size() - 1);
         if (hoveredIndex >= (int) display.size())
