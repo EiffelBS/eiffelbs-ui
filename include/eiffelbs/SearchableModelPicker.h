@@ -167,6 +167,20 @@ public:
         categories) raises it for the NEXT open - an open popup keeps its
         size until it is reopened. Clamped to 4..24 so a popup can never be
         smaller than its search row or taller than the available screen. */
+    /** The popup's height at `rows` visible rows. ONE definition: the
+        CallOutBox asks for it, and the resize handle clamps with it, so a
+        dragged popup can never disagree with the one that opens. */
+    static int popupHeightForRows (int rows)
+    {
+        return kPopupHeaderH + juce::jmax (1, rows) * kPopupRowH
+             + kPopupFooterH + kPopupPad;
+    }
+
+    static constexpr int kPopupRowH    = 24;
+    static constexpr int kPopupFooterH = 18;
+    static constexpr int kPopupHeaderH = 30;   // search row + its gap
+    static constexpr int kPopupPad     = 8;    // resized()'s reduced(4) x2
+
     void setMaxVisibleRows (int rows)
     {
         viewRowsLimit = juce::jlimit (4, 24, rows);
@@ -818,10 +832,9 @@ private:
             addAndMakeVisible (scroll);
             // The height formula pays for resized()'s reduced(4) TOP AND BOTTOM
             // (8 px), or the window lands one row short and shows 9 rows.
-            setSize (360, 26 + 4
-                          + (o != nullptr ? o->viewRowsLimit : kDefaultViewRows)
-                                * kRowH
-                          + kFooterH + 8);
+            setSize (360, SearchableModelPicker::popupHeightForRows (
+                              o != nullptr ? o->viewRowsLimit
+                                           : kDefaultViewRows));
         }
 
         ~PopupContent() override
@@ -847,6 +860,46 @@ private:
         static constexpr int kRowH = 24;
         static constexpr int kFooterH = 18;   // ONE row: link left, count right
         static constexpr int kDefaultViewRows = 10;   // rows shown at open
+        static constexpr int kGripH = 8;      // bottom strip that resizes
+
+        /** The bottom strip RESIZES the popup, the way every list in the app
+            grows: a long voice or model list is worth more than the ten rows
+            it opens with, and the reader is the one who knows how many. */
+        bool nearGrip (const juce::MouseEvent& e) const
+        {
+            return e.y >= getHeight() - kGripH;
+        }
+
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (! resizing)
+                return;
+            const int lo = SearchableModelPicker::popupHeightForRows (4);
+            const int hi = SearchableModelPicker::popupHeightForRows (24);
+            const int h = juce::jlimit (lo, hi, resizeStartH
+                                               + e.getDistanceFromDragStartY());
+            setSize (getWidth(), h);
+            // The CallOutBox is a component of its own: growing the CONTENT
+            // alone would leave the frame around it at the old size and clip
+            // the rows that were just revealed.
+            if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
+                box->setSize (box->getWidth(), h + 2 * 8);
+            resized();
+        }
+
+        void mouseUp (const juce::MouseEvent&) override { resizing = false; }
+
+        /** Three ticks in the corner: the only sign that the edge is live. */
+        void paintOverChildren (juce::Graphics& g) override
+        {
+            g.setColour (ebs::textDim().withAlpha (0.55f));
+            const int x = getWidth() - 12, y = getHeight() - 4;
+            for (int i = 0; i < 3; ++i)
+                g.fillRect (x + i * 3, y - i * 3 - 2, 2, 2);
+        }
+
+        bool resizing = false;
+        int  resizeStartH = 0;
         static constexpr int kBarW = 12;          // scrollbar strip when content scrolls
 
         void resized() override
@@ -1096,6 +1149,8 @@ private:
 
         void mouseMove (const juce::MouseEvent& e) override
         {
+            setMouseCursor (nearGrip (e) ? juce::MouseCursor::UpDownResizeCursor
+                                         : juce::MouseCursor::NormalCursor);
             if (owner == nullptr)
                 return;
             const bool overLink = owner->onManageModels != nullptr
@@ -1153,6 +1208,13 @@ private:
 
         void mouseDown (const juce::MouseEvent& e) override
         {
+            // The bottom strip belongs to the RESIZE, before any row hit: the
+            // footer is paged by a click, and a reader who grabs the edge is
+            // asking for more rows, not for another page.
+            resizing = nearGrip (e);
+            resizeStartH = getHeight();
+            if (resizing)
+                return;
             if (owner == nullptr)
                 return;
             if (owner->onManageModels != nullptr && ! manageLinkArea.isEmpty()
@@ -1247,8 +1309,7 @@ private:
             auto content = std::make_unique<PopupContent> (this);
             const int rows = viewRowsForTest();   // jmin(viewRowsLimit, display size)
             content->setSize (juce::jmax (280, getWidth() - 2),
-                              26 + 4 + rows * PopupContent::kRowH
-                                  + PopupContent::kFooterH + 8);   // resized()'s padding
+                              popupHeightForRows (rows));
             popup = content.get();
             const auto anchorBounds = anchorComponent != nullptr
                                           ? anchorComponent->getScreenBounds()

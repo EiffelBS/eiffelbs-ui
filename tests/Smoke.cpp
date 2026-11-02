@@ -1357,6 +1357,19 @@ int main()
                        "a wrapped log still opens on its tail");
             }
 
+            // 5c) POPUP SIZE (v0.69.0): one height formula feeds the window
+            //     and the resize handle, and the row limit is the caller's.
+            {
+                const int h4 = ebs::SearchableModelPicker::popupHeightForRows (4);
+                const int h24 = ebs::SearchableModelPicker::popupHeightForRows (24);
+                check (h24 > h4 && h24 - h4 == 20 * 24,
+                       "the popup height follows the row count");
+                ebs::FilterableComboBox combo;
+                combo.setMaxVisibleRows (16);
+                check (combo.maxVisibleRows() == 16,
+                       "a voice list can ask for more rows than a catalog");
+            }
+
             // 6) TITLE BAR. juce::DialogWindow hands its base DocumentWindow
             //    closeButton and NOTHING else, and DocumentWindow maps
             //    requiredButtons to the peer flags - so the window was born

@@ -156,6 +156,11 @@ public:
         picker.setFooterOptions (labels, active, std::move (picked));
     }
 
+    /** Rows shown when the popup opens (4..24). A voice or template list is
+        worth more rows than a model catalog's ten. */
+    void setMaxVisibleRows (int rows) { picker.setMaxVisibleRows (rows); }
+    int  maxVisibleRows() const { return picker.maxVisibleRows(); }
+
     /** Open the filtered list programmatically (tests / keyboard helpers). */
     void showPopup() { picker.openForTest(); }
 
