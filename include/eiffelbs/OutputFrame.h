@@ -117,6 +117,25 @@ public:
     void resized() override;
 
 public:
+    /** Whether the host extra shares the NAME row instead of taking the row
+        beneath it.
+
+        OFF by default: a wide extra (SFX's tag chips) needs the full width, and
+        moving it would squeeze the chips. ON is for a host whose extra is a
+        BUTTON - Restore's "Add to voice cloning" - where the two actions and the
+        name are one "what do I do with this result" row, and a separate row
+        below only pushed the frame taller for two buttons that fit side by
+        side. */
+    void setExtraInline (bool shouldInline)
+    {
+        if (extraInline == shouldInline)
+            return;
+        extraInline = shouldInline;
+        resized();
+    }
+
+    bool isExtraInline() const noexcept { return extraInline; }
+
     /** Exact height of band + body at the CURRENT settings (extras included):
         a host stacking the frame in a page must not guess it. */
     int preferredHeight() const
@@ -126,7 +145,7 @@ public:
         // The old sum carried a phantom 32 px, which is exactly the empty
         // band the author reported under the tag row (2026-10-29).
         int body = 16 + 2 + 62 + 6 + 26 + 6 + 26;
-        if (extra != nullptr)
+        if (extra != nullptr && ! extraInline)
             body += 6 + juce::jmax (28, extraHeight);
         return ebs::bandHeaderHeight() + 10 + 6 + body;   // top 10, bottom 6
     }
@@ -158,6 +177,8 @@ private:
     juce::Component* extra = nullptr;   // optional host widget (tag chips)
     int extraWidth = 0;
     int extraHeight = 30;
+    /** true = the extra shares the NAME row (see setExtraInline). */
+    bool extraInline = false;
     bool playingNow = false;
     double sourceBase = 0.0;   // where the PLAYING file starts in the SOURCE
     double playEnd = 0.0;      // source seconds where playback must stop
@@ -515,22 +536,32 @@ inline void OutputFrame::applyFlow (const juce::Rectangle<int>& area, bool apply
     y += 26;
     gap (6);
 
-    // NAME row: play, hand, NAME (and Add when there is no host extra).
+    // NAME row: play, hand, NAME, and - on this row when the host asked for it
+    // - the host extra and the action. With a non-inline extra (SFX's chips)
+    // the two move to their own row below, where they get the full width.
+    const bool extraOnThisRow = (extra != nullptr && extraInline);
+    const bool addOnThisRow = (extra == nullptr || extraInline);
     auto actionRow = juce::Rectangle<int> (x, y, w, 26);
     placeIn (playButton, actionRow.removeFromLeft (26).withHeight (26));
     actionRow.removeFromLeft (6);
     placeIn (hand, actionRow.removeFromLeft (26).withHeight (26));
     actionRow.removeFromLeft (8);
-    if (extra == nullptr)
+    if (addOnThisRow)
         placeIn (addButton, actionRow.removeFromRight (150).withHeight (26));
-    if (extra == nullptr)   // keep the gap before Add; with an extra row the
+    if (addOnThisRow)   // keep the gap before Add; with an extra row the
         actionRow.removeFromRight (8);   // NAME ends exactly where Add ends
+    if (extraOnThisRow)
+    {
+        placeIn (*extra, actionRow.removeFromRight (juce::jmax (120, extraWidth))
+                             .withHeight (26));
+        actionRow.removeFromRight (8);
+    }
     placeIn (nameCaption, actionRow.removeFromLeft (44));
     placeIn (nameEditor, actionRow.withTrimmedLeft (4)
                                 .withHeight (24)
                                 .withY (actionRow.getY() + 1));
     y += 26;
-    if (extra != nullptr)
+    if (extra != nullptr && ! extraInline)
     {
         // The host extra (SFX's tag chips) sits on the row BELOW Name, with
         // the action at its right (author request 2026-10-29).
