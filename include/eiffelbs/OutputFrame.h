@@ -329,6 +329,15 @@ inline void OutputFrame::reloadWaveform()
 
 inline void OutputFrame::setAudio (const juce::File&)
 {
+    // A NEW result STOPS the previous playback. Without this the shared
+    // transport kept sounding the OLD file under the new waveform: the
+    // render looked like it had failed until the reader pressed Play
+    // again - and only then heard the new take (author report
+    // 2026-11-02). Stop FIRST, so the transport and the frame cannot
+    // disagree about what is playing.
+    if (playingNow)
+        setPlaying (false);
+
     // Reset the ENHANCE choice FIRST: reloadWaveform() displays chosenFile(),
     // and a tick left from the previous result made the NEW render show the
     // PREVIOUS enhanced waveform while the transport played the new file -
