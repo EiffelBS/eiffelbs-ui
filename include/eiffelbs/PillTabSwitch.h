@@ -205,22 +205,48 @@ public:
         g.restoreState();
     }
 
+    /** A press that STARTS on the strip. Without it, a mouseUp alone switched
+        tabs: a click inside a popup that closes on mouse-down (the pickers do)
+        hands its release to the window underneath, and the pill sat exactly
+        there - a voice pick in TTS jumped to another tab (author report
+        2026-11-02). The gesture now has to begin AND end on the pill. */
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        pressStartedHere = true;
+        pressSlot = slotAt (e.position.x);
+    }
+
     void mouseUp (const juce::MouseEvent& e) override
     {
+        if (! pressStartedHere)
+            return;                       // a release we never pressed for
+        pressStartedHere = false;
+        const int idx = slotAt (e.position.x);
+        if (idx < 0 || idx != pressSlot)
+            return;                       // released elsewhere: not a click on a slot
         // Click selects the slot under the pointer (the old toggle could only
         // ever reach tabs 0 and 1). The pointer x is in PILL space, so
         // scrollPos is added back to get the strip-space slot: without it a
         // scrolled strip would activate the tab one or two places away.
-        const int n = numTabs();
-        const float slotW = naturalSlotWidth();
-        const int idx = slotW > 1.0f
-                      ? juce::jlimit (0, n - 1, static_cast<int> ((e.position.getX() + scrollPos) / slotW))
-                      : 0;
         tabbed.setCurrentTabIndex (idx);   // fires TabsBar::currentTabChanged
         targetPillPos = static_cast<float> (idx);
         retargetScroll (idx);              // bring the freshly picked tab into view
         repaint();
     }
+
+    /** The slot under a pill-space x, or -1 when the strip is empty. */
+    int slotAt (float pillX) const
+    {
+        const int n = numTabs();
+        const float slotW = naturalSlotWidth();
+        if (n <= 0 || slotW <= 1.0f)
+            return -1;
+        return juce::jlimit (0, n - 1,
+                             static_cast<int> ((pillX + scrollPos) / slotW));
+    }
+
+    bool pressStartedHere = false;
+    int  pressSlot = -1;
 
     bool hitTest (int, int) override { return true; }
 
