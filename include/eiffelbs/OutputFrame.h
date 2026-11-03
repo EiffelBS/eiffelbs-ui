@@ -360,11 +360,25 @@ inline void OutputFrame::setEnhancedFile (const juce::File& wav)
 {
     if (wav.existsAsFile())
     {
+        // The reader pressed Enhance WHILE listening. The rule setAudio()
+        // follows applies here one step further: the transport must STOP the
+        // base file before the frame points at the enhanced one - otherwise
+        // the old audio keeps sounding under the new waveform, which is
+        // exactly what was reported (2026-11-03) - and because the reader was
+        // listening on purpose, it resumes on the enhanced copy instead of
+        // falling silent.
+        const bool wasPlaying = playingNow;
+        if (wasPlaying)
+            setPlaying (false);
+
         useEnhanced.setEnabled (true);
         useEnhanced.setToggleState (true, juce::dontSendNotification);
         enhanceStatus.setText ("enhanced: " + wav.getFileName(),
                                juce::dontSendNotification);
         reloadWaveform();
+
+        if (wasPlaying)
+            playFrom (0.0);
     }
     else
         enhanceStatus.setText ("enhance failed", juce::dontSendNotification);
