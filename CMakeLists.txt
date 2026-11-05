@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.78.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.78.1 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -202,6 +202,14 @@ project(eiffelbs-ui VERSION 0.78.0 LANGUAGES C CXX)
 # and an underscore INSIDE a word (snake_case, file_name.py) is no longer
 # eaten as emphasis. Additive: every line outside those block forms paints the
 # same pixels.
+
+# v0.78.1: ChatBubble sizes its monospace face (code spans, tables) from the
+# body's EFFECTIVE height. The body font already carries the app's type scale
+# and the reader's zoom, and passing that height through the scaled
+# createMonospaceFont() multiplied the scale in a second time: on OpenTimbre's
+# default 1.25 UI scale, 18 pt of body produced 20.7 pt of table/code text.
+# monospaceFontForBody() is the one place that arithmetic lives, and the smoke
+# test pins it. Every existing caller is untouched.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

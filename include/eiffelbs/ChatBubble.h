@@ -312,6 +312,19 @@ public:
 
     float getBodyFontSize() const noexcept { return bodyPts; }
 
+    /** The monospace font the body draws CODE and TABLES with. Sized from the
+        EFFECTIVE body height: the body font already carries the app's type
+        scale and the reader's zoom, so passing its height through the scaled
+        ebs::createMonospaceFont() applied the scale a SECOND time - every
+        table and code span came out ~25 % larger than the text around it on
+        the app's default 1.25 UI scale. */
+    static juce::Font monospaceFontForBody (float bodyHeight)
+    {
+        return juce::Font (juce::FontOptions (
+            juce::Font::getDefaultMonospacedFontName(),
+            juce::jmax (9.0f, bodyHeight * 0.92f), juce::Font::plain));
+    }
+
     // === metrics ==========================================================
 
     /** Measure for a width, THEN place. The width is a PARAMETER, not a read
@@ -1000,8 +1013,7 @@ private:
                                                 juce::Colour ink,
                                                 std::vector<LinkSpan>& spansOut)
     {
-        const auto mono = ebs::createMonospaceFont (
-            juce::jmax (9.0f, base.getHeight() * 0.92f));
+        const auto mono = monospaceFontForBody (base.getHeight());
         juce::AttributedString as;
         as.setWordWrap (juce::AttributedString::byWord);
         int pos = 0;

@@ -732,6 +732,19 @@ int main()
                    "a blank line still separates two paragraphs");
         }
 
+        // CODE AND TABLE type must FOLLOW the body, not the UI scale twice:
+        // OpenTimbre's default is a 1.25 app scale, and the body's effective
+        // height already carries it. Routing that height through the scaled
+        // monospace helper turned 18 pt of body into 20.7 pt of table text.
+        {
+            const auto savedScale = ebs::uiTypeScale();
+            ebs::setUiTypeScale (1.25f);
+            const auto mono = ebs::ChatBubble::monospaceFontForBody (18.0f);
+            check (std::abs (mono.getHeight() - 18.0f * 0.92f) < 0.2f,
+                   "table and code text follow the body size, not the scale twice");
+            ebs::setUiTypeScale (savedScale);
+        }
+
         // SELECTION in a chat bubble: a drag highlights the body in place and
         // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
         // reader expects from any chat, instead of only the whole-message copy
