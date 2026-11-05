@@ -17,6 +17,11 @@
 //      is the whole point of the conversation.
 //   3. COPY. Every answer carries a copy affordance, so "give me that text"
 //      is one click instead of a selection that fights the wrapping.
+//   4. SELECTION. The body is real text, not a picture: dragging over it
+//      selects it and Ctrl/Cmd+C copies exactly what the drag covered, as in
+//      any chat app. The copy button stays for "give me all of it", but a
+//      sentence of a long answer is now selectable in place instead of
+//      forcing the whole message onto the clipboard.
 //
 // The height depends on the WIDTH the caller gives, so a bubble is measured
 // before it is placed: requiredHeightForWidth() then setBounds(). The
@@ -32,6 +37,8 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+
+#include <limits>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
@@ -65,6 +72,7 @@ public:
         addAndMakeVisible (avatar);
         addChildComponent (copyButton);
         copyButton.onClick = [this] { if (onCopy != nullptr) onCopy(); };
+        setWantsKeyboardFocus (true);   // Ctrl/Cmd+C must reach keyPressed()
     }
 
     // === content ==========================================================
@@ -153,6 +161,102 @@ public:
     }
 
     juce::String getText() const noexcept { return text; }
+
+    // === selection ========================================================
+    //
+    // The body is painted from a juce::TextLayout, not a TextEditor (see the
+    // file header), so the selection itself is implemented here: the layout
+    // already maps every glyph back to a character range, and this component
+    // is the only object that knows where its body sits inside its bounds.
+    //
+    // Offsets index the PROCESSED body string - the Markdown markers are
+    // already gone - which is exactly the text the reader sees and what a
+    // copy must produce. A selection never spans two bubbles: a message is
+    // the unit a chat copies, and a drag that leaves this component clamps to
+    // its own first or last character.
+
+    /** True while a non-empty range is highlighted. */
+    bool hasTextSelection() const noexcept
+    {
+        return selAnchor >= 0 && selCaret >= 0 && selAnchor != selCaret;
+    }
+
+    /** The highlighted characters, in reading order. Empty when nothing is
+        selected. */
+    juce::String getSelectedText() const
+    {
+        if (! hasTextSelection())
+            return {};
+        return layoutText.substring (juce::jmin (selAnchor, selCaret),
+                                     juce::jmax (selAnchor, selCaret));
+    }
+
+    /** The highlighted range as [start, end) offsets into the processed
+        body. An empty range means nothing is selected. */
+    juce::Range<int> getTextSelection() const
+    {
+        if (! hasTextSelection())
+            return {};
+        return { juce::jmin (selAnchor, selCaret),
+                 juce::jmax (selAnchor, selCaret) };
+    }
+
+    /** Highlight [start, end) of the processed body. Out-of-range offsets are
+        clamped, and an empty range clears the selection. A host uses this to
+        restore a selection; a reader gets here with the mouse. */
+    void setTextSelection (int start, int end)
+    {
+        const int n = layoutText.length();
+        const int a = juce::jlimit (0, n, start);
+        const int b = juce::jlimit (0, n, end);
+        if (a == b)
+        {
+            clearTextSelection();
+            return;
+        }
+        selAnchor = a;
+        selCaret  = b;
+        selecting = false;
+        repaint();
+    }
+
+    /** Select the whole body, the way a third click does. */
+    void selectAllText()
+    {
+        if (layoutText.isEmpty())
+            return;
+        selAnchor = 0;
+        selCaret  = layoutText.length();
+        selecting = false;
+        repaint();
+    }
+
+    void clearTextSelection()
+    {
+        if (selAnchor < 0 && selCaret < 0)
+            return;
+        selAnchor = -1;
+        selCaret  = -1;
+        selecting = false;
+        repaint();
+    }
+
+    /** Put the selected text on the system clipboard. True when there was
+        something to copy. */
+    bool copySelectedTextToClipboard()
+    {
+        const auto selected = getSelectedText();
+        if (selected.isEmpty())
+            return false;
+        juce::SystemClipboard::copyTextToClipboard (selected);
+        if (onSelectionCopied != nullptr)
+            onSelectionCopied (selected);
+        return true;
+    }
+
+    /** Fired after a SELECTION reaches the clipboard, so the host can log it
+        or show a status line. The copy button keeps using onCopy. */
+    std::function<void (const juce::String&)> onSelectionCopied;
 
     /** The copy affordance: shown for an answer, hidden for the question
      *  (nobody copies back what they just typed). */
@@ -373,11 +477,13 @@ public:
             }
         }
 
-        bodyLayout.draw (g, bubble.withTrimmedLeft (padH)
-                                  .withTrimmedRight (padH)
-                                  .withTrimmedTop (padV)
-                                  .withTrimmedBottom (padV)
-                                  .toFloat());
+        const auto bodyArea = bodyAreaForWidth (w).toFloat();
+
+        // The highlight goes UNDER the glyphs: a fill painted after the text
+        // would tint the letters themselves, which is not what a selected
+        // word looks like anywhere else.
+        paintTextSelection (g, bodyArea);
+        bodyLayout.draw (g, bodyArea);
     }
 
     /** The link under `p`, or null. Hit-tested against the LAYOUT's runs: a
@@ -431,25 +537,161 @@ public:
                              && headerPill.expanded (2, 2)
                                     .contains (e.getPosition());
         const bool overLink = linkAt (e.getPosition()) != nullptr;
-        setMouseCursor (overHeader || overLink
+        // The I-beam is the affordance that says "this text is selectable",
+        // exactly as it does in a browser. Without it a reader has no way to
+        // know the body answers a drag rather than only the copy button.
+        const bool overText = ! overLink && ! overHeader
+                              && bodyAreaForWidth (getWidth())
+                                     .contains (e.getPosition().toFloat());
+        setMouseCursor (overLink || overHeader
                             ? juce::MouseCursor::PointingHandCursor
-                            : juce::MouseCursor::NormalCursor);
+                            : overText ? juce::MouseCursor::IBeamCursor
+                                       : juce::MouseCursor::NormalCursor);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (const auto* link = linkAt (e.getPosition()))
+        // The keyboard follows a click on the text, as it follows a click on
+        // a web page: Ctrl/Cmd+C is delivered to this component while it
+        // holds the focus, and the prompt box takes it back when the reader
+        // clicks there.
+        grabKeyboardFocus();
+
+        // The CONTEXT MENU comes first: a right-click on a link must offer
+        // Copy, not take the reader out of the app to the browser.
+        if (e.mods.isPopupMenu())
         {
-            juce::URL (link->url).launchInDefaultBrowser();
+            showSelectionMenu (e);
             return;
         }
-        if (! collapsible || header.isEmpty())
+
+        if (const auto* link = linkAt (e.getPosition()))
+        {
+            if (link->url.isNotEmpty())
+                juce::URL (link->url).launchInDefaultBrowser();
             return;
-        if (! headerPill.expanded (2, 2).contains (e.getPosition()))
+        }
+
+        if (collapsible && header.isNotEmpty()
+            && headerPill.expanded (2, 2).contains (e.getPosition()))
+        {
+            setExpanded (! expanded);
+            if (onExpandedToggled != nullptr)
+                onExpandedToggled (expanded);
             return;
-        setExpanded (! expanded);
-        if (onExpandedToggled != nullptr)
-            onExpandedToggled (expanded);
+        }
+
+        // A second or third click belongs to mouseDoubleClick: JUCE calls
+        // mouseDown BEFORE mouseUp and mouseDoubleClick, so starting a new
+        // selection here would wipe the word the reader just asked for.
+        if (e.getNumberOfClicks() >= 2)
+            return;
+
+        // The body is where the text is; the padding around it is not text.
+        if (! bodyAreaForWidth (getWidth())
+                 .contains (e.getPosition().toFloat()))
+            return;
+
+        const int at = indexForPoint (e.getPosition());
+
+        if (e.mods.isShiftDown() && selAnchor >= 0)
+        {
+            // Shift+click extends the selection the reader already has, the
+            // way every text surface works.
+            selCaret = at;
+            selecting = true;
+            repaint();
+            return;
+        }
+
+        selAnchor = at;
+        selCaret  = at;
+        selecting = true;
+        repaint();
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (! selecting)
+            return;
+        const int at = indexForPoint (e.getPosition());
+        if (at == selCaret)
+            return;
+        selCaret = at;
+        repaint();
+    }
+
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        if (! selecting)
+            return;
+        selecting = false;
+        // A plain click leaves no highlight behind: the anchor and the caret
+        // are the same character, so there is nothing to read and nothing to
+        // copy - and a later Ctrl+C must not hand over a stale range.
+        if (selAnchor == selCaret)
+        {
+            selAnchor = -1;
+            selCaret  = -1;
+        }
+        repaint();
+    }
+
+    /** The second click selects the word under the pointer, the third the
+        whole message - the standard browser/chat ladder. */
+    void mouseDoubleClick (const juce::MouseEvent& e) override
+    {
+        if (layoutText.isEmpty())
+            return;
+        const auto p = e.getPosition();
+        if (collapsible && header.isNotEmpty()
+            && headerPill.expanded (2, 2).contains (p))
+            return;   // the pill is a control, not text
+        if (! bodyAreaForWidth (getWidth()).contains (p.toFloat()))
+            return;
+
+        if (e.getNumberOfClicks() >= 3)
+        {
+            selectAllText();
+            return;
+        }
+
+        const auto word = wordRangeAt (layoutText, indexForPoint (p));
+        selAnchor = word.getStart();
+        selCaret  = word.getEnd();
+        selecting = false;
+        repaint();
+    }
+
+    /** Ctrl/Cmd+C copies the selected text, Ctrl/Cmd+A selects the body and
+        Escape drops the selection. The bubble takes the keyboard focus on a
+        click, so these reach a reader who never touches the menu. */
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress (juce::KeyPress::escapeKey))
+        {
+            if (! hasTextSelection())
+                return false;
+            clearTextSelection();
+            return true;
+        }
+
+        // JUCE reports the platform's command key through commandModifier
+        // (Command on macOS, Ctrl elsewhere); ctrlModifier is accepted too so
+        // the Windows key answers whichever accessor it arrives through.
+        if (key == juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0)
+            || key == juce::KeyPress ('c', juce::ModifierKeys::ctrlModifier, 0))
+        {
+            copySelectedTextToClipboard();
+            return true;
+        }
+        if (key == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0)
+            || key == juce::KeyPress ('a', juce::ModifierKeys::ctrlModifier, 0))
+        {
+            selectAllText();
+            return true;
+        }
+        return false;
     }
 
 private:
@@ -639,14 +881,14 @@ private:
             }
             if (inFence)
             {
-                as.append (line + "\n", mono, ebs::textDim());
+                emit (line + "\n", mono, ebs::textDim());
                 continue;
             }
 
             auto trimmed = line.trim();
             if (trimmed.isEmpty())
             {
-                as.append ("\n", base, ink);
+                emit ("\n", base, ink);
                 continue;
             }
             // Table cells keep their WORDS: a raw [label](url) inside a
@@ -691,13 +933,13 @@ private:
                 for (auto cell : cells)
                     rendered << (rendered.isEmpty() ? "" : "  |  ")
                              << plainCell (cell);
-                as.append (rendered + "\n", mono, ink);
+                emit (rendered + "\n", mono, ink);
                 continue;
             }
             if (trimmed == "---" || trimmed == "***" || trimmed == "___")
             {
-                as.append (juce::String::repeatedString ("\u2500", 18) + "\n",
-                           mono, ebs::textDim());
+                emit (juce::String::repeatedString ("\u2500", 18) + "\n",
+                      mono, ebs::textDim());
                 continue;
             }
             if (trimmed.startsWith ("#"))
@@ -712,32 +954,255 @@ private:
                                              - (float) level));
                 f.setStyleFlags (juce::Font::bold);
                 appendInlineRuns (as, title, f, ink, mono, pos, &spansOut);
-                as.append ("\n", f, ink);
+                emit ("\n", f, ink);
                 continue;
             }
             if (trimmed.startsWith ("> "))
             {
-                as.append (juce::String::fromUTF8 ("\u258f "), mono,
-                           ebs::textDim());
+                emit (juce::String::fromUTF8 ("\u258f "), mono,
+                      ebs::textDim());
                 appendInlineRuns (as, trimmed.substring (2),
                                  base, ebs::textDim(), mono, pos, &spansOut);
-                as.append ("\n", base, ink);
+                emit ("\n", base, ink);
                 continue;
             }
             if (trimmed.startsWith ("- ") || trimmed.startsWith ("* "))
             {
-                as.append (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
+                emit (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
                 appendInlineRuns (as, trimmed.substring (2), base, ink, mono,
                                   pos, &spansOut);
-                as.append ("\n", base, ink);
+                emit ("\n", base, ink);
                 continue;
             }
             appendInlineRuns (as, line, base, ink, mono, pos, &spansOut);
-            as.append ("\n", base, ink);
+            emit ("\n", base, ink);
         }
         // fromLines keeps a trailing empty line after the last newline: drop
         // the extra blank so a bubble does not grow a phantom line.
         return as;
+    }
+
+    /** The area the body text is painted into, in this component's space.
+        paint(), the link hit test and the selection all use this ONE
+        rectangle: a second copy of the offsets is how a highlight ends up
+        drawn one padding away from the glyphs it is supposed to cover. */
+    juce::Rectangle<float> bodyAreaForWidth (int w) const
+    {
+        if (w <= 0)
+            return {};
+        int y = 0;
+        if (header.isNotEmpty())
+        {
+            if (collapsible && ! expanded)
+                return {};   // folded: the pill is the whole message
+            y += headerH + 3;
+        }
+        const int bw = bubbleWidthFor (w);
+        const int bx = bubbleLeftFor (w);
+        return { (float) (bx + padH), (float) (y + padV),
+                 (float) juce::jmax (1, bw - padH * 2), (float) bodyH };
+    }
+
+    /** Which character of the processed body sits under a point, in this
+        component's space. A point above the first line names its start, a
+        point below the last line names its end. */
+    int indexForPoint (juce::Point<int> p) const
+    {
+        if (bodyLayout.getNumLines() == 0 || layoutText.isEmpty())
+            return 0;
+
+        const auto area = bodyAreaForWidth (getWidth());
+        if (area.isEmpty())
+            return 0;
+
+        const float x = (float) p.x - area.getX();
+        const float y = (float) p.y - area.getY();
+
+        // The line whose vertical span contains the point; a point in the
+        // leading between two lines belongs to the upper one.
+        int lineIndex = bodyLayout.getNumLines() - 1;
+        for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+        {
+            if (y <= bodyLayout.getLine (i).getLineBoundsY().getEnd())
+            {
+                lineIndex = i;
+                break;
+            }
+        }
+
+        const auto& line = bodyLayout.getLine (lineIndex);
+        const float lx = x - line.lineOrigin.x;
+
+        if (lx <= 0.0f)
+            return juce::jlimit (0, layoutText.length(),
+                                 line.stringRange.getStart());
+
+        for (auto* run : line.runs)
+        {
+            const auto runBounds = run->getRunBoundsX();
+            if (lx < runBounds.getStart())
+                return juce::jlimit (0, layoutText.length(),
+                                     run->stringRange.getStart());
+            if (lx <= runBounds.getEnd() || run == line.runs.getLast())
+            {
+                const int glyphs = run->glyphs.size();
+                for (int g = 0; g < glyphs; ++g)
+                {
+                    const auto& glyph = run->glyphs.getReference (g);
+                    if (lx < glyph.anchor.x + glyph.width * 0.5f)
+                        return juce::jlimit (
+                            0, layoutText.length(),
+                            run->stringRange.getStart()
+                                + charOffsetInRun (*run, g));
+                }
+                return juce::jlimit (0, layoutText.length(),
+                                     run->stringRange.getEnd());
+            }
+        }
+
+        return juce::jlimit (0, layoutText.length(), line.stringRange.getEnd());
+    }
+
+    /** The word around a character offset. Letters, digits, the underscore
+        and the apostrophe make a word; a double-click on whitespace selects
+        the whitespace run, which is what a browser does. */
+    static juce::Range<int> wordRangeAt (const juce::String& body, int index)
+    {
+        const int n = body.length();
+        if (n == 0)
+            return {};
+
+        int at = juce::jlimit (0, n - 1, index);
+        const auto isWord = [] (juce::juce_wchar c)
+        {
+            return juce::CharacterFunctions::isLetterOrDigit (c)
+                   || c == '_' || c == '\'';
+        };
+
+        // A click just AFTER a word belongs to that word: double-clicking the
+        // space that follows "answer" selects "answer", not the space.
+        if (! isWord (body[at]) && at > 0 && isWord (body[at - 1]))
+            --at;
+
+        const bool wantWord = isWord (body[at]);
+        int start = at;
+        int end   = at + 1;
+        while (start > 0 && isWord (body[start - 1]) == wantWord)
+            --start;
+        while (end < n && isWord (body[end]) == wantWord)
+            ++end;
+        return { start, end };
+    }
+
+    /** The right-click menu of the body: Copy (the selection, when there is
+        one), Select All and Copy Message. The menu is how a reader who does
+        not know the shortcut still gets the text out. */
+    void showSelectionMenu (const juce::MouseEvent& e)
+    {
+        juce::PopupMenu menu;
+        menu.addItem (1, "Copy", hasTextSelection());
+        menu.addItem (2, "Select All");
+        if (text.isNotEmpty())
+        {
+            menu.addSeparator();
+            menu.addItem (3, "Copy Message");
+        }
+
+        juce::Component::SafePointer<ChatBubble> safe (this);
+        menu.showMenuAsync (
+            juce::PopupMenu::Options().withTargetScreenArea (
+                juce::Rectangle<int> (e.getScreenPosition().x,
+                                      e.getScreenPosition().y, 1, 1)),
+            [safe] (int result)
+            {
+                if (safe == nullptr)
+                    return;
+                if (result == 1)
+                    safe->copySelectedTextToClipboard();
+                else if (result == 2)
+                    safe->selectAllText();
+                else if (result == 3)
+                    juce::SystemClipboard::copyTextToClipboard (safe->text);
+            });
+    }
+
+    /** Paint the highlight under the glyphs it covers. One rectangle per line
+        is enough because a selection is a contiguous character range, and it
+        avoids the seams a rectangle per glyph leaves at fractional widths. */
+    void paintTextSelection (juce::Graphics& g, juce::Rectangle<float> area) const
+    {
+        if (! hasTextSelection())
+            return;
+
+        const int start = juce::jmin (selAnchor, selCaret);
+        const int end   = juce::jmax (selAnchor, selCaret);
+        g.setColour (ebs::accent().withAlpha (0.30f));
+
+        for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+        {
+            const auto& line = bodyLayout.getLine (i);
+            float minX = std::numeric_limits<float>::max();
+            float maxX = -std::numeric_limits<float>::max();
+
+            for (auto* run : line.runs)
+            {
+                const int glyphs = run->glyphs.size();
+                for (int g = 0; g < glyphs; ++g)
+                {
+                    const int rangeStart = run->stringRange.getStart()
+                                           + charOffsetInRun (*run, g);
+                    const int rangeEnd = run->stringRange.getStart()
+                                         + charOffsetInRun (*run, g + 1);
+                    if (rangeEnd <= start || rangeStart >= end)
+                        continue;
+                    const auto& glyph = run->glyphs.getReference (g);
+                    const float x = line.lineOrigin.x + glyph.anchor.x;
+                    minX = juce::jmin (minX, x);
+                    maxX = juce::jmax (maxX, x + glyph.width);
+                }
+            }
+
+            if (maxX > minX)
+            {
+                const auto y = line.getLineBoundsY();
+                g.fillRect (area.getX() + minX, area.getY() + y.getStart(),
+                            maxX - minX, y.getLength());
+            }
+        }
+    }
+
+    /** The character span a glyph covers: a ligature is ONE glyph over several
+        characters, so a run's glyphs are spread over its character range
+        rather than counted one for one. */
+    static int charOffsetInRun (const juce::TextLayout::Run& run, int glyph)
+    {
+        const int glyphs = run.glyphs.size();
+        const int chars  = run.stringRange.getLength();
+        if (glyphs <= 0)
+            return 0;
+        return juce::jlimit (0, chars,
+                             juce::roundToInt ((double) glyph * (double) chars
+                                               / (double) glyphs));
+    }
+
+    /** The layout was rebuilt (a delta, a resize, a font step): the offsets
+        must still name characters that exist. A selection whose end is past
+        the new text is dropped rather than clipped to the last word - the
+        reader selected something that is no longer there. A selection ABOVE
+        an appended delta keeps its range, exactly as a chat that grows below
+        the highlight should. */
+    void clampSelectionToText()
+    {
+        if (selAnchor < 0 || selCaret < 0)
+            return;
+        const int n = layoutText.length();
+        if (selAnchor > n || selCaret > n)
+        {
+            selAnchor = -1;
+            selCaret  = -1;
+            selecting = false;
+            return;
+        }
     }
 
     void layOutForWidth (int w)
@@ -749,7 +1214,12 @@ private:
         linkSpans.clear();
         auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
                                 linkSpans);
+        // The processed string is what the layout draws and what a selection
+        // indexes: keep exactly that one, or a copy would return the Markdown
+        // markers the reader never saw.
+        layoutText = as.getText();
         bodyLayout.createLayout (as, (float) textW);
+        clampSelectionToText();
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
         // bubble: a fractional line height MUST round up, and the extra pixel
@@ -822,6 +1292,17 @@ public:
     /** Tests: how many clickable link rows this bubble exposes. */
     int linkRowCountForTest() const noexcept { return (int) linkSpans.size(); }
 
+    /** Tests: where a clickable run sits in the PROCESSED body, so a gate can
+        prove the offset still matches the text the layout drew. A span that
+        drifts from its glyphs is a link that highlights one word and opens
+        another - the hit test intersects the two. */
+    LinkSpan linkSpanForTest (int index) const
+    {
+        if (index < 0 || index >= (int) linkSpans.size())
+            return {};
+        return linkSpans[(size_t) index];
+    }
+
 private:
     Side  side        = Side::assistant;
     Tone  tone        = Tone::plain;
@@ -845,6 +1326,14 @@ private:
 
     juce::TextLayout bodyLayout;
     std::vector<LinkSpan> linkSpans;   // clickable ranges in the body layout
+    /** The PROCESSED body the layout was built from: the string a selection
+        indexes and copies (the Markdown markers are gone). */
+    juce::String layoutText;
+    /** Selection offsets in `layoutText`. Both -1 = nothing selected; the
+        pair is always read as [min, max). */
+    int selAnchor = -1;
+    int selCaret  = -1;
+    bool selecting = false;
     int bodyH  = 0;
     int height = 0;
     int lastHeight = 0;

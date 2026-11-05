@@ -601,6 +601,145 @@ int main()
             check (h > 24, "a markdown body keeps a measurable height");
         }
 
+        // LINK OFFSETS after Markdown BLOCK syntax: a clickable run's recorded
+        // range must be its position in the PROCESSED body the layout draws.
+        // The renderer used to append a bullet (and blank lines, headings,
+        // fences) without counting them in the offset cursor, so every span
+        // after such a line was shifted and the hit test highlighted one word
+        // while opening another.
+        {
+            ebs::ChatBubble bullet;
+            bullet.setText ("- see [Docs](https://example.com/docs)");
+            const int h = bullet.requiredHeightForWidth (420);
+            bullet.setBounds (0, 0, 420, h);
+            const auto span = bullet.linkSpanForTest (0);
+            // The rendered body is "• see Docs\n": the label starts at 6.
+            check (span.start == 6 && span.end == 10,
+                   "a link after a bullet records its own offset in the rendered text");
+            check (span.url == "https://example.com/docs",
+                   "the recorded span keeps the link's URL");
+        }
+
+        // SELECTION in a chat bubble: a drag highlights the body in place and
+        // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
+        // reader expects from any chat, instead of only the whole-message copy
+        // button. The offsets index the PROCESSED body (the Markdown markers
+        // are gone), which is what the reader sees.
+        {
+            ebs::ChatBubble b;
+            b.setText ("Alpha beta gamma\nSecond line.");
+            const int h = b.requiredHeightForWidth (420);
+            b.setBounds (0, 0, 420, h);
+
+            const auto makeEvent = [&b] (juce::Point<float> at, int clicks,
+                                         bool dragged = false)
+            {
+                return juce::MouseEvent (
+                    *juce::Desktop::getInstance().getMouseSource (0),
+                    at, juce::ModifierKeys(), 0.5f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    &b, &b, juce::Time::getCurrentTime(), at,
+                    juce::Time::getCurrentTime(), clicks, dragged);
+            };
+
+            // The body starts after the avatar and the padding; y = 15 is the
+            // first line at the default body size.
+            const juce::Point<float> lineStart (42.0f, 15.0f);
+            const juce::Point<float> lineEnd   (190.0f, 15.0f);
+
+            b.mouseDown (makeEvent (lineStart, 1));
+            b.mouseDrag (makeEvent (lineEnd, 1, true));
+            b.mouseUp (makeEvent (lineEnd, 1, true));
+
+            check (b.hasTextSelection(),
+                   "a drag over a chat body leaves a text selection");
+            const auto selected = b.getSelectedText();
+            check (selected.length() >= 3,
+                   "the selection is the text under the drag");
+
+            // The OS clipboard is a SHARED resource: Windows' clipboard
+            // history briefly takes it after a write, so the second copy in
+            // quick succession can be refused. Retry - a copy that never lands
+            // still fails.
+            juce::String fromClipboard;
+            for (int attempt = 0; attempt < 8; ++attempt)
+            {
+                b.copySelectedTextToClipboard();
+                fromClipboard = juce::SystemClipboard::getTextFromClipboard();
+                if (fromClipboard == selected)
+                    break;
+                juce::Thread::sleep (25);
+            }
+            check (fromClipboard == selected,
+                   "the selected range reaches the clipboard");
+
+            // The highlight is PAINTED under the glyphs: the same bubble,
+            // rendered with and without the selection, differs over the first
+            // line. A selection that exists but cannot be seen is the defect
+            // this comparison exists to catch.
+            juce::Image withSelection (juce::Image::ARGB, b.getWidth(),
+                                       b.getHeight(), true);
+            {
+                juce::Graphics g (withSelection);
+                b.paintEntireComponent (g, true);
+            }
+            b.clearTextSelection();
+            juce::Image withoutSelection (juce::Image::ARGB, b.getWidth(),
+                                          b.getHeight(), true);
+            {
+                juce::Graphics g (withoutSelection);
+                b.paintEntireComponent (g, true);
+            }
+            int changed = 0;
+            for (int y = 0; y < juce::jmin (30, b.getHeight()); ++y)
+                for (int x = 0; x < b.getWidth(); ++x)
+                    if (withSelection.getPixelAt (x, y)
+                        != withoutSelection.getPixelAt (x, y))
+                        ++changed;
+            check (changed > 60,
+                   "the selection paints a visible highlight under the text");
+
+            // Second click: the word under the pointer. Triple: the message.
+            const juce::Point<float> wordClick (48.0f, 15.0f);
+            b.mouseDown (makeEvent (wordClick, 2));
+            b.mouseUp (makeEvent (wordClick, 2));
+            b.mouseDoubleClick (makeEvent (wordClick, 2));
+            check (b.getSelectedText() == "Alpha",
+                   "a double-click selects the word under the pointer");
+
+            b.mouseDown (makeEvent (wordClick, 3));
+            b.mouseUp (makeEvent (wordClick, 3));
+            b.mouseDoubleClick (makeEvent (wordClick, 3));
+            check (b.getSelectedText().startsWith ("Alpha beta gamma")
+                       && b.getSelectedText().contains ("Second line."),
+                   "a third click selects the whole message");
+
+            check (b.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey))
+                       && ! b.hasTextSelection(),
+                   "Escape drops the selection");
+
+            b.setTextSelection (0, 5);
+            check (b.keyPressed (juce::KeyPress (
+                       'a', juce::ModifierKeys::commandModifier, 0))
+                       && b.getSelectedText().contains ("Second line."),
+                   "Ctrl/Cmd+A selects the whole message");
+            juce::String routed;
+            b.onSelectionCopied = [&routed] (const juce::String& text)
+            {
+                routed = text;
+            };
+            check (b.keyPressed (juce::KeyPress (
+                       'c', juce::ModifierKeys::commandModifier, 0))
+                       && routed == b.getSelectedText(),
+                   "Ctrl/Cmd+C copies the selection");
+
+            // A plain click clears what the previous selection left behind,
+            // so a later Ctrl+C cannot hand over a stale range.
+            b.mouseDown (makeEvent (lineStart, 1));
+            b.mouseUp (makeEvent (lineStart, 1));
+            check (! b.hasTextSelection(),
+                   "a plain click leaves no highlight behind");
+        }
+
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.
         {
             ebs::SplitterHandle rows (ebs::SplitterHandle::Orientation::rows);

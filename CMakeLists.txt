@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.76.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.77.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -180,6 +180,16 @@ project(eiffelbs-ui VERSION 0.76.1 LANGUAGES C CXX)
 # mode a typed value that matches nothing is committed as typed (after normalisation), duplicates stay
 # case-insensitive, and suggestions still exclude what is already held. Additive: every existing caller
 # compiles and behaves exactly as before (the smoke asserts both modes).
+
+# v0.77.0: ebs::ChatBubble selects its own text. A drag highlights the
+# message body (the highlight is painted under the glyphs from the TextLayout
+# the bubble already builds for streaming), Ctrl/Cmd+C copies exactly the
+# covered range, a double-click selects the word under the pointer, a third
+# click the whole message, Escape drops it, and a right-click offers
+# Copy / Select All / Copy Message. The offsets index the PROCESSED body - the
+# Markdown markers are already gone - so a copy returns what the reader saw.
+# Additive: no existing caller changes, and a bubble nobody drags paints
+# byte-identical pixels.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
