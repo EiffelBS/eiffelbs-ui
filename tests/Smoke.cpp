@@ -620,6 +620,118 @@ int main()
                    "the recorded span keeps the link's URL");
         }
 
+        // MARKDOWN BLOCKS: a pipe table is a TABLE (padded columns, a rule
+        // under the header, alignment colons honoured), and the block-level
+        // list forms keep their own shape instead of reading as paragraphs.
+        {
+            ebs::ChatBubble table;
+            table.setText ("| Name | Qty |\n"
+                           "| :--- | ---: |\n"
+                           "| Kick | 2 |\n"
+                           "| Snare drum | 12 |");
+            (void) table.requiredHeightForWidth (520);
+            const auto rendered = table.renderedTextForTest();
+            const auto renderedLines = juce::StringArray::fromLines (rendered);
+
+            int barColumn = -1;
+            bool aligned = true;
+            bool hasRule = false;
+            for (const auto& l : renderedLines)
+            {
+                if (l.contains (juce::String::charToString (0x253c)))
+                    hasRule = true;
+                const int bar = l.indexOfChar (0x2502);
+                if (bar < 0)
+                    continue;
+                if (barColumn < 0)
+                    barColumn = bar;
+                else if (bar != barColumn)
+                    aligned = false;
+            }
+            check (hasRule && barColumn > 0,
+                   "a pipe table renders a header rule and column bars");
+            if (! aligned)
+                for (const auto& l : renderedLines)
+                    std::printf ("        table line |%s|\n", l.toRawUTF8());
+            check (aligned,
+                   "table columns line up under each other");
+            check (! rendered.contains (" | "),
+                   "table cells are not left as raw pipe text");
+            check (rendered.contains ("Snare drum"),
+                   "a table body row keeps its cell text");
+            check (! renderedLines.isEmpty()
+                       && renderedLines[0].startsWith ("Name"),
+                   "a ':---' column is LEFT aligned, not centred");
+            int numberRow = -1;
+            for (int i = 0; i < renderedLines.size(); ++i)
+                if (renderedLines[i].contains ("Kick"))
+                    numberRow = i;
+            check (numberRow >= 0 && renderedLines[numberRow].endsWith ("  2"),
+                   "a '---:' column is RIGHT aligned");
+
+            // A table without outer pipes is still a table.
+            ebs::ChatBubble barePipes;
+            barePipes.setText ("Name | Qty\n"
+                               "--- | ---\n"
+                               "Kick | 2");
+            (void) barePipes.requiredHeightForWidth (520);
+            check (barePipes.renderedTextForTest().contains (
+                       juce::String::charToString (0x2502)),
+                   "a table without outer pipes still aligns its columns");
+
+            // Block list forms, plus the two inline traps that used to eat
+            // real text: snake_case and an escaped star.
+            ebs::ChatBubble lists;
+            lists.setText ("1. First step\n"
+                           "2. Second step\n"
+                           "- [x] done\n"
+                           "- [ ] todo\n"
+                           "  - nested item\n"
+                           "+ plus bullet\n"
+                           "call snake_case_name here\n"
+                           "escaped \\* star\n"
+                           "**bold** and *italic*");
+            (void) lists.requiredHeightForWidth (520);
+            const auto listBody = lists.renderedTextForTest();
+            check (listBody.contains ("1. First step")
+                       && listBody.contains ("2. Second step"),
+                   "an ordered list keeps the writer's numbers");
+            check (listBody.contains (juce::String::charToString (0x2611) + " done")
+                       && listBody.contains (
+                              juce::String::charToString (0x2610) + " todo"),
+                   "a task list renders checked and unchecked boxes");
+            check (listBody.contains (juce::String::fromUTF8 (
+                       "  \u25e6 nested item")),
+                   "a nested bullet is indented and changes glyph");
+            check (listBody.contains (juce::String::fromUTF8 ("\u2022 plus bullet")),
+                   "a '+' bullet is a bullet too");
+            check (listBody.contains ("snake_case_name"),
+                   "an underscore inside a word is not emphasis");
+            check (listBody.contains ("* star"),
+                   "an escaped asterisk is literal text");
+            check (listBody.contains ("bold and italic")
+                       && ! listBody.contains ("**"),
+                   "bold and italic markers are consumed");
+        }
+
+        // A paragraph a model hard-wrapped at a column is ONE paragraph: a
+        // soft line break renders as a space. A blank line still separates
+        // two paragraphs.
+        {
+            ebs::ChatBubble prose;
+            prose.setText ("A sentence that a model wrapped\n"
+                           "at a hard column continues here.\n"
+                           "\n"
+                           "A second paragraph.");
+            (void) prose.requiredHeightForWidth (520);
+            const auto paragraphText = prose.renderedTextForTest();
+            check (paragraphText.contains (
+                       "wrapped at a hard column continues here."),
+                   "a soft line break inside a paragraph is a space");
+            check (paragraphText.contains ("\n\nA second paragraph."),
+                   "a blank line still separates two paragraphs");
+        }
+
         // SELECTION in a chat bubble: a drag highlights the body in place and
         // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
         // reader expects from any chat, instead of only the whole-message copy

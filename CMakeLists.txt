@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.77.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.78.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -190,6 +190,18 @@ project(eiffelbs-ui VERSION 0.77.0 LANGUAGES C CXX)
 # Markdown markers are already gone - so a copy returns what the reader saw.
 # Additive: no existing caller changes, and a bubble nobody drags paints
 # byte-identical pixels.
+
+# v0.78.0: the ChatBubble body renders Markdown the way it was written. A pipe
+# table gets padded columns, a rule under its header and GFM alignment
+# (`:---` left, `:---:` centre, `---:` right), with or without outer pipes;
+# each cell is measured through the inline renderer itself, so a bold word or
+# a link cannot shift the next column. Ordered lists keep the writer's numbers
+# (`3.` starts a list at 3), nested bullets indent and change glyph, `+` is a
+# bullet too, GFM task lists draw a box, consecutive lines of one paragraph
+# are a soft break (a space) while a blank line still separates paragraphs,
+# and an underscore INSIDE a word (snake_case, file_name.py) is no longer
+# eaten as emphasis. Additive: every line outside those block forms paints the
+# same pixels.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

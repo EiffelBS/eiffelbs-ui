@@ -757,6 +757,20 @@ private:
         {
             const auto c = line[i];
             const auto next = i + 1 < line.length() ? line[i + 1] : juce::juce_wchar (0);
+            // A BACKSLASH escapes the Markdown character that follows it:
+            // "5 \* 3" means a literal star, not the start of italics.
+            if (c == '\\' && i + 1 < line.length())
+            {
+                const auto escaped = line[i + 1];
+                if (escaped == '*' || escaped == '_' || escaped == '`'
+                    || escaped == '[' || escaped == ']' || escaped == '('
+                    || escaped == ')' || escaped == '\\' || escaped == '|')
+                {
+                    run << escaped;
+                    ++i;
+                    continue;
+                }
+            }
             // BARE URLs: LLM answers print them without Markdown grammar.
             // They are shown as links (accent) and recorded so the bubble can
             // expose a clickable row (author request 2026-10-29).
@@ -838,6 +852,17 @@ private:
             }
             if (c == '*' || c == '_')
             {
+                // An underscore INSIDE a word is part of the identifier
+                // (snake_case, file_name.py), not an emphasis marker: taking
+                // it out turned a filename italic and deleted the underscore.
+                if (c == '_'
+                    && juce::CharacterFunctions::isLetterOrDigit (
+                           i > 0 ? line[i - 1] : juce::juce_wchar (0))
+                    && juce::CharacterFunctions::isLetterOrDigit (next))
+                {
+                    run << c;
+                    continue;
+                }
                 flush();
                 italic = ! italic;
                 continue;
@@ -847,11 +872,129 @@ private:
         flush();
     }
 
+    /** How deep a list item is nested, in display levels. Two spaces are one
+        level (the convention every Markdown writer uses), and the result is
+        capped so a deeply indented answer does not run off the bubble. */
+    static int listIndentLevel (const juce::String& line)
+    {
+        int spaces = 0;
+        for (const auto c : line)
+        {
+            if (c == ' ')       ++spaces;
+            else if (c == '\t') spaces += 2;
+            else break;
+        }
+        return juce::jlimit (0, 3, spaces / 2);
+    }
+
+    /** One pipe row, split into its cells. `\|` is a literal bar, and empty
+        cells are kept: a table with a blank cell must not lose its column. */
+    static juce::StringArray splitTableRow (const juce::String& line)
+    {
+        auto body = line.trim();
+        if (body.startsWithChar ('|'))
+            body = body.substring (1);
+        if (body.endsWithChar ('|'))
+            body = body.dropLastCharacters (1);
+
+        juce::StringArray cells;
+        juce::String cell;
+        for (int i = 0; i < body.length(); ++i)
+        {
+            const auto c = body[i];
+            if (c == '\\' && i + 1 < body.length() && body[i + 1] == '|')
+            {
+                cell << '|';
+                ++i;
+                continue;
+            }
+            if (c == '|')
+            {
+                cells.add (cell.trim());
+                cell.clear();
+                continue;
+            }
+            cell << c;
+        }
+        cells.add (cell.trim());
+        return cells;
+    }
+
+    /** A line that is only `:?---+:?` cells: the separator that turns the
+        previous row into a table header, and that carries each column's
+        alignment (0 left, 1 centre, 2 right). A separator with NO bar is a
+        horizontal rule instead - a single-column table is not worth taking
+        the rule away from every answer. */
+    static bool tableSeparator (const juce::String& line,
+                                std::vector<int>& alignmentsOut)
+    {
+        const auto trimmed = line.trim();
+        if (! trimmed.containsChar ('|'))
+            return false;
+
+        auto cells = splitTableRow (trimmed);
+        if (cells.isEmpty())
+            return false;
+
+        std::vector<int> alignments;
+        for (auto cell : cells)
+        {
+            cell = cell.trim();
+            if (cell.isEmpty())
+                return false;
+
+            // GFM: `:---` left, `:---:` centre, `---:` right. A leading colon
+            // alone is LEFT alignment - it is the side the text is pinned to,
+            // not a centre mark.
+            const bool leftColon = cell.startsWithChar (':');
+            const bool rightColon = cell.endsWithChar (':');
+            const int alignment = leftColon && rightColon ? 1
+                                : rightColon              ? 2
+                                                          : 0;
+            if (leftColon == true)
+                cell = cell.substring (1);
+            if (rightColon)
+                cell = cell.dropLastCharacters (1);
+            if (cell.isEmpty())
+                return false;
+            for (const auto c : cell)
+                if (c != '-')
+                    return false;
+            alignments.push_back (alignment);
+        }
+
+        if (alignments.empty())
+            return false;
+        alignmentsOut = std::move (alignments);
+        return true;
+    }
+
+    /** The width the INLINE renderer gives this text, in the font it will draw
+        it with. Measured through appendInlineRuns itself, then through the
+        LAYOUT's own run extents - NOT AttributedString's bounding box, which
+        is the INK and stops at the last glyph's shoulder, so padding computed
+        from it came up a space short on a word ending in a flat stem. */
+    static float inlineWidth (const juce::String& text, juce::Font base,
+                              juce::Font mono)
+    {
+        juce::AttributedString tmp;
+        int pos = 0;
+        appendInlineRuns (tmp, text, base, ebs::text(), mono, pos, nullptr);
+
+        juce::TextLayout layout;
+        layout.createLayout (tmp, std::numeric_limits<float>::max());
+        if (layout.getNumLines() == 0)
+            return 0.0f;
+        return layout.getLine (0).getLineBoundsX().getLength();
+    }
+
     /** The whole body as Markdown-aware styled text. The BLOCK subset is the
-        one LLM answers actually use: headings, bullets, numbered items,
-        quotes, fenced code, horizontal rules and pipe TABLES (drawn as an
-        aligned monospace block - a real column layout would need its own
-        component inside the bubble, which is out of scope for a transcript). */
+        one LLM answers actually use: headings, bullets, numbered items, task
+        boxes, quotes, fenced code, horizontal rules and pipe TABLES. A table
+        is drawn as a monospace block with padded columns and a rule under its
+        header: that keeps one TextLayout per message (a real grid component
+        inside every bubble would fight streaming and selection), and it is
+        what makes the columns line up. */
     static juce::AttributedString markdownBody (const juce::String& raw,
                                                 juce::Font base,
                                                 juce::Colour ink,
@@ -869,6 +1012,20 @@ private:
             pos += t.length();
         };
 
+        // A paragraph is CLOSED explicitly: consecutive source lines in one
+        // paragraph are a soft break (a space), which is what a model that
+        // wraps its answer at a fixed column means. Every block element
+        // closes the open paragraph first, so a heading, a list or a table
+        // never shares a line with the sentence above it.
+        bool paragraphOpen = false;
+        const auto closeParagraph = [&]
+        {
+            if (! paragraphOpen)
+                return;
+            emit ("\n", base, ink);
+            paragraphOpen = false;
+        };
+
         const auto lines = juce::StringArray::fromLines (raw);
         bool inFence = false;
         for (int n = 0; n < lines.size(); ++n)
@@ -876,11 +1033,13 @@ private:
             auto line = lines[n];
             if (line.trimStart().startsWith ("```"))
             {
+                closeParagraph();
                 inFence = ! inFence;
                 continue;
             }
             if (inFence)
             {
+                closeParagraph();
                 emit (line + "\n", mono, ebs::textDim());
                 continue;
             }
@@ -888,62 +1047,134 @@ private:
             auto trimmed = line.trim();
             if (trimmed.isEmpty())
             {
+                closeParagraph();
                 emit ("\n", base, ink);
                 continue;
             }
-            // Table cells keep their WORDS: a raw [label](url) inside a
-            // monospace row would show the Markdown, not the text.
-            const auto plainCell = [] (juce::String cell)
+            // ---- pipe tables -------------------------------------------
+            // A table is the header row, the alignment separator, and the
+            // body rows that follow. Every row is ONE monospace line: that is
+            // what makes the columns line up, and the rule under the header
+            // is what makes it read as a table instead of a paragraph that
+            // happens to contain bars.
+            if (trimmed.containsChar ('|') && n + 1 < lines.size())
             {
-                int at = 0;
-                while ((at = cell.indexOfChar (at, '[')) >= 0)
+                std::vector<int> alignments;
+                if (tableSeparator (lines[n + 1], alignments))
                 {
-                    const int close = cell.indexOfChar (at + 1, ']');
-                    const int open  = close >= 0 ? cell.indexOfChar (close + 1,
-                                                                     '(') : -1;
-                    const int shut  = open >= 0 ? cell.indexOfChar (open + 1,
-                                                                    ')') : -1;
-                    if (close < 0 || open != close + 1 || shut < 0)
-                        break;
-                    cell = cell.substring (0, at)
-                         + cell.substring (at + 1, close)
-                         + cell.substring (shut + 1);
-                }
-                cell = cell.replace ("**", "").replace ("__", "")
-                           .replace ("`", "").replace ("*", "")
-                           .replace ("_", "").trim();
-                return cell;
-            };
-            // Table separator line (|---|---|) carries no content.
-            if (trimmed.startsWith ("|") && trimmed.endsWith ("|"))
-            {
-                const auto inner = trimmed.substring (1, trimmed.length() - 1);
-                auto cells = juce::StringArray::fromTokens (inner, "|", {});
-                bool separator = true;
-                for (auto cell : cells)
-                {
-                    cell = cell.trim();
-                    for (const auto ch : cell)
-                        if (ch != '-' && ch != ':' && ch != ' ')
-                            separator = false;
-                }
-                if (separator)
+                    closeParagraph();
+                    const int columns = (int) alignments.size();
+                    std::vector<juce::StringArray> rows;
+                    rows.push_back (splitTableRow (line));
+
+                    int rowIndex = n + 2;
+                    for (; rowIndex < lines.size(); ++rowIndex)
+                    {
+                        const auto rowLine = lines[rowIndex];
+                        if (rowLine.trim().isEmpty()
+                            || ! rowLine.containsChar ('|'))
+                            break;
+                        rows.push_back (splitTableRow (rowLine));
+                    }
+                    n = rowIndex - 1;   // the loop's ++n resumes after the table
+
+                    // Widths measured from the STYLED cells, once, in the
+                    // mono font the rows are drawn with. The cells are drawn
+                    // through the same inline renderer that was measured, so
+                    // padding and text cannot disagree about a link or a bold
+                    // word.
+                    std::vector<float> widths ((size_t) columns, 0.0f);
+                    std::vector<std::vector<float>> cellWidths (rows.size());
+                    for (size_t r = 0; r < rows.size(); ++r)
+                    {
+                        cellWidths[r].assign ((size_t) columns, 0.0f);
+                        for (int c = 0; c < columns; ++c)
+                        {
+                            const auto cell = c < rows[r].size()
+                                                  ? rows[r][c] : juce::String();
+                            const float w = inlineWidth (cell, mono, mono);
+                            cellWidths[r][(size_t) c] = w;
+                            widths[(size_t) c] = juce::jmax (widths[(size_t) c], w);
+                        }
+                    }
+                    for (auto& width : widths)
+                        width = juce::jmax (width,
+                                            mono.getStringWidthFloat ("M"));
+
+                    const auto spaceW = juce::jmax (
+                        1.0f, mono.getStringWidthFloat (" "));
+                    const auto dashChar = juce::String::charToString (0x2500);
+                    const auto dashW = juce::jmax (
+                        1.0f, mono.getStringWidthFloat (dashChar));
+
+                    const auto emitRow = [&] (size_t rowIndex, juce::Colour rowInk)
+                    {
+                        const auto& row = rows[rowIndex];
+                        for (int c = 0; c < columns; ++c)
+                        {
+                            const auto cell = c < row.size() ? row[c]
+                                                             : juce::String();
+                            const int needed = juce::jmax (
+                                0, juce::roundToInt (
+                                       (widths[(size_t) c]
+                                        - cellWidths[rowIndex][(size_t) c])
+                                       / spaceW));
+                            int leftPad = 0;
+                            if (alignments[(size_t) c] == 1)
+                                leftPad = needed / 2;
+                            else if (alignments[(size_t) c] == 2)
+                                leftPad = needed;
+
+                            if (c > 0)
+                                emit (" " + juce::String::charToString (0x2502)
+                                          + " ", mono, ebs::textDim());
+                            if (leftPad > 0)
+                                emit (juce::String::repeatedString (" ", leftPad),
+                                      mono, rowInk);
+                            appendInlineRuns (as, cell, mono, rowInk, mono,
+                                              pos, &spansOut);
+                            const int rightPad = needed - leftPad;
+                            if (rightPad > 0)
+                                emit (juce::String::repeatedString (" ", rightPad),
+                                      mono, rowInk);
+                        }
+                        emit ("\n", mono, rowInk);
+                    };
+
+                    emitRow (0, ebs::accent());
+
+                    // The rule under the header: its junction sits under the
+                    // row's own column bar.
+                    for (int c = 0; c < columns; ++c)
+                    {
+                        if (c > 0)
+                            emit (juce::String::charToString (0x2500)
+                                      + juce::String::charToString (0x253c)
+                                      + juce::String::charToString (0x2500),
+                                  mono, ebs::textDim());
+                        emit (juce::String::repeatedString (
+                                  dashChar,
+                                  juce::jmax (1, juce::roundToInt (
+                                         widths[(size_t) c] / dashW))),
+                              mono, ebs::textDim());
+                    }
+                    emit ("\n", mono, ebs::textDim());
+
+                    for (size_t r = 1; r < rows.size(); ++r)
+                        emitRow (r, ink);
                     continue;
-                juce::String rendered;
-                for (auto cell : cells)
-                    rendered << (rendered.isEmpty() ? "" : "  |  ")
-                             << plainCell (cell);
-                emit (rendered + "\n", mono, ink);
-                continue;
+                }
             }
             if (trimmed == "---" || trimmed == "***" || trimmed == "___")
             {
+                closeParagraph();
                 emit (juce::String::repeatedString ("\u2500", 18) + "\n",
                       mono, ebs::textDim());
                 continue;
             }
             if (trimmed.startsWith ("#"))
             {
+                closeParagraph();
                 int level = 0;
                 while (level < trimmed.length() && trimmed[level] == '#')
                     ++level;
@@ -957,28 +1188,88 @@ private:
                 emit ("\n", f, ink);
                 continue;
             }
-            if (trimmed.startsWith ("> "))
+            // A list item keeps its DEPTH: a nested bullet drawn at the same
+            // left edge as its parent is not a nested list, it is a flat run
+            // of bullets.
+            const int indentLevel = listIndentLevel (line);
+            const juce::String indentPrefix = juce::String::repeatedString (
+                "  ", indentLevel);
+
+            if (trimmed.startsWith ("> ") || trimmed == ">")
             {
-                emit (juce::String::fromUTF8 ("\u258f "), mono,
+                closeParagraph();
+                emit (indentPrefix + juce::String::fromUTF8 ("\u258f "), mono,
                       ebs::textDim());
-                appendInlineRuns (as, trimmed.substring (2),
-                                 base, ebs::textDim(), mono, pos, &spansOut);
+                appendInlineRuns (as,
+                                  trimmed.length() > 2 ? trimmed.substring (2)
+                                                       : juce::String(),
+                                  base, ebs::textDim(), mono, pos, &spansOut);
                 emit ("\n", base, ink);
                 continue;
             }
-            if (trimmed.startsWith ("- ") || trimmed.startsWith ("* "))
+            if (trimmed.startsWith ("- ") || trimmed.startsWith ("* ")
+                || trimmed.startsWith ("+ "))
             {
-                emit (juce::String::fromUTF8 ("\u2022 "), base, ebs::textDim());
-                appendInlineRuns (as, trimmed.substring (2), base, ink, mono,
-                                  pos, &spansOut);
+                closeParagraph();
+                auto content = trimmed.substring (2);
+                // The glyph follows the DEPTH, the way a browser renders a
+                // nested list: a level-two bullet drawn with the same disc as
+                // its parent reads as a sibling, not as a child.
+                juce::String marker = juce::String::fromUTF8 (
+                    indentLevel == 0 ? "\u2022 "
+                                     : indentLevel == 1 ? "\u25e6 " : "\u25aa ");
+                // GFM task list: the box replaces the bullet, so a checklist
+                // reads as a checklist instead of as a bullet that begins
+                // with brackets.
+                if (content.startsWith ("[ ] "))
+                {
+                    marker = juce::String::fromUTF8 ("\u2610 ");
+                    content = content.substring (4);
+                }
+                else if (content.startsWith ("[x] ")
+                         || content.startsWith ("[X] "))
+                {
+                    marker = juce::String::fromUTF8 ("\u2611 ");
+                    content = content.substring (4);
+                }
+                emit (indentPrefix + marker, base, ebs::textDim());
+                appendInlineRuns (as, content, base, ink, mono, pos, &spansOut);
                 emit ("\n", base, ink);
                 continue;
             }
+            // Ordered list: keep the WRITER's number (a list may start at 3),
+            // and put the text after it so a numbered answer does not read as
+            // a paragraph that begins with a digit.
+            {
+                int digits = 0;
+                while (digits < trimmed.length()
+                       && juce::CharacterFunctions::isDigit (trimmed[digits]))
+                    ++digits;
+                if (digits > 0 && digits + 1 < trimmed.length()
+                    && (trimmed[digits] == '.' || trimmed[digits] == ')')
+                    && trimmed[digits + 1] == ' ')
+                {
+                    closeParagraph();
+                    emit (indentPrefix + trimmed.substring (0, digits + 1) + " ",
+                          base, ebs::textDim());
+                    appendInlineRuns (as, trimmed.substring (digits + 2),
+                                      base, ink, mono, pos, &spansOut);
+                    emit ("\n", base, ink);
+                    continue;
+                }
+            }
+
+            // A soft break inside a paragraph is a SPACE: a model that wraps
+            // its answer at a fixed column means one sentence, not one line
+            // per sentence. The paragraph is closed by the next block element
+            // (or by the end of the message), which emits the newline.
+            if (paragraphOpen)
+                emit (" ", base, ink);
+            else
+                paragraphOpen = true;
             appendInlineRuns (as, line, base, ink, mono, pos, &spansOut);
-            emit ("\n", base, ink);
         }
-        // fromLines keeps a trailing empty line after the last newline: drop
-        // the extra blank so a bubble does not grow a phantom line.
+        closeParagraph();
         return as;
     }
 
@@ -1302,6 +1593,10 @@ public:
             return {};
         return linkSpans[(size_t) index];
     }
+
+    /** Tests: the PROCESSED body the layout draws (the Markdown markers are
+        gone, a table is already padded). */
+    juce::String renderedTextForTest() const { return layoutText; }
 
 private:
     Side  side        = Side::assistant;
