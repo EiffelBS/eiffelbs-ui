@@ -745,6 +745,127 @@ int main()
             ebs::setUiTypeScale (savedScale);
         }
 
+        // MERMAID FLOWCHARTS: the native subset parses what LLM answers emit
+        // and paints a real diagram; a dialect it does not implement is
+        // refused so the caller can show the source instead.
+        {
+            ebs::MermaidFlowchart flow;
+            const auto ok = flow.layout (
+                "flowchart TD\n"
+                "  A[Start] --> B{Ready?}\n"
+                "  B -->|yes| C(Go)\n"
+                "  B -->|no| D((Wait))\n"
+                "  C --> D\n"
+                "  style A fill:#f00\n"
+                "  classDef x fill:#000\n",
+                420.0f, ebs::fontBody());
+            check (ok && flow.nodeCountForTest() == 4
+                       && flow.edgeCountForTest() == 4,
+                   "a mermaid flowchart parses its nodes and arrows");
+            check (flow.nodeLabelForTest (0) == "Start"
+                       && flow.nodeLabelForTest (1) == "Ready?"
+                       && flow.nodeLabelForTest (3) == "Wait",
+                   "node labels keep their text and shapes");
+            check (flow.rankCountForTest() >= 3,
+                   "a flowchart ranks the arrows top-down");
+            check (flow.getHeight() > 40 && flow.getWidth() <= 420,
+                   "the drawing fits the width it was offered");
+
+            juce::Image img (juce::Image::ARGB, 420, flow.getHeight() + 8, true);
+            {
+                juce::Graphics g (img);
+                g.fillAll (ebs::bgPanel());
+                flow.paint (g, { 0.0f, 0.0f, 420.0f,
+                                 (float) flow.getHeight() + 8.0f });
+            }
+            check (inkPixels (img) > 200,
+                   "the flowchart paints boxes, arrows and labels");
+
+            ebs::MermaidFlowchart lr;
+            check (lr.layout ("graph LR\nA -- goes to --> B", 420.0f,
+                              ebs::fontBody())
+                       && lr.isHorizontalForTest()
+                       && lr.edgeCountForTest() == 1,
+                   "an LR graph and the '-- label -->' arrow are understood");
+
+            ebs::MermaidFlowchart sequence;
+            check (! sequence.layout ("sequenceDiagram\nA->>B: hi", 420.0f,
+                                      ebs::fontBody()),
+                   "a sequence diagram is refused, never drawn as garbage");
+        }
+
+        // A mermaid FENCE inside a message becomes a diagram in the flow: the
+        // source leaves the text, the paragraphs around it stay, and the
+        // bubble reserves the drawing's height in blank lines it paints over.
+        {
+            ebs::ChatBubble withDiagram;
+            withDiagram.setText ("Before the picture.\n"
+                                 "```mermaid\n"
+                                 "flowchart TD\n"
+                                 "A[One] --> B[Two]\n"
+                                 "```\n"
+                                 "After the picture.");
+            const int hWith = withDiagram.requiredHeightForWidth (520);
+            withDiagram.setBounds (0, 0, 520, hWith);
+            const auto body = withDiagram.renderedTextForTest();
+            check (withDiagram.diagramCountForTest() == 1,
+                   "a mermaid fence becomes one diagram block");
+            check (! body.contains ("flowchart TD")
+                       && body.contains ("Before the picture.")
+                       && body.contains ("After the picture."),
+                   "the mermaid source leaves the text, the paragraphs stay");
+
+            ebs::ChatBubble plain;
+            plain.setText ("Before the picture.\nAfter the picture.");
+            const int hWithout = plain.requiredHeightForWidth (520);
+            check (hWith > hWithout + 80,
+                   "the bubble reserves the diagram's height in the flow");
+
+            juce::Image img (juce::Image::ARGB, withDiagram.getWidth(),
+                             withDiagram.getHeight(), true);
+            {
+                juce::Graphics g (img);
+                withDiagram.paintEntireComponent (g, true);
+            }
+            check (inkPixels (img) > 400, "the bubble paints the diagram");
+
+            ebs::ChatBubble trailing;
+            trailing.setText ("Text first.\n"
+                              "```mermaid\n"
+                              "flowchart LR\n"
+                              "A --> B\n"
+                              "```");
+            const int hTrail = trailing.requiredHeightForWidth (520);
+            ebs::ChatBubble textOnly;
+            textOnly.setText ("Text first.");
+            const int hTextOnly = textOnly.requiredHeightForWidth (520);
+            const auto diagramFont = ebs::fontBody().withHeight (
+                juce::jmax (9.0f, ebs::fontBody().getHeight() * 0.85f));
+            ebs::MermaidFlowchart tiny;
+            (void) tiny.layout ("flowchart LR\nA --> B", 472.0f, diagramFont);
+            check (trailing.diagramCountForTest() == 1
+                       && hTrail >= hTextOnly + tiny.getHeight(),
+                   "a diagram at the END of a message reserves its own height");
+
+            // The diagram hole relies on a blank line HAVING a height; if a
+            // future JUCE collapses interior blanks too, the diagram would
+            // overlap the following paragraph instead of pushing it down.
+            ebs::ChatBubble tight, spaced;
+            tight.setText ("alpha\nbeta");
+            spaced.setText ("alpha\n\nbeta");
+            check (spaced.requiredHeightForWidth (520)
+                       > tight.requiredHeightForWidth (520) + 10,
+                   "a blank Markdown line still takes its line");
+
+            ebs::ChatBubble unsupported;
+            unsupported.setText ("```mermaid\nsequenceDiagram\nA->>B: hi\n```");
+            (void) unsupported.requiredHeightForWidth (520);
+            check (unsupported.diagramCountForTest() == 0
+                       && unsupported.renderedTextForTest().contains (
+                              "sequenceDiagram"),
+                   "an unsupported mermaid diagram keeps its source");
+        }
+
         // SELECTION in a chat bubble: a drag highlights the body in place and
         // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
         // reader expects from any chat, instead of only the whole-message copy

@@ -62,6 +62,7 @@
 #include "eiffelbs/BandGrip.h"
 #include "eiffelbs/Avatar.h"
 #include "eiffelbs/ChatBubble.h"
+#include "eiffelbs/MermaidFlowchart.h"
 #include "eiffelbs/PillTabSwitch.h"
 #include "eiffelbs/FrameBand.h"
 #include "eiffelbs/TokenField.h"

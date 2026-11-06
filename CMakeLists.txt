@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.78.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.79.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -210,6 +210,18 @@ project(eiffelbs-ui VERSION 0.78.1 LANGUAGES C CXX)
 # default 1.25 UI scale, 18 pt of body produced 20.7 pt of table/code text.
 # monospaceFontForBody() is the one place that arithmetic lives, and the smoke
 # test pins it. Every existing caller is untouched.
+
+# v0.79.0: ebs::MermaidFlowchart - a native renderer for the Mermaid FLOWCHART
+# subset LLM answers emit: `flowchart`/`graph` TD/TB/BT/LR/RL, `[]` `()` `{}`
+# `(())` nodes with quoted labels, `-->` `---` `-.->` `==>` arrows with
+# `|label|` or `-- label -->`, chains and `;`, comments; classDef/style/click/
+# subgraph are ignored, other diagram dialects are refused by name. Layout is
+# a bounded longest-path ranking with one barycentre pass, skip-rank and back
+# edges are routed around the boxes, and the drawing is fitted to the width it
+# is offered. ChatBubble renders ```mermaid fences through it, painted over
+# blank lines reserved in the ONE TextLayout, so selection, links and copy are
+# untouched; a diagram at the end of a message is stacked below the text and
+# the bubble grows by its height. Additive: no existing caller changes.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

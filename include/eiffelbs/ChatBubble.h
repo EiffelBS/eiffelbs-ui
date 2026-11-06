@@ -38,12 +38,15 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <cmath>
 #include <limits>
+#include <memory>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/Avatar.h"
+#include "eiffelbs/MermaidFlowchart.h"
 
 namespace ebs
 {
@@ -497,6 +500,21 @@ public:
         // word looks like anywhere else.
         paintTextSelection (g, bodyArea);
         bodyLayout.draw (g, bodyArea);
+
+        // The diagrams are painted INTO the reserved holes of the text. They
+        // come after the glyphs because a diagram is opaque: a box drawn under
+        // a paragraph that follows it would be painted over.
+        for (const auto& placement : diagrams)
+            if (placement.diagram != nullptr)
+                placement.diagram->paint (
+                    g, { bodyArea.getX()
+                             + juce::jmax (0.0f,
+                                           (bodyArea.getWidth()
+                                            - (float) placement.diagram->getWidth())
+                                               * 0.5f),
+                         bodyArea.getY() + placement.lineTop,
+                         (float) placement.diagram->getWidth(),
+                         (float) placement.diagram->getHeight() });
     }
 
     /** The link under `p`, or null. Hit-tested against the LAYOUT's runs: a
@@ -1001,17 +1019,32 @@ private:
         return layout.getLine (0).getLineBoundsX().getLength();
     }
 
+    /** One Mermaid flowchart drawn INSIDE the body. The diagram is painted
+        over a run of blank lines the Markdown emitter reserved for it, so the
+        single TextLayout - and with it selection, links and copy - is
+        untouched: the drawing lives in a hole in the text, not in a second
+        layout that would need its own hit test. */
+    struct DiagramPlacement
+    {
+        int textOffset = 0;      // where the reserved blank lines start
+        int reservedLines = 0;   // how many blank lines were reserved
+        float lineTop = 0.0f;    // resolved from the finished layout
+        std::unique_ptr<ebs::MermaidFlowchart> diagram;
+    };
+
     /** The whole body as Markdown-aware styled text. The BLOCK subset is the
         one LLM answers actually use: headings, bullets, numbered items, task
-        boxes, quotes, fenced code, horizontal rules and pipe TABLES. A table
-        is drawn as a monospace block with padded columns and a rule under its
-        header: that keeps one TextLayout per message (a real grid component
-        inside every bubble would fight streaming and selection), and it is
-        what makes the columns line up. */
+        boxes, quotes, fenced code, horizontal rules, pipe TABLES and Mermaid
+        FLOWCHARTS. A table is drawn as a monospace block with padded columns
+        and a rule under its header; a flowchart is handed to
+        ebs::MermaidFlowchart and painted over blank lines reserved in the
+        layout, so a diagram between two paragraphs costs the text nothing. */
     static juce::AttributedString markdownBody (const juce::String& raw,
                                                 juce::Font base,
                                                 juce::Colour ink,
-                                                std::vector<LinkSpan>& spansOut)
+                                                std::vector<LinkSpan>& spansOut,
+                                                float maxWidth,
+                                                std::vector<DiagramPlacement>& diagramsOut)
     {
         const auto mono = monospaceFontForBody (base.getHeight());
         juce::AttributedString as;
@@ -1046,6 +1079,62 @@ private:
             if (line.trimStart().startsWith ("```"))
             {
                 closeParagraph();
+                const auto info = line.trimStart().substring (3).trim();
+                if (info.startsWithIgnoreCase ("mermaid"))
+                {
+                    // Collect the fence body and consume BOTH fences: a
+                    // diagram must not leak its source into the transcript.
+                    juce::StringArray body;
+                    int closing = n + 1;
+                    for (; closing < lines.size(); ++closing)
+                    {
+                        if (lines[closing].trimStart().startsWith ("```"))
+                            break;
+                        body.add (lines[closing]);
+                    }
+                    n = closing;   // the loop's ++n resumes after the fence
+
+                    auto diagram = std::make_unique<ebs::MermaidFlowchart>();
+                    const auto diagramFont = base.withHeight (
+                        juce::jmax (9.0f, base.getHeight() * 0.85f));
+                    if (diagram->layout (body.joinIntoString ("\n"), maxWidth,
+                                         diagramFont))
+                    {
+                        // Reserve the drawing's height as BLANK LINES. The
+                        // line height is MEASURED from the same font (a
+                        // nominal 1.2x would under-reserve a face whose
+                        // ascent+descent is smaller), and one extra line
+                        // covers a TextLayout that drops the final empty line;
+                        // the drawing is anchored at the first reserved line's
+                        // top.
+                        juce::AttributedString probeText;
+                        probeText.append ("M\n", base);
+                        juce::TextLayout probe;
+                        probe.createLayout (probeText, maxWidth);
+                        const auto lineHeight = juce::jmax (
+                            1.0f, probe.getNumLines() > 0
+                                      ? probe.getLine (0).getLineBoundsY().getLength()
+                                      : base.getHeight() * 1.2f);
+                        const int reserved = juce::jmax (
+                            1, (int) std::ceil (diagram->getHeight() / lineHeight))
+                                             + 1;
+                        DiagramPlacement placement;
+                        placement.textOffset = pos;
+                        placement.reservedLines = reserved;
+                        placement.diagram = std::move (diagram);
+                        diagramsOut.push_back (std::move (placement));
+                        emit (juce::String::repeatedString ("\n", reserved),
+                              base, ink);
+                        continue;
+                    }
+
+                    // Not a flowchart this renderer understands (a sequence
+                    // diagram, a malformed body): show the source as the code
+                    // block it is, rather than inventing a diagram.
+                    for (const auto& codeLine : body)
+                        emit (codeLine + "\n", mono, ebs::textDim());
+                    continue;
+                }
                 inFence = ! inFence;
                 continue;
             }
@@ -1515,20 +1604,23 @@ private:
             f.setStyleFlags (juce::Font::italic);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
         linkSpans.clear();
+        diagrams.clear();
         auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
-                                linkSpans);
+                                linkSpans, (float) textW, diagrams);
         // The processed string is what the layout draws and what a selection
         // indexes: keep exactly that one, or a copy would return the Markdown
         // markers the reader never saw.
         layoutText = as.getText();
         bodyLayout.createLayout (as, (float) textW);
+        resolveDiagramPlacements();
         clampSelectionToText();
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
         // bubble: a fractional line height MUST round up, and the extra pixel
         // covers the layout's reported height not including the full glyph
         // extents (author report 2026-10-29).
-        bodyH = (int) std::ceil (bodyLayout.getHeight()) + 2;
+        bodyH = (int) std::ceil (bodyLayout.getHeight()) + 2
+                + (int) std::ceil (diagramTailHeight);
 
         height = 0;
         if (header.isNotEmpty())
@@ -1544,6 +1636,58 @@ private:
         height += padV + bodyH + padV;
         if (showCopy)
             height += copyRowH;
+    }
+
+    /** Anchor every diagram at the first blank line it reserved. The mapping
+        exists only once the text has been laid out (the Markdown emitter runs
+        before there are lines), so it is resolved here, once.
+
+        A diagram at the END of a message has a special case: a TextLayout
+        drops its TRAILING blank lines, so the reserved hole has no line to
+        anchor to. Those diagrams are stacked below the last line, and the
+        bubble grows by exactly their height - the text above stays untouched
+        and the copy gains no placeholder characters. */
+    void resolveDiagramPlacements()
+    {
+        diagramTailHeight = 0.0f;
+        float tailTop = bodyLayout.getHeight();
+
+        for (auto& placement : diagrams)
+        {
+            // The reserved run is the TAIL of the message when nothing but
+            // whitespace follows it. A TextLayout gives trailing blank lines
+            // no height (only the interior ones), so a diagram at the end of a
+            // message is stacked BELOW the last line and the bubble grows by
+            // its height instead of trusting a hole that has no pixels.
+            const auto rest = layoutText.substring (
+                juce::jmin (layoutText.length(),
+                            placement.textOffset + placement.reservedLines)).trim();
+            const bool trailing = rest.isEmpty();
+
+            bool anchored = false;
+            if (! trailing)
+            {
+                for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+                {
+                    const auto& line = bodyLayout.getLine (i);
+                    if (line.stringRange.getStart() >= placement.textOffset)
+                    {
+                        // A small breath between the paragraph and the box.
+                        placement.lineTop = line.getLineBoundsY().getStart() + 6.0f;
+                        anchored = true;
+                        break;
+                    }
+                }
+            }
+
+            if (! anchored)
+            {
+                placement.lineTop = tailTop + 6.0f;
+                tailTop += 6.0f + (float) placement.diagram->getHeight() + 12.0f;
+                diagramTailHeight = juce::jmax (diagramTailHeight,
+                                                tailTop - bodyLayout.getHeight());
+            }
+        }
     }
 
     /** Re-measure, then TELL THE CALLER. A bubble is placed by its host (see
@@ -1610,6 +1754,9 @@ public:
         gone, a table is already padded). */
     juce::String renderedTextForTest() const { return layoutText; }
 
+    /** Tests: how many Mermaid flowcharts the body paints. */
+    int diagramCountForTest() const noexcept { return (int) diagrams.size(); }
+
 private:
     Side  side        = Side::assistant;
     Tone  tone        = Tone::plain;
@@ -1633,6 +1780,12 @@ private:
 
     juce::TextLayout bodyLayout;
     std::vector<LinkSpan> linkSpans;   // clickable ranges in the body layout
+    /** The Mermaid diagrams this body draws, and where: they live in holes
+        reserved in the text, so they never touch `layoutText`. */
+    std::vector<DiagramPlacement> diagrams;
+    /** Height the layout had to add BELOW its last line for diagrams that
+        sit at the end of the message (a TextLayout drops trailing blanks). */
+    float diagramTailHeight = 0.0f;
     /** The PROCESSED body the layout was built from: the string a selection
         indexes and copies (the Markdown markers are gone). */
     juce::String layoutText;
