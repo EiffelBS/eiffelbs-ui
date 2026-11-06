@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.79.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.80.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -222,6 +222,15 @@ project(eiffelbs-ui VERSION 0.79.0 LANGUAGES C CXX)
 # blank lines reserved in the ONE TextLayout, so selection, links and copy are
 # untouched; a diagram at the end of a message is stacked below the text and
 # the bubble grows by its height. Additive: no existing caller changes.
+
+# v0.80.0: ChatBubble renders Markdown IMAGES - a standalone `![alt](url)` is
+# a media block, not text. The host supplies the cache through getChatImage /
+# requestChatImage (the shared library does no network I/O); the bubble
+# reserves a 16:9 placeholder until the image is cached, then takes the real
+# aspect ratio (capped at 420 px tall), paints the picture rounded, and opens
+# the source on click. The Markdown source is consumed; a non-http(s) target
+# stays on the text/link path, because the host owns what it is willing to
+# fetch. Additive: no existing caller changes.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

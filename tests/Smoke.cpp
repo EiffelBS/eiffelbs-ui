@@ -866,6 +866,75 @@ int main()
                    "an unsupported mermaid diagram keeps its source");
         }
 
+        // MARKDOWN IMAGES: a standalone ![alt](url) is a MEDIA BLOCK. The
+        // bubble reserves a 16:9 placeholder, asks the host once, and once the
+        // cache has the image the reserved height follows the real aspect
+        // ratio and the picture is painted.
+        {
+            ebs::ChatBubble image;
+            int requests = 0;
+            juce::String requested;
+            image.requestChatImage = [&] (const juce::String& url)
+            {
+                ++requests;
+                requested = url;
+            };
+            image.setText ("Avant.\n"
+                           "![A cat](https://example.com/cat.png)\n"
+                           "Apres.");
+            const int placeholderHeight = image.requiredHeightForWidth (520);
+            check (image.imageCountForTest() == 1
+                       && image.firstImageUrlForTest()
+                              == "https://example.com/cat.png",
+                   "a Markdown image becomes one image block");
+            check (! image.renderedTextForTest().contains ("![")
+                       && image.renderedTextForTest().contains ("Avant.")
+                       && image.renderedTextForTest().contains ("Apres."),
+                   "the image syntax leaves the text, the paragraphs stay");
+            check (requests >= 1
+                       && requested == "https://example.com/cat.png",
+                   "the host is asked for the image URL");
+
+            // A 200x100 image: the reserved block takes the 2:1 ratio, and
+            // the paint shows the picture itself.
+            juce::Image red (juce::Image::ARGB, 200, 100, true);
+            {
+                juce::Graphics g (red);
+                g.fillAll (juce::Colours::red);
+            }
+            image.getChatImage = [red] (const juce::String&) { return red; };
+            image.mediaCacheChanged();
+            const int loadedHeight = image.requiredHeightForWidth (520);
+            check (loadedHeight < placeholderHeight,
+                   "a wide image replaces the tall 16:9 placeholder");
+
+            image.setBounds (0, 0, 520, loadedHeight);
+            juce::Image shot (juce::Image::ARGB, image.getWidth(),
+                              image.getHeight(), true);
+            {
+                juce::Graphics g (shot);
+                image.paintEntireComponent (g, true);
+            }
+            int redPixels = 0;
+            for (int y = 0; y < shot.getHeight(); ++y)
+                for (int x = 0; x < shot.getWidth(); ++x)
+                {
+                    const auto p = shot.getPixelAt (x, y);
+                    if (p.getRed() > 200 && p.getGreen() < 60
+                        && p.getBlue() < 60)
+                        ++redPixels;
+                }
+            check (redPixels > 5000,
+                   "the cached image is painted inside its block");
+
+            // A non-http image is not fetched: it stays on the text/link path.
+            ebs::ChatBubble local;
+            local.setText ("![x](file.png)");
+            (void) local.requiredHeightForWidth (520);
+            check (local.imageCountForTest() == 0,
+                   "a non-http image is left to the text path");
+        }
+
         // SELECTION in a chat bubble: a drag highlights the body in place and
         // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
         // reader expects from any chat, instead of only the whole-message copy

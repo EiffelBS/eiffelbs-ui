@@ -63,6 +63,33 @@ public:
         int start = 0, end = 0;
         juce::String url, label;
     };
+
+    /** The size of one embedded image, in pixels, before it is drawn. */
+    struct ImageBox
+    {
+        float width = 0.0f, height = 0.0f;
+    };
+
+    /** One non-text block drawn INSIDE the body: a Mermaid flowchart or an
+        embedded image. The block is painted over a run of blank lines the
+        Markdown emitter reserved for it, so the single TextLayout - and with
+        it selection, links and copy - is untouched: the drawing lives in a
+        hole in the text, not in a second layout that would need its own hit
+        test. */
+    struct VisualBlock
+    {
+        enum class Kind { diagram, image };
+
+        Kind kind = Kind::diagram;
+        int textOffset = 0;      // where the reserved blank lines start
+        int reservedLines = 0;   // how many blank lines were reserved
+        float lineTop = 0.0f;    // resolved from the finished layout
+        float width = 0.0f;      // drawing width (<= body width)
+        float height = 0.0f;     // drawing height
+        std::unique_ptr<ebs::MermaidFlowchart> diagram;
+        juce::String url, alt;   // images only
+    };
+
     /** Which speaker. Two sides, no third state. */
     enum class Side { user, assistant };
 
@@ -261,6 +288,14 @@ public:
         or show a status line. The copy button keeps using onCopy. */
     std::function<void (const juce::String&)> onSelectionCopied;
 
+    /** Host seams for images embedded by the Markdown. `getChatImage` returns
+        the cached image for a URL (invalid when absent); `requestChatImage`
+        asks the host to fetch it. The host must re-run the bubble's layout
+        when the image arrives: the reserved height follows the image's real
+        aspect ratio, so the transcript has to re-measure. */
+    std::function<juce::Image (const juce::String& url)> getChatImage;
+    std::function<void (const juce::String& url)> requestChatImage;
+
     /** The copy affordance: shown for an answer, hidden for the question
      *  (nobody copies back what they just typed). */
     void setShowCopyButton (bool shouldShow)
@@ -269,6 +304,15 @@ public:
             return;
         showCopy = shouldShow;
         copyButton.setVisible (shouldShow);
+        invalidate();
+    }
+
+    /** The host's image cache changed (an image arrived, or a fetch ended):
+        the reserved height follows the real aspect ratio, so the measure
+        cache must die. The host calls this, then re-lays the transcript out. */
+    void mediaCacheChanged()
+    {
+        measuredWidth = -1;
         invalidate();
     }
 
@@ -501,20 +545,80 @@ public:
         paintTextSelection (g, bodyArea);
         bodyLayout.draw (g, bodyArea);
 
-        // The diagrams are painted INTO the reserved holes of the text. They
-        // come after the glyphs because a diagram is opaque: a box drawn under
+        // The blocks are painted INTO the reserved holes of the text. They
+        // come after the glyphs because a box/image is opaque: a drawing under
         // a paragraph that follows it would be painted over.
-        for (const auto& placement : diagrams)
-            if (placement.diagram != nullptr)
-                placement.diagram->paint (
-                    g, { bodyArea.getX()
-                             + juce::jmax (0.0f,
-                                           (bodyArea.getWidth()
-                                            - (float) placement.diagram->getWidth())
-                                               * 0.5f),
-                         bodyArea.getY() + placement.lineTop,
-                         (float) placement.diagram->getWidth(),
-                         (float) placement.diagram->getHeight() });
+        for (const auto& block : visuals)
+        {
+            const auto target = visualRectFor (block, bodyArea);
+            if (block.kind == VisualBlock::Kind::diagram
+                && block.diagram != nullptr)
+                block.diagram->paint (g, target);
+            else if (block.kind == VisualBlock::Kind::image)
+                paintImageBlock (g, block, target);
+        }
+    }
+
+    /** Where a visual block is drawn inside the body: horizontally centred,
+        vertically at the line its hole starts on. */
+    juce::Rectangle<float> visualRectFor (const VisualBlock& block,
+                                          juce::Rectangle<float> bodyArea) const
+    {
+        return { bodyArea.getX()
+                     + juce::jmax (0.0f,
+                                   (bodyArea.getWidth() - block.width) * 0.5f),
+                 bodyArea.getY() + block.lineTop,
+                 juce::jmax (1.0f, block.width),
+                 juce::jmax (1.0f, block.height) };
+    }
+
+    /** An embedded image, or its placeholder until the host has fetched it.
+        A click opens the original: the picture is a document, not a link in
+        the sentence, so it carries its own affordance. */
+    void paintImageBlock (juce::Graphics& g, const VisualBlock& block,
+                          juce::Rectangle<float> target) const
+    {
+        g.setColour (ebs::bgDark());
+        g.fillRoundedRectangle (target, 6.0f);
+        g.setColour (ebs::panelBorder());
+        g.drawRoundedRectangle (target, 6.0f, 1.0f);
+
+        const auto image = getChatImage != nullptr ? getChatImage (block.url)
+                                                   : juce::Image();
+        if (image.isValid())
+        {
+            g.saveState();
+            juce::Path clip;
+            clip.addRoundedRectangle (target.reduced (1.0f), 6.0f);
+            g.reduceClipRegion (clip);
+            g.drawImage (image, target,
+                         juce::RectanglePlacement::stretchToFit, false);
+            g.restoreState();
+            return;
+        }
+
+        // Placeholder: the alt text and the fact that it is still coming.
+        // A failed fetch keeps the same box; the alt is the only honest
+        // description the message itself carried.
+        const auto label = block.alt.isNotEmpty() ? block.alt
+                                                  : juce::String ("image");
+        g.setColour (ebs::textDim());
+        g.setFont (ebs::fontHint());
+        g.drawFittedText (label, target.reduced (10.0f).toNearestInt(),
+                          juce::Justification::centred, 3);
+    }
+
+    /** The embedded image under `p`, or null. */
+    const VisualBlock* imageBlockAt (juce::Point<int> p) const
+    {
+        const auto area = bodyAreaForWidth (getWidth());
+        if (area.isEmpty())
+            return nullptr;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::image
+                && visualRectFor (block, area).contains (p.toFloat()))
+                return &block;
+        return nullptr;
     }
 
     /** The link under `p`, or null. Hit-tested against the LAYOUT's runs: a
@@ -568,13 +672,14 @@ public:
                              && headerPill.expanded (2, 2)
                                     .contains (e.getPosition());
         const bool overLink = linkAt (e.getPosition()) != nullptr;
+        const bool overImage = imageBlockAt (e.getPosition()) != nullptr;
         // The I-beam is the affordance that says "this text is selectable",
         // exactly as it does in a browser. Without it a reader has no way to
         // know the body answers a drag rather than only the copy button.
-        const bool overText = ! overLink && ! overHeader
+        const bool overText = ! overLink && ! overHeader && ! overImage
                               && bodyAreaForWidth (getWidth())
                                      .contains (e.getPosition().toFloat());
-        setMouseCursor (overLink || overHeader
+        setMouseCursor (overLink || overHeader || overImage
                             ? juce::MouseCursor::PointingHandCursor
                             : overText ? juce::MouseCursor::IBeamCursor
                                        : juce::MouseCursor::NormalCursor);
@@ -593,6 +698,15 @@ public:
         if (e.mods.isPopupMenu())
         {
             showSelectionMenu (e);
+            return;
+        }
+
+        if (const auto* image = imageBlockAt (e.getPosition()))
+        {
+            // The image is the document: a click opens the original. It has
+            // no text range, so it is not a selection and not a link span.
+            if (image->url.isNotEmpty())
+                juce::URL (image->url).launchInDefaultBrowser();
             return;
         }
 
@@ -1019,32 +1133,22 @@ private:
         return layout.getLine (0).getLineBoundsX().getLength();
     }
 
-    /** One Mermaid flowchart drawn INSIDE the body. The diagram is painted
-        over a run of blank lines the Markdown emitter reserved for it, so the
-        single TextLayout - and with it selection, links and copy - is
-        untouched: the drawing lives in a hole in the text, not in a second
-        layout that would need its own hit test. */
-    struct DiagramPlacement
-    {
-        int textOffset = 0;      // where the reserved blank lines start
-        int reservedLines = 0;   // how many blank lines were reserved
-        float lineTop = 0.0f;    // resolved from the finished layout
-        std::unique_ptr<ebs::MermaidFlowchart> diagram;
-    };
-
     /** The whole body as Markdown-aware styled text. The BLOCK subset is the
         one LLM answers actually use: headings, bullets, numbered items, task
         boxes, quotes, fenced code, horizontal rules, pipe TABLES and Mermaid
         FLOWCHARTS. A table is drawn as a monospace block with padded columns
         and a rule under its header; a flowchart is handed to
-        ebs::MermaidFlowchart and painted over blank lines reserved in the
-        layout, so a diagram between two paragraphs costs the text nothing. */
-    static juce::AttributedString markdownBody (const juce::String& raw,
-                                                juce::Font base,
-                                                juce::Colour ink,
-                                                std::vector<LinkSpan>& spansOut,
-                                                float maxWidth,
-                                                std::vector<DiagramPlacement>& diagramsOut)
+        ebs::MermaidFlowchart and an embedded image to the host's cache, both
+        painted over blank lines reserved in the layout, so a drawing between
+        two paragraphs costs the text nothing. */
+    static juce::AttributedString markdownBody (
+        const juce::String& raw,
+        juce::Font base,
+        juce::Colour ink,
+        std::vector<LinkSpan>& spansOut,
+        float maxWidth,
+        std::vector<VisualBlock>& blocksOut,
+        const std::function<ImageBox (const juce::String&)>& imageBoxFor)
     {
         const auto mono = monospaceFontForBody (base.getHeight());
         juce::AttributedString as;
@@ -1056,6 +1160,19 @@ private:
             as.append (t, f, c);
             pos += t.length();
         };
+
+        // The real line height of the body font: the blank lines that reserve
+        // a drawing's space get their height from the LAST non-empty line's
+        // metrics, so a measured value is the one to trust (a nominal 1.2x
+        // under-reserves a face with a tight ascent+descent).
+        juce::AttributedString probeText;
+        probeText.append ("M\n", base);
+        juce::TextLayout probe;
+        probe.createLayout (probeText, maxWidth);
+        const auto bodyLineHeight = juce::jmax (
+            1.0f, probe.getNumLines() > 0
+                      ? probe.getLine (0).getLineBoundsY().getLength()
+                      : base.getHeight() * 1.2f);
 
         // A paragraph is CLOSED explicitly: consecutive source lines in one
         // paragraph are a soft break (a space), which is what a model that
@@ -1100,29 +1217,21 @@ private:
                     if (diagram->layout (body.joinIntoString ("\n"), maxWidth,
                                          diagramFont))
                     {
-                        // Reserve the drawing's height as BLANK LINES. The
-                        // line height is MEASURED from the same font (a
-                        // nominal 1.2x would under-reserve a face whose
-                        // ascent+descent is smaller), and one extra line
-                        // covers a TextLayout that drops the final empty line;
-                        // the drawing is anchored at the first reserved line's
-                        // top.
-                        juce::AttributedString probeText;
-                        probeText.append ("M\n", base);
-                        juce::TextLayout probe;
-                        probe.createLayout (probeText, maxWidth);
-                        const auto lineHeight = juce::jmax (
-                            1.0f, probe.getNumLines() > 0
-                                      ? probe.getLine (0).getLineBoundsY().getLength()
-                                      : base.getHeight() * 1.2f);
+                        // Reserve the drawing's height as BLANK LINES. One
+                        // extra line covers a TextLayout that drops the final
+                        // empty line; the drawing is anchored at the first
+                        // reserved line's top.
                         const int reserved = juce::jmax (
-                            1, (int) std::ceil (diagram->getHeight() / lineHeight))
-                                             + 1;
-                        DiagramPlacement placement;
-                        placement.textOffset = pos;
-                        placement.reservedLines = reserved;
-                        placement.diagram = std::move (diagram);
-                        diagramsOut.push_back (std::move (placement));
+                            1, (int) std::ceil (diagram->getHeight()
+                                                / bodyLineHeight)) + 1;
+                        VisualBlock block;
+                        block.kind = VisualBlock::Kind::diagram;
+                        block.textOffset = pos;
+                        block.reservedLines = reserved;
+                        block.width = (float) diagram->getWidth();
+                        block.height = (float) diagram->getHeight();
+                        block.diagram = std::move (diagram);
+                        blocksOut.push_back (std::move (block));
                         emit (juce::String::repeatedString ("\n", reserved),
                               base, ink);
                         continue;
@@ -1151,6 +1260,46 @@ private:
                 closeParagraph();
                 emit ("\n", base, ink);
                 continue;
+            }
+
+            // ---- embedded image ---------------------------------------
+            // A Markdown image on its own line is a MEDIA BLOCK. The host
+            // loads http(s) images; the bubble reserves the space from the
+            // image's real aspect ratio once it is cached, and a placeholder
+            // box until then.
+            if (trimmed.startsWith ("![") && trimmed.endsWithChar (')'))
+            {
+                const int altEnd = trimmed.indexOfChar (2, ']');
+                const int urlOpen = altEnd >= 0
+                                        ? trimmed.indexOfChar (altEnd + 1, '(')
+                                        : -1;
+                if (altEnd > 1 && urlOpen == altEnd + 1)
+                {
+                    auto url = trimmed.substring (urlOpen + 1,
+                                                  trimmed.length() - 1).trim();
+                    url = url.upToFirstOccurrenceOf (" ", false, false);
+                    if (url.startsWithIgnoreCase ("http://")
+                        || url.startsWithIgnoreCase ("https://"))
+                    {
+                        closeParagraph();
+                        const auto box = imageBoxFor (url);
+                        const int reserved = juce::jmax (
+                            1, (int) std::ceil (box.height / bodyLineHeight))
+                                                + 1;
+                        VisualBlock block;
+                        block.kind = VisualBlock::Kind::image;
+                        block.textOffset = pos;
+                        block.reservedLines = reserved;
+                        block.width = box.width;
+                        block.height = box.height;
+                        block.url = url;
+                        block.alt = trimmed.substring (2, altEnd).trim();
+                        blocksOut.push_back (std::move (block));
+                        emit (juce::String::repeatedString ("\n", reserved),
+                              base, ink);
+                        continue;
+                    }
+                }
             }
             // ---- pipe tables -------------------------------------------
             // A table is the header row, the alignment separator, and the
@@ -1372,6 +1521,36 @@ private:
         }
         closeParagraph();
         return as;
+    }
+
+    /** The size to reserve for an embedded image. A cached image's aspect
+        ratio is the truth; until it is here, a 16:9 placeholder and a fetch
+        request. Capped so a tall phone screenshot does not eat the whole
+        transcript, and never upscaled past the source's own pixels. */
+    ImageBox imageBoxFor (const juce::String& url, float maxWidth)
+    {
+        const auto image = getChatImage != nullptr ? getChatImage (url)
+                                                   : juce::Image();
+        if (image.isValid() && image.getWidth() > 0 && image.getHeight() > 0)
+        {
+            float width = juce::jmin (maxWidth, (float) image.getWidth());
+            float height = width * (float) image.getHeight()
+                                 / (float) image.getWidth();
+            const float maxHeight = 420.0f;
+            if (height > maxHeight)
+            {
+                height = maxHeight;
+                width = height * (float) image.getWidth()
+                               / (float) image.getHeight();
+            }
+            return { juce::jmax (40.0f, width), juce::jmax (30.0f, height) };
+        }
+
+        if (requestChatImage != nullptr)
+            requestChatImage (url);
+
+        return { juce::jmax (40.0f, maxWidth),
+                 juce::jmin (200.0f, maxWidth * 9.0f / 16.0f) };
     }
 
     /** The area the body text is painted into, in this component's space.
@@ -1604,15 +1783,19 @@ private:
             f.setStyleFlags (juce::Font::italic);
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
         linkSpans.clear();
-        diagrams.clear();
+        visuals.clear();
+        const auto imageBox = [this, textW] (const juce::String& url)
+        {
+            return imageBoxFor (url, (float) textW);
+        };
         auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
-                                linkSpans, (float) textW, diagrams);
+                                linkSpans, (float) textW, visuals, imageBox);
         // The processed string is what the layout draws and what a selection
         // indexes: keep exactly that one, or a copy would return the Markdown
         // markers the reader never saw.
         layoutText = as.getText();
         bodyLayout.createLayout (as, (float) textW);
-        resolveDiagramPlacements();
+        resolveVisualPlacements();
         clampSelectionToText();
         // CEIL, then two pixels of slack. roundToInt truncates, and at the
         // larger chat sizes the last line's descender ended up outside the
@@ -1620,7 +1803,7 @@ private:
         // covers the layout's reported height not including the full glyph
         // extents (author report 2026-10-29).
         bodyH = (int) std::ceil (bodyLayout.getHeight()) + 2
-                + (int) std::ceil (diagramTailHeight);
+                + (int) std::ceil (visualTailHeight);
 
         height = 0;
         if (header.isNotEmpty())
@@ -1642,26 +1825,26 @@ private:
         exists only once the text has been laid out (the Markdown emitter runs
         before there are lines), so it is resolved here, once.
 
-        A diagram at the END of a message has a special case: a TextLayout
+        A drawing at the END of a message has a special case: a TextLayout
         drops its TRAILING blank lines, so the reserved hole has no line to
-        anchor to. Those diagrams are stacked below the last line, and the
+        anchor to. Those blocks are stacked below the last line, and the
         bubble grows by exactly their height - the text above stays untouched
         and the copy gains no placeholder characters. */
-    void resolveDiagramPlacements()
+    void resolveVisualPlacements()
     {
-        diagramTailHeight = 0.0f;
+        visualTailHeight = 0.0f;
         float tailTop = bodyLayout.getHeight();
 
-        for (auto& placement : diagrams)
+        for (auto& block : visuals)
         {
             // The reserved run is the TAIL of the message when nothing but
             // whitespace follows it. A TextLayout gives trailing blank lines
-            // no height (only the interior ones), so a diagram at the end of a
+            // no height (only the interior ones), so a drawing at the end of a
             // message is stacked BELOW the last line and the bubble grows by
             // its height instead of trusting a hole that has no pixels.
             const auto rest = layoutText.substring (
                 juce::jmin (layoutText.length(),
-                            placement.textOffset + placement.reservedLines)).trim();
+                            block.textOffset + block.reservedLines)).trim();
             const bool trailing = rest.isEmpty();
 
             bool anchored = false;
@@ -1670,10 +1853,10 @@ private:
                 for (int i = 0; i < bodyLayout.getNumLines(); ++i)
                 {
                     const auto& line = bodyLayout.getLine (i);
-                    if (line.stringRange.getStart() >= placement.textOffset)
+                    if (line.stringRange.getStart() >= block.textOffset)
                     {
                         // A small breath between the paragraph and the box.
-                        placement.lineTop = line.getLineBoundsY().getStart() + 6.0f;
+                        block.lineTop = line.getLineBoundsY().getStart() + 6.0f;
                         anchored = true;
                         break;
                     }
@@ -1682,10 +1865,10 @@ private:
 
             if (! anchored)
             {
-                placement.lineTop = tailTop + 6.0f;
-                tailTop += 6.0f + (float) placement.diagram->getHeight() + 12.0f;
-                diagramTailHeight = juce::jmax (diagramTailHeight,
-                                                tailTop - bodyLayout.getHeight());
+                block.lineTop = tailTop + 6.0f;
+                tailTop += 6.0f + block.height + 12.0f;
+                visualTailHeight = juce::jmax (visualTailHeight,
+                                               tailTop - bodyLayout.getHeight());
             }
         }
     }
@@ -1755,7 +1938,33 @@ public:
     juce::String renderedTextForTest() const { return layoutText; }
 
     /** Tests: how many Mermaid flowcharts the body paints. */
-    int diagramCountForTest() const noexcept { return (int) diagrams.size(); }
+    int diagramCountForTest() const noexcept
+    {
+        int count = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::diagram)
+                ++count;
+        return count;
+    }
+
+    /** Tests: how many embedded images the body lays out. */
+    int imageCountForTest() const noexcept
+    {
+        int count = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::image)
+                ++count;
+        return count;
+    }
+
+    /** Tests: the URL of the first embedded image, or an empty string. */
+    juce::String firstImageUrlForTest() const
+    {
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::image)
+                return block.url;
+        return {};
+    }
 
 private:
     Side  side        = Side::assistant;
@@ -1780,12 +1989,13 @@ private:
 
     juce::TextLayout bodyLayout;
     std::vector<LinkSpan> linkSpans;   // clickable ranges in the body layout
-    /** The Mermaid diagrams this body draws, and where: they live in holes
-        reserved in the text, so they never touch `layoutText`. */
-    std::vector<DiagramPlacement> diagrams;
-    /** Height the layout had to add BELOW its last line for diagrams that
-        sit at the end of the message (a TextLayout drops trailing blanks). */
-    float diagramTailHeight = 0.0f;
+    /** The non-text blocks this body draws (diagrams and images), and where:
+        they live in holes reserved in the text, so they never touch
+        `layoutText`. */
+    std::vector<VisualBlock> visuals;
+    /** Height the layout had to add BELOW its last line for a drawing that
+        sits at the end of the message (a TextLayout drops trailing blanks). */
+    float visualTailHeight = 0.0f;
     /** The PROCESSED body the layout was built from: the string a selection
         indexes and copies (the Markdown markers are gone). */
     juce::String layoutText;
