@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.82.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.82.1 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -249,6 +249,13 @@ project(eiffelbs-ui VERSION 0.82.0 LANGUAGES C CXX)
 # autonumber). ChatBubble chooses the renderer from the fence's FIRST
 # meaningful line and keeps showing the source for a dialect none of them
 # owns.
+
+# v0.82.1: media blocks sized like media, not like banners. Markdown images
+# and HTML <img> tags are drawn at their natural size and only ever REDUCED to
+# the bubble width (aspect preserved; the paint never stretches into a stale
+# placeholder), and the audio player is capped at 360 px and centred. An HTML
+# <audio> element is consumed up to </audio>, so its "your browser does not
+# support the audio element" fallback is no longer printed under the player.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

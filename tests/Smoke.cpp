@@ -1022,6 +1022,17 @@ int main()
             check (redPixels > 5000,
                    "the cached image is painted inside its block");
 
+            const auto imageRect = image.imageRectForTest (0);
+            check (std::abs (imageRect.getWidth() - 200.0f) < 1.0f
+                       && std::abs (imageRect.getHeight() - 100.0f) < 1.0f,
+                   "a loaded image keeps its natural size, never upscaled");
+
+            ebs::ChatBubble tagImage;
+            tagImage.setText ("<img src=\"https://example.com/pic.png\" alt=\"A pic\">");
+            (void) tagImage.requiredHeightForWidth (520);
+            check (tagImage.imageCountForTest() == 1,
+                   "an <img> tag becomes an image block");
+
             // A non-http image is not fetched: it stays on the text/link path.
             ebs::ChatBubble local;
             local.setText ("![x](file.png)");
@@ -1088,6 +1099,24 @@ int main()
             (void) tag.requiredHeightForWidth (520);
             check (tag.audioCountForTest() == 1,
                    "an <audio src> tag becomes a player");
+
+            // A multi-line element carries a <source>-less src and a fallback
+            // sentence: the whole element must be consumed, and the player
+            // must stay a widget rather than a full-width banner.
+            ebs::ChatBubble htmlAudio;
+            htmlAudio.setText (
+                "<audio controls src=\"https://example.com/a.mp3\">\n"
+                "Votre navigateur ne supporte pas l'element audio.\n"
+                "</audio>");
+            const int hHtml = htmlAudio.requiredHeightForWidth (520);
+            htmlAudio.setBounds (0, 0, 520, hHtml);
+            check (htmlAudio.audioCountForTest() == 1,
+                   "a multi-line <audio> element becomes a player");
+            check (! htmlAudio.renderedTextForTest().contains ("navigateur")
+                       && ! htmlAudio.renderedTextForTest().contains ("</audio>"),
+                   "the audio fallback text is consumed with the element");
+            check (htmlAudio.audioRectForTest (0).getWidth() <= 360.5f,
+                   "the player is a capped widget, not a full-width banner");
         }
 
         // SELECTION in a chat bubble: a drag highlights the body in place and

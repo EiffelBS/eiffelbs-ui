@@ -618,7 +618,9 @@ public:
             clip.addRoundedRectangle (target.reduced (1.0f), 6.0f);
             g.reduceClipRegion (clip);
             g.drawImage (image, target,
-                         juce::RectanglePlacement::stretchToFit, false);
+                         juce::RectanglePlacement::centred
+                             | juce::RectanglePlacement::onlyReduceInSize,
+                         false);
             g.restoreState();
             return;
         }
@@ -1471,43 +1473,54 @@ private:
                 continue;
             }
 
-            // ---- embedded image ---------------------------------------
-            // A Markdown image on its own line is a MEDIA BLOCK. The host
-            // loads http(s) images; the bubble reserves the space from the
-            // image's real aspect ratio once it is cached, and a placeholder
-            // box until then.
-            if (trimmed.startsWith ("![") && trimmed.endsWithChar (')'))
+            // ---- embedded image (Markdown or an <img> tag) -------------
+            // A media image on its own line is a BLOCK. Both spellings a
+            // model uses are accepted: Markdown `![alt](url)` and the HTML
+            // `<img src="..." alt="...">`. The host loads http(s) images;
+            // the bubble reserves the natural aspect ratio once cached (a
+            // 16:9 placeholder until then) and never upscales.
             {
-                const int altEnd = trimmed.indexOfChar (2, ']');
-                const int urlOpen = altEnd >= 0
-                                        ? trimmed.indexOfChar (altEnd + 1, '(')
-                                        : -1;
-                if (altEnd > 1 && urlOpen == altEnd + 1)
+                juce::String imageUrl, imageAlt;
+                if (trimmed.startsWith ("![") && trimmed.endsWithChar (')'))
                 {
-                    auto url = trimmed.substring (urlOpen + 1,
-                                                  trimmed.length() - 1).trim();
-                    url = url.upToFirstOccurrenceOf (" ", false, false);
-                    if (url.startsWithIgnoreCase ("http://")
-                        || url.startsWithIgnoreCase ("https://"))
+                    const int altEnd = trimmed.indexOfChar (2, ']');
+                    const int urlOpen = altEnd >= 0
+                                            ? trimmed.indexOfChar (altEnd + 1, '(')
+                                            : -1;
+                    if (altEnd > 1 && urlOpen == altEnd + 1)
                     {
-                        closeParagraph();
-                        const auto box = imageBoxFor (url);
-                        const int reserved = juce::jmax (
-                            1, (int) std::ceil (box.height / bodyLineHeight))
-                                                + 1;
-                        VisualBlock block;
-                        block.kind = VisualBlock::Kind::image;
-                        block.textOffset = pos;
-                        block.reservedLines = reserved;
-                        block.width = box.width;
-                        block.height = box.height;
-                        block.url = url;
-                        block.alt = trimmed.substring (2, altEnd).trim();
-                        blocksOut.push_back (std::move (block));
-                        emit (juce::String::repeatedString ("\n", reserved),
-                              base, ink);
-                        continue;
+                        imageUrl = trimmed.substring (urlOpen + 1,
+                                                      trimmed.length() - 1).trim();
+                        imageUrl = imageUrl.upToFirstOccurrenceOf (" ", false,
+                                                                   false);
+                        imageAlt = trimmed.substring (2, altEnd).trim();
                     }
+                }
+                else if (trimmed.startsWithIgnoreCase ("<img"))
+                {
+                    imageUrl = attributeValue (trimmed, "src");
+                    imageAlt = attributeValue (trimmed, "alt");
+                }
+
+                if (imageUrl.startsWithIgnoreCase ("http://")
+                    || imageUrl.startsWithIgnoreCase ("https://"))
+                {
+                    closeParagraph();
+                    const auto box = imageBoxFor (imageUrl);
+                    const int reserved = juce::jmax (
+                        1, (int) std::ceil (box.height / bodyLineHeight)) + 1;
+                    VisualBlock block;
+                    block.kind = VisualBlock::Kind::image;
+                    block.textOffset = pos;
+                    block.reservedLines = reserved;
+                    block.width = box.width;
+                    block.height = box.height;
+                    block.url = imageUrl;
+                    block.alt = imageAlt;
+                    blocksOut.push_back (std::move (block));
+                    emit (juce::String::repeatedString ("\n", reserved),
+                          base, ink);
+                    continue;
                 }
             }
 
@@ -1517,6 +1530,8 @@ private:
             // path is not a thing an untrusted answer gets to open.
             {
                 juce::String audioUrl, audioTitle;
+                int consumedTo = n;
+
                 if (trimmed.startsWithIgnoreCase ("http")
                     && audioUrlLooksPlayable (trimmed))
                 {
@@ -1547,11 +1562,29 @@ private:
                 }
                 else if (trimmed.startsWithIgnoreCase ("<audio"))
                 {
-                    const auto url = attributeValue (trimmed, "src");
+                    // An HTML audio element often spans lines, with a <source>
+                    // child and a FALLBACK sentence for browsers without the
+                    // tag. Consume the WHOLE element: rendering our player and
+                    // then printing "your browser does not support the audio
+                    // element" underneath is a bug, not a fallback.
+                    juce::String html = line;
+                    bool closed = html.containsIgnoreCase ("</audio>");
+                    for (int j = n + 1; ! closed && j < lines.size(); ++j)
+                    {
+                        html += "\n" + lines[j];
+                        consumedTo = j;
+                        if (lines[j].containsIgnoreCase ("</audio>"))
+                            closed = true;
+                    }
+                    const auto url = attributeValue (html, "src");
                     if (audioUrlLooksPlayable (url))
                     {
                         audioUrl = url;
                         audioTitle = audioNameFromUrl (audioUrl);
+                    }
+                    else
+                    {
+                        consumedTo = n;   // no src: leave the source visible
                     }
                 }
 
@@ -1566,11 +1599,15 @@ private:
                     block.kind = VisualBlock::Kind::audio;
                     block.textOffset = pos;
                     block.reservedLines = reserved;
-                    block.width = maxWidth;
+                    // A player is a WIDGET, not a banner: cap it, and let the
+                    // bubble centre it instead of stretching the bar across a
+                    // wide answer.
+                    block.width = juce::jmin (maxWidth, 360.0f);
                     block.height = blockHeight;
                     block.url = audioUrl;
                     block.alt = audioTitle;
                     blocksOut.push_back (std::move (block));
+                    n = consumedTo;   // the closing tag and the fallback go too
                     emit (juce::String::repeatedString ("\n", reserved),
                           base, ink);
                     continue;
@@ -2253,6 +2290,20 @@ public:
         for (const auto& block : visuals)
             if (block.kind == VisualBlock::Kind::image)
                 return block.url;
+        return {};
+    }
+
+    /** Tests: where the first image is drawn, so its aspect can be checked. */
+    juce::Rectangle<float> imageRectForTest (int index) const
+    {
+        int seen = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::image)
+            {
+                if (seen++ == index)
+                    return visualRectFor (block,
+                                          bodyAreaForWidth (getWidth()));
+            }
         return {};
     }
 
