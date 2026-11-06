@@ -794,6 +794,101 @@ int main()
                    "a sequence diagram is refused, never drawn as garbage");
         }
 
+        // MERMAID PIE: angles from the values, a title and a legend with the
+        // percentages; `showData` adds the raw values.
+        {
+            ebs::MermaidPie pie;
+            check (pie.layout ("pie title Budget\n"
+                               "    \"Voix\" : 45\n"
+                               "    \"Musique\" : 35\n"
+                               "    \"Effets\" : 20\n",
+                               420.0f, ebs::fontBody()),
+                   "a mermaid pie parses");
+            check (pie.sliceCountForTest() == 3
+                       && pie.titleForTest() == "Budget",
+                   "pie keeps its title and its three slices");
+            check (std::abs (pie.percentForTest (0) - 45.0) < 0.01
+                       && std::abs (pie.percentForTest (2) - 20.0) < 0.01,
+                   "pie percentages follow the values");
+            check (pie.getHeight() > 60 && pie.getWidth() <= 420,
+                   "the pie fits the width it was offered");
+
+            juce::Image img (juce::Image::ARGB, 420, pie.getHeight() + 8, true);
+            {
+                juce::Graphics g (img);
+                g.fillAll (ebs::bgPanel());
+                pie.paint (g, { 0.0f, 0.0f, 420.0f,
+                                (float) pie.getHeight() + 8.0f });
+            }
+            check (inkPixels (img) > 300,
+                   "the pie paints slices and a legend");
+
+
+            ebs::MermaidPie bad;
+            check (! bad.layout ("pie", 420.0f, ebs::fontBody()),
+                   "a pie with no slices is refused");
+        }
+
+        // MERMAID SEQUENCE: participants, messages, a note and an alt frame.
+        {
+            ebs::MermaidSequence seq;
+            check (seq.layout ("sequenceDiagram\n"
+                               "  participant A as Alice\n"
+                               "  participant B as Bob\n"
+                               "  A->>B: Hello Bob\n"
+                               "  B-->>A: Hi Alice\n"
+                               "  Note over A,B: They meet\n"
+                               "  alt success\n"
+                               "    A->>B: Ship it\n"
+                               "  else failure\n"
+                               "    B-->>A: Not yet\n"
+                               "  end\n",
+                               520.0f, ebs::fontBody()),
+                   "a mermaid sequence parses");
+            check (seq.participantCountForTest() == 2
+                       && seq.messageCountForTest() == 4
+                       && seq.noteCountForTest() == 1
+                       && seq.frameCountForTest() == 1,
+                   "sequence counts its participants, messages, note and frame");
+            check (seq.getHeight() > 120 && seq.getWidth() <= 520,
+                   "the sequence fits the width it was offered");
+
+            juce::Image img (juce::Image::ARGB, 520,
+                             seq.getHeight() + 8, true);
+            {
+                juce::Graphics g (img);
+                g.fillAll (ebs::bgPanel());
+                seq.paint (g, { 0.0f, 0.0f, 520.0f,
+                                (float) seq.getHeight() + 8.0f });
+            }
+            check (inkPixels (img) > 400,
+                   "the sequence paints lifelines, arrows and frames");
+
+
+            ebs::MermaidSequence notASequence;
+            check (! notASequence.layout ("flowchart TD\nA-->B", 520.0f,
+                                          ebs::fontBody()),
+                   "a flowchart body is refused by the sequence renderer");
+        }
+
+        // ChatBubble dispatch: the fence's first line picks the renderer.
+        {
+            ebs::ChatBubble pieBubble;
+            pieBubble.setText ("```mermaid\npie\n\"A\" : 1\n\"B\" : 2\n```");
+            (void) pieBubble.requiredHeightForWidth (520);
+            check (pieBubble.diagramCountForTest() == 1
+                       && pieBubble.diagramKindForTest (0) == "pie",
+                   "a pie fence becomes a pie block");
+
+            ebs::ChatBubble sequenceBubble;
+            sequenceBubble.setText (
+                "```mermaid\nsequenceDiagram\nA->>B: hi\nB-->>A: back\n```");
+            (void) sequenceBubble.requiredHeightForWidth (520);
+            check (sequenceBubble.diagramCountForTest() == 1
+                       && sequenceBubble.diagramKindForTest (0) == "sequence",
+                   "a sequence fence becomes a sequence block");
+        }
+
         // A mermaid FENCE inside a message becomes a diagram in the flow: the
         // source leaves the text, the paragraphs around it stay, and the
         // bubble reserves the drawing's height in blank lines it paints over.
@@ -858,11 +953,11 @@ int main()
                    "a blank Markdown line still takes its line");
 
             ebs::ChatBubble unsupported;
-            unsupported.setText ("```mermaid\nsequenceDiagram\nA->>B: hi\n```");
+            unsupported.setText ("```mermaid\nclassDiagram\nA <|-- B\n```");
             (void) unsupported.requiredHeightForWidth (520);
             check (unsupported.diagramCountForTest() == 0
                        && unsupported.renderedTextForTest().contains (
-                              "sequenceDiagram"),
+                              "classDiagram"),
                    "an unsupported mermaid diagram keeps its source");
         }
 

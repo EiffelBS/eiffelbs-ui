@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.81.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.82.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -240,6 +240,15 @@ project(eiffelbs-ui VERSION 0.81.0 LANGUAGES C CXX)
 # transport (toggleAudio); the bubble draws the play/pause disc, the title, the
 # progress bar and the clock, reserves a fixed 46 px hole in the text, and asks
 # on click. Additive: no existing caller changes.
+
+# v0.82.0: two more native Mermaid dialects, behind the new MermaidDiagram
+# interface the flowchart already implements. MermaidPie (pie/showData/title,
+# slices from values, percentages and a legend) and MermaidSequence
+# (participants/actors, solid and dashed messages with labels, self messages,
+# notes over/left/right, loop/alt/else/opt/par/critical/break frames,
+# autonumber). ChatBubble chooses the renderer from the fence's FIRST
+# meaningful line and keeps showing the source for a dialect none of them
+# owns.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

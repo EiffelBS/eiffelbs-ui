@@ -46,7 +46,10 @@
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/IconButton.h"
 #include "eiffelbs/Avatar.h"
+#include "eiffelbs/MermaidDiagram.h"
 #include "eiffelbs/MermaidFlowchart.h"
+#include "eiffelbs/MermaidPie.h"
+#include "eiffelbs/MermaidSequence.h"
 
 namespace ebs
 {
@@ -86,7 +89,7 @@ public:
         float lineTop = 0.0f;    // resolved from the finished layout
         float width = 0.0f;      // drawing width (<= body width)
         float height = 0.0f;     // drawing height
-        std::unique_ptr<ebs::MermaidFlowchart> diagram;
+        std::unique_ptr<ebs::MermaidDiagram> diagram;
         juce::String url, alt;   // images and audio (alt = title/name)
     };
 
@@ -1397,11 +1400,31 @@ private:
                     }
                     n = closing;   // the loop's ++n resumes after the fence
 
-                    auto diagram = std::make_unique<ebs::MermaidFlowchart>();
+                    // The dialect is the FIRST meaningful line of the body,
+                    // never a guess from its content: a renderer that accepts
+                    // a source it does not understand draws a lie. Anything
+                    // outside these three falls back to the source below.
+                    std::unique_ptr<ebs::MermaidDiagram> diagram;
+                    for (const auto& sourceLine : body)
+                    {
+                        const auto first = sourceLine.trim();
+                        if (first.isEmpty() || first.startsWith ("%%"))
+                            continue;
+                        if (first.startsWithIgnoreCase ("flowchart")
+                            || first.startsWithIgnoreCase ("graph"))
+                            diagram = std::make_unique<ebs::MermaidFlowchart>();
+                        else if (first.startsWithIgnoreCase ("pie"))
+                            diagram = std::make_unique<ebs::MermaidPie>();
+                        else if (first.startsWithIgnoreCase ("sequenceDiagram"))
+                            diagram = std::make_unique<ebs::MermaidSequence>();
+                        break;
+                    }
+
                     const auto diagramFont = base.withHeight (
                         juce::jmax (9.0f, base.getHeight() * 0.85f));
-                    if (diagram->layout (body.joinIntoString ("\n"), maxWidth,
-                                         diagramFont))
+                    if (diagram != nullptr
+                        && diagram->layout (body.joinIntoString ("\n"), maxWidth,
+                                            diagramFont))
                     {
                         // Reserve the drawing's height as BLANK LINES. One
                         // extra line covers a TextLayout that drops the final
@@ -1423,9 +1446,9 @@ private:
                         continue;
                     }
 
-                    // Not a flowchart this renderer understands (a sequence
-                    // diagram, a malformed body): show the source as the code
-                    // block it is, rather than inventing a diagram.
+                    // Not a diagram these renderers understand: show the
+                    // source as the code block it is, rather than inventing a
+                    // picture.
                     for (const auto& codeLine : body)
                         emit (codeLine + "\n", mono, ebs::textDim());
                     continue;
@@ -2197,6 +2220,21 @@ public:
             if (block.kind == VisualBlock::Kind::diagram)
                 ++count;
         return count;
+    }
+
+    /** Tests: the dialect of the Nth diagram block ("" when none). */
+    juce::String diagramKindForTest (int index) const
+    {
+        int seen = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::diagram)
+            {
+                if (seen++ == index)
+                    return block.diagram != nullptr
+                               ? block.diagram->kindForTest()
+                               : juce::String();
+            }
+        return {};
     }
 
     /** Tests: how many embedded images the body lays out. */

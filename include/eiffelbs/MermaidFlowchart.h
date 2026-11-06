@@ -55,11 +55,12 @@
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
 #include "eiffelbs/TextSanitize.h"
+#include "eiffelbs/MermaidDiagram.h"
 
 namespace ebs
 {
 
-class MermaidFlowchart
+class MermaidFlowchart final : public MermaidDiagram
 {
 public:
     enum class Shape { rectangle, rounded, diamond, circle };
@@ -70,7 +71,8 @@ public:
         `maxWidth` pixels. Returns false when the source is not a flowchart
         this renderer understands: the caller then shows the source itself.
         `labelFont` is the face the node and edge labels are drawn with. */
-    bool layout (const juce::String& source, float maxWidth, juce::Font labelFont)
+    bool layout (const juce::String& source, float maxWidth,
+                 juce::Font labelFont) override
     {
         reset();
         this->labelFont = labelFont;
@@ -164,16 +166,16 @@ public:
         return true;
     }
 
-    bool isEmpty() const noexcept { return nodes.empty(); }
+    bool isEmpty() const noexcept override { return nodes.empty(); }
 
     /** The size the host must reserve, in PIXELS, after the uniform fitting
         scale applied in layout(). */
-    int getWidth()  const noexcept { return juce::roundToInt (width); }
-    int getHeight() const noexcept { return juce::roundToInt (height); }
+    int getWidth()  const noexcept override { return juce::roundToInt (width); }
+    int getHeight() const noexcept override { return juce::roundToInt (height); }
 
     /** Draw into `area`; the drawing is fitted to its width and anchored at
         the area's top-left. */
-    void paint (juce::Graphics& g, juce::Rectangle<float> area) const
+    void paint (juce::Graphics& g, juce::Rectangle<float> area) const override
     {
         if (nodes.empty() || area.isEmpty())
             return;
@@ -185,6 +187,8 @@ public:
         paintNodes (g);
         g.restoreState();
     }
+
+    juce::String kindForTest() const override { return "flowchart"; }
 
     // === test seams =======================================================
     int nodeCountForTest() const noexcept { return (int) nodes.size(); }
