@@ -78,7 +78,7 @@ public:
         test. */
     struct VisualBlock
     {
-        enum class Kind { diagram, image };
+        enum class Kind { diagram, image, audio };
 
         Kind kind = Kind::diagram;
         int textOffset = 0;      // where the reserved blank lines start
@@ -87,7 +87,21 @@ public:
         float width = 0.0f;      // drawing width (<= body width)
         float height = 0.0f;     // drawing height
         std::unique_ptr<ebs::MermaidFlowchart> diagram;
-        juce::String url, alt;   // images only
+        juce::String url, alt;   // images and audio (alt = title/name)
+    };
+
+    /** The state of one audio block's player, supplied by the host on every
+        paint. The host owns the playback (the shared library has no audio
+        device): `ready` once the file is local, `playing`, and the position
+        and duration in seconds. */
+    struct AudioState
+    {
+        bool ready = false;
+        bool loading = false;
+        bool playing = false;
+        double position = 0.0;
+        double duration = 0.0;
+        juce::String error;
     };
 
     /** Which speaker. Two sides, no third state. */
@@ -295,6 +309,13 @@ public:
         aspect ratio, so the transcript has to re-measure. */
     std::function<juce::Image (const juce::String& url)> getChatImage;
     std::function<void (const juce::String& url)> requestChatImage;
+
+    /** Host seams for audio blocks. `getAudioState` must be cheap and runs on
+        the message thread during paint; `toggleAudio` is called on a click
+        (start / pause / resume is the host's policy, because it owns the
+        transport). */
+    std::function<AudioState (const juce::String& url)> getAudioState;
+    std::function<void (const juce::String& url)> toggleAudio;
 
     /** The copy affordance: shown for an answer, hidden for the question
      *  (nobody copies back what they just typed). */
@@ -556,6 +577,8 @@ public:
                 block.diagram->paint (g, target);
             else if (block.kind == VisualBlock::Kind::image)
                 paintImageBlock (g, block, target);
+            else if (block.kind == VisualBlock::Kind::audio)
+                paintAudioBlock (g, block, target);
         }
     }
 
@@ -608,6 +631,89 @@ public:
                           juce::Justification::centred, 3);
     }
 
+    /** The audio player: a play/pause disc, the clip's name, a progress bar
+        and the clock. The HOST owns the state and the transport; this only
+        asks for one and draws it, so a player costs the message no audio
+        device of its own. */
+    void paintAudioBlock (juce::Graphics& g, const VisualBlock& block,
+                          juce::Rectangle<float> target) const
+    {
+        const auto state = getAudioState != nullptr ? getAudioState (block.url)
+                                                    : AudioState();
+
+        g.setColour (ebs::bgDark());
+        g.fillRoundedRectangle (target, 6.0f);
+        g.setColour (ebs::panelBorder());
+        g.drawRoundedRectangle (target, 6.0f, 1.0f);
+
+        auto area = target.reduced (8.0f, 6.0f);
+
+        const auto diameter = area.getHeight();
+        const auto button = area.removeFromLeft (diameter)
+                                .withSizeKeepingCentre (diameter, diameter);
+        g.setColour (state.ready ? ebs::accent()
+                                 : ebs::panelBorder().brighter (0.25f));
+        g.fillEllipse (button);
+        g.setColour (ebs::bgPanel());
+
+        if (state.playing)
+        {
+            auto bars = button.reduced (diameter * 0.32f);
+            const auto barWidth = juce::jmax (2.0f, bars.getWidth() * 0.30f);
+            g.fillRect (bars.removeFromLeft (barWidth));
+            bars.removeFromLeft (juce::jmax (2.0f, bars.getWidth() * 0.4f));
+            g.fillRect (bars.removeFromLeft (barWidth));
+        }
+        else
+        {
+            const auto centre = button.getCentre();
+            const auto radius = diameter * 0.22f;
+            juce::Path triangle;
+            triangle.addTriangle (centre.x - radius * 0.7f, centre.y - radius,
+                                  centre.x - radius * 0.7f, centre.y + radius,
+                                  centre.x + radius * 1.1f, centre.y);
+            g.fillPath (triangle);
+        }
+
+        area.removeFromLeft (8.0f);
+        const auto title = block.alt.isNotEmpty() ? block.alt
+                                                  : juce::String ("audio");
+        g.setColour (ebs::text());
+        g.setFont (ebs::fontHint());
+        auto titleRow = area.removeFromTop (area.getHeight() * 0.55f);
+        g.drawText (title, titleRow, juce::Justification::centredLeft, true);
+
+        const auto duration = juce::jmax (0.0, state.duration);
+        const auto position = juce::jlimit (0.0, duration, state.position);
+        const auto fraction = duration > 0.0
+                                  ? (float) (position / duration) : 0.0f;
+
+        auto progress = area.reduced (0.0f, 2.0f);
+        auto timeArea = progress.removeFromRight (86.0f);
+        const auto barArea = progress.reduced (0.0f, progress.getHeight() * 0.32f);
+
+        g.setColour (ebs::panelBorder());
+        g.fillRoundedRectangle (barArea, 2.0f);
+        if (state.ready)
+        {
+            g.setColour (ebs::accent());
+            g.fillRoundedRectangle (barArea.withWidth (barArea.getWidth()
+                                                       * fraction), 2.0f);
+        }
+
+        juce::String clock;
+        if (! state.ready)
+            clock = state.loading ? "loading..."
+                                  : state.error.isNotEmpty() ? "unavailable"
+                                                             : "click to play";
+        else
+            clock = formatClock (position) + " / " + formatClock (duration);
+
+        g.setColour (ebs::textDim());
+        g.setFont (ebs::fontHint());
+        g.drawText (clock, timeArea, juce::Justification::centredRight, true);
+    }
+
     /** The embedded image under `p`, or null. */
     const VisualBlock* imageBlockAt (juce::Point<int> p) const
     {
@@ -616,6 +722,19 @@ public:
             return nullptr;
         for (const auto& block : visuals)
             if (block.kind == VisualBlock::Kind::image
+                && visualRectFor (block, area).contains (p.toFloat()))
+                return &block;
+        return nullptr;
+    }
+
+    /** The audio block under `p`, or null. */
+    const VisualBlock* audioBlockAt (juce::Point<int> p) const
+    {
+        const auto area = bodyAreaForWidth (getWidth());
+        if (area.isEmpty())
+            return nullptr;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::audio
                 && visualRectFor (block, area).contains (p.toFloat()))
                 return &block;
         return nullptr;
@@ -673,13 +792,15 @@ public:
                                     .contains (e.getPosition());
         const bool overLink = linkAt (e.getPosition()) != nullptr;
         const bool overImage = imageBlockAt (e.getPosition()) != nullptr;
+        const bool overAudio = audioBlockAt (e.getPosition()) != nullptr;
         // The I-beam is the affordance that says "this text is selectable",
         // exactly as it does in a browser. Without it a reader has no way to
         // know the body answers a drag rather than only the copy button.
         const bool overText = ! overLink && ! overHeader && ! overImage
+                              && ! overAudio
                               && bodyAreaForWidth (getWidth())
                                      .contains (e.getPosition().toFloat());
-        setMouseCursor (overLink || overHeader || overImage
+        setMouseCursor (overLink || overHeader || overImage || overAudio
                             ? juce::MouseCursor::PointingHandCursor
                             : overText ? juce::MouseCursor::IBeamCursor
                                        : juce::MouseCursor::NormalCursor);
@@ -698,6 +819,13 @@ public:
         if (e.mods.isPopupMenu())
         {
             showSelectionMenu (e);
+            return;
+        }
+
+        if (const auto* audio = audioBlockAt (e.getPosition()))
+        {
+            if (toggleAudio != nullptr)
+                toggleAudio (audio->url);
             return;
         }
 
@@ -1065,6 +1193,64 @@ private:
         return cells;
     }
 
+    /** Markdown has NO audio syntax. These are the spellings a model actually
+        uses when it links a clip: a bare URL, a Markdown link to one, or an
+        <audio src> tag. */
+    static bool audioUrlLooksPlayable (const juce::String& url)
+    {
+        const auto clean = url.trim().upToFirstOccurrenceOf ("?", false, false)
+                                 .upToFirstOccurrenceOf ("#", false, false)
+                                 .toLowerCase();
+
+        static const char* const extensions[] = {
+            ".wav", ".mp3", ".ogg", ".oga", ".m4a", ".aac", ".flac",
+            ".opus", ".aiff", ".aif", ".wma", ".mp4"
+        };
+        for (const auto* extension : extensions)
+            if (clean.endsWith (extension))
+                return true;
+        return false;
+    }
+
+    static juce::String audioNameFromUrl (const juce::String& url)
+    {
+        const auto clean = url.upToFirstOccurrenceOf ("?", false, false)
+                              .upToFirstOccurrenceOf ("#", false, false);
+        const auto name = clean.fromLastOccurrenceOf ("/", false, false);
+        return name.isNotEmpty() ? name : juce::String ("audio");
+    }
+
+    /** The value of `name` inside an HTML-ish tag, quoted or bare. */
+    static juce::String attributeValue (const juce::String& tag,
+                                        const juce::String& name)
+    {
+        const auto key = name + "=";
+        int at = tag.indexOfIgnoreCase (key);
+        if (at < 0)
+            return {};
+        at += key.length();
+        if (at >= tag.length())
+            return {};
+
+        const auto quote = tag[at];
+        if (quote == '"' || quote == '\'')
+        {
+            const int end = tag.indexOfChar (at + 1, quote);
+            return end > at ? tag.substring (at + 1, end).trim()
+                            : juce::String();
+        }
+
+        const int end = tag.indexOfChar (at, ' ');
+        return tag.substring (at, end > at ? end : tag.length()).trim();
+    }
+
+    static juce::String formatClock (double seconds)
+    {
+        const int total = juce::jmax (0, juce::roundToInt (seconds));
+        return juce::String (total / 60) + ":"
+               + juce::String (total % 60).paddedLeft ('0', 2);
+    }
+
     /** A line that is only `:?---+:?` cells: the separator that turns the
         previous row into a table header, and that carries each column's
         alignment (0 left, 1 centre, 2 right). A separator with NO bar is a
@@ -1299,6 +1485,72 @@ private:
                               base, ink);
                         continue;
                     }
+                }
+            }
+
+            // ---- audio link -------------------------------------------
+            // The player is a fixed-height block; the host supplies its state
+            // and owns the transport. Only http(s) URLs become blocks: a local
+            // path is not a thing an untrusted answer gets to open.
+            {
+                juce::String audioUrl, audioTitle;
+                if (trimmed.startsWithIgnoreCase ("http")
+                    && audioUrlLooksPlayable (trimmed))
+                {
+                    audioUrl = trimmed;
+                    audioTitle = audioNameFromUrl (audioUrl);
+                }
+                else if (trimmed.startsWithChar ('[')
+                         && trimmed.endsWithChar (')'))
+                {
+                    const int close = trimmed.indexOfChar (1, ']');
+                    const int open = close > 0
+                                         ? trimmed.indexOfChar (close + 1, '(')
+                                         : -1;
+                    if (close > 1 && open == close + 1)
+                    {
+                        const auto url = trimmed
+                                             .substring (open + 1,
+                                                         trimmed.length() - 1)
+                                             .trim();
+                        if (audioUrlLooksPlayable (url))
+                        {
+                            audioUrl = url;
+                            audioTitle = trimmed.substring (1, close).trim();
+                            if (audioTitle.isEmpty())
+                                audioTitle = audioNameFromUrl (audioUrl);
+                        }
+                    }
+                }
+                else if (trimmed.startsWithIgnoreCase ("<audio"))
+                {
+                    const auto url = attributeValue (trimmed, "src");
+                    if (audioUrlLooksPlayable (url))
+                    {
+                        audioUrl = url;
+                        audioTitle = audioNameFromUrl (audioUrl);
+                    }
+                }
+
+                if (audioUrl.startsWithIgnoreCase ("http://")
+                    || audioUrl.startsWithIgnoreCase ("https://"))
+                {
+                    closeParagraph();
+                    const auto blockHeight = 46.0f;
+                    const int reserved = juce::jmax (
+                        1, (int) std::ceil (blockHeight / bodyLineHeight)) + 1;
+                    VisualBlock block;
+                    block.kind = VisualBlock::Kind::audio;
+                    block.textOffset = pos;
+                    block.reservedLines = reserved;
+                    block.width = maxWidth;
+                    block.height = blockHeight;
+                    block.url = audioUrl;
+                    block.alt = audioTitle;
+                    blocksOut.push_back (std::move (block));
+                    emit (juce::String::repeatedString ("\n", reserved),
+                          base, ink);
+                    continue;
                 }
             }
             // ---- pipe tables -------------------------------------------
@@ -1963,6 +2215,40 @@ public:
         for (const auto& block : visuals)
             if (block.kind == VisualBlock::Kind::image)
                 return block.url;
+        return {};
+    }
+
+    /** Tests: how many audio players the body lays out. */
+    int audioCountForTest() const noexcept
+    {
+        int count = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::audio)
+                ++count;
+        return count;
+    }
+
+    /** Tests: the URL of the first audio player, or an empty string. */
+    juce::String firstAudioUrlForTest() const
+    {
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::audio)
+                return block.url;
+        return {};
+    }
+
+    /** Tests: where the first audio player is drawn, so a click can be fed
+        to the real mouse handler. */
+    juce::Rectangle<float> audioRectForTest (int index) const
+    {
+        int seen = 0;
+        for (const auto& block : visuals)
+            if (block.kind == VisualBlock::Kind::audio)
+            {
+                if (seen++ == index)
+                    return visualRectFor (block,
+                                          bodyAreaForWidth (getWidth()));
+            }
         return {};
     }
 

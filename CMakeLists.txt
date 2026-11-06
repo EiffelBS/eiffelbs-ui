@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.80.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.81.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -231,6 +231,15 @@ project(eiffelbs-ui VERSION 0.80.0 LANGUAGES C CXX)
 # the source on click. The Markdown source is consumed; a non-http(s) target
 # stays on the text/link path, because the host owns what it is willing to
 # fetch. Additive: no existing caller changes.
+
+# v0.81.0: ChatBubble renders a native AUDIO player block. Markdown has NO
+# audio syntax, so the renderer accepts the practical spellings a model uses:
+# a bare http(s) URL to an .mp3/.wav/.ogg/.m4a/.flac/... file, a Markdown link
+# to one, or an <audio src="..."> tag. The host supplies the state
+# (getAudioState: ready, loading, playing, position, duration) and owns the
+# transport (toggleAudio); the bubble draws the play/pause disc, the title, the
+# progress bar and the clock, reserves a fixed 46 px hole in the text, and asks
+# on click. Additive: no existing caller changes.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

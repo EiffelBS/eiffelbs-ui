@@ -935,6 +935,66 @@ int main()
                    "a non-http image is left to the text path");
         }
 
+        // MARKDOWN AUDIO: the standard has NO audio syntax, so the renderer
+        // takes the practical spellings (a bare URL, a Markdown link, an
+        // <audio src> tag) as a player block. The host supplies the state and
+        // owns the transport; a click asks it to toggle.
+        {
+            ebs::ChatBubble player;
+            juce::String toggled;
+            ebs::ChatBubble::AudioState state;
+            state.ready = true;
+            state.duration = 135.0;
+            state.position = 42.0;
+            player.getAudioState = [state] (const juce::String&)
+            {
+                return state;
+            };
+            player.toggleAudio = [&toggled] (const juce::String& url)
+            {
+                toggled = url;
+            };
+            player.setText ("Listen:\n"
+                            "https://example.com/song.mp3\n"
+                            "Enjoy.");
+            const int h = player.requiredHeightForWidth (520);
+            player.setBounds (0, 0, 520, h);
+            check (player.audioCountForTest() == 1
+                       && player.firstAudioUrlForTest()
+                              == "https://example.com/song.mp3",
+                   "a bare audio URL becomes a player block");
+            check (! player.renderedTextForTest().contains ("https://")
+                       && player.renderedTextForTest().contains ("Listen:")
+                       && player.renderedTextForTest().contains ("Enjoy."),
+                   "the audio URL leaves the text, the paragraphs stay");
+
+            const auto rect = player.audioRectForTest (0);
+            check (! rect.isEmpty(), "the audio player has a drawn rect");
+            if (! rect.isEmpty())
+            {
+                const auto at = rect.getCentre().roundToInt().toFloat();
+                player.mouseDown (juce::MouseEvent (
+                    *juce::Desktop::getInstance().getMouseSource (0),
+                    at, juce::ModifierKeys(), 0.5f, 0.0f, 0.0f, 0.0f, 0.0f,
+                    &player, &player, juce::Time::getCurrentTime(), at,
+                    juce::Time::getCurrentTime(), 1, false));
+                check (toggled == "https://example.com/song.mp3",
+                       "a click on the player asks the host to toggle it");
+            }
+
+            ebs::ChatBubble linked;
+            linked.setText ("[Theme](https://example.com/theme.ogg)");
+            (void) linked.requiredHeightForWidth (520);
+            check (linked.audioCountForTest() == 1,
+                   "a Markdown link to an audio file becomes a player");
+
+            ebs::ChatBubble tag;
+            tag.setText ("<audio src=\"https://example.com/tag.wav\"></audio>");
+            (void) tag.requiredHeightForWidth (520);
+            check (tag.audioCountForTest() == 1,
+                   "an <audio src> tag becomes a player");
+        }
+
         // SELECTION in a chat bubble: a drag highlights the body in place and
         // Ctrl/Cmd+C copies exactly the covered characters - the gesture a
         // reader expects from any chat, instead of only the whole-message copy
