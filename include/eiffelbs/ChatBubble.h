@@ -323,9 +323,13 @@ public:
     //
     // The band is a DISPLAY, never a second selection: it takes no focus,
     // handles no mouse or keyboard input, and never touches the reader's own
-    // selection. It paints UNDER the glyphs and UNDER that selection, as a
-    // quiet accent wash, so a reader dragging over a word still sees their
-    // highlight on top of the sentence being spoken.
+    // selection. It paints as a BLOCK: a vivid fill under the sentence, the
+    // body's light glyphs hidden by it, and the span's own glyphs inked over
+    // the block in a dark colour. A quiet accent wash was invisible on the
+    // dark transcript (author report 2026-11-09: "le surlignage en bleu est a
+    // peine visible sur fond noir"), and light text on a pale wash reads as
+    // "a bit brighter", not as "this sentence". The reader's selection keeps
+    // its own layer above the block, so a drag is never swallowed.
 
     /** Highlight the sentence the reader HEARS. `sourceSpan` indexes the text
         given to setText/appendText exactly as the host that speaks it sees
@@ -345,6 +349,22 @@ public:
         if (activeSourceSpan == normalised)
             return;
         activeSourceSpan = normalised;
+        repaint();
+    }
+
+    /** The two colours the read-along band paints with: `band` is the block's
+        fill, `ink` the colour the span's glyphs are redrawn in on top of it.
+        The default pair is the vivid one - an amber block with near-black
+        letters - because the faint accent wash this API shipped with was
+        invisible on the dark transcript. A host may tune the pair (a light
+        theme, a different accent) without touching the mapping or the layout:
+        choosing colours never re-measures the message. */
+    void setActiveSourceSpanColours (juce::Colour band, juce::Colour ink)
+    {
+        if (band == activeSpanBandColour && ink == activeSpanInk)
+            return;
+        activeSpanBandColour = band;
+        activeSpanInk = ink;
         repaint();
     }
 
@@ -622,14 +642,18 @@ public:
 
         const auto bodyArea = bodyAreaForWidth (w).toFloat();
 
-        // Two washes at most, on the SAME layer and both UNDER the glyphs: a
-        // fill painted after the text would tint the letters themselves, which
-        // is not what a selected word looks like anywhere else. The read-along
-        // band comes first so the reader's own selection always reads on top
-        // of it, and neither changes the text colour.
-        paintActiveSourceBand (g, bodyArea);
+        // The read-along band is painted in TWO layers. Its block goes first,
+        // under the reader's selection and under the body's own glyphs; then
+        // the body draws its light text, and the span's glyphs are inked over
+        // the block in the dark colour - so the sentence being heard reads as
+        // dark letters on a vivid fill, while the reader's selection keeps its
+        // layer above the block and never under it. Two layers are what makes
+        // the text colour change WITHOUT rebuilding the layout: the glyphs are
+        // the same glyphs, drawn again at the same positions in another ink.
+        paintActiveSourceBandBackground (g, bodyArea);
         paintTextSelection (g, bodyArea);
         bodyLayout.draw (g, bodyArea);
+        paintActiveSourceBandInk (g, bodyArea);
 
         // The blocks are painted INTO the reserved holes of the text. They
         // come after the glyphs because a box/image is opaque: a drawing under
@@ -2239,39 +2263,17 @@ private:
 
         for (int i = 0; i < bodyLayout.getNumLines(); ++i)
         {
-            const auto& line = bodyLayout.getLine (i);
-            float minX = std::numeric_limits<float>::max();
-            float maxX = -std::numeric_limits<float>::max();
-
-            for (auto* run : line.runs)
-            {
-                const int glyphs = run->glyphs.size();
-                for (int g = 0; g < glyphs; ++g)
-                {
-                    const int rangeStart = run->stringRange.getStart()
-                                           + charOffsetInRun (*run, g);
-                    const int rangeEnd = run->stringRange.getStart()
-                                         + charOffsetInRun (*run, g + 1);
-                    if (rangeEnd <= start || rangeStart >= end)
-                        continue;
-                    const auto& glyph = run->glyphs.getReference (g);
-                    const float x = line.lineOrigin.x + glyph.anchor.x;
-                    minX = juce::jmin (minX, x);
-                    maxX = juce::jmax (maxX, x + glyph.width);
-                }
-            }
-
-            if (maxX > minX)
-            {
-                const auto y = line.getLineBoundsY();
-                g.fillRect (area.getX() + minX, area.getY() + y.getStart(),
-                            maxX - minX, y.getLength());
-            }
+            const auto x = textRangeXOnLine (i, start, end);
+            if (x.isEmpty())
+                continue;
+            const auto y = bodyLayout.getLine (i).getLineBoundsY();
+            g.fillRect (area.getX() + x.getStart(), area.getY() + y.getStart(),
+                        x.getLength(), y.getLength());
         }
     }
 
     /** Paint the reader's selection. Unchanged contract: accent at 30 % alpha,
-        under the glyphs, above the read-along band. */
+        under the glyphs, above the read-along block. */
     void paintTextSelection (juce::Graphics& g, juce::Rectangle<float> area) const
     {
         if (! hasTextSelection())
@@ -2283,19 +2285,116 @@ private:
                             ebs::accent().withAlpha (0.30f));
     }
 
-    /** Paint the read-along band: `activeSourceSpan`, mapped from the SOURCE
-        text onto the processed body, as a quiet accent wash. Painted before
-        the reader's selection and under the glyphs, so both the highlight and
-        the letters keep the layer the reader expects. */
-    void paintActiveSourceBand (juce::Graphics& g,
-                                juce::Rectangle<float> area) const
+    /** The X extent of [start, end) on line `i` of the PROCESSED body, in
+        layout coordinates. Empty when the line draws no character of the span.
+        The selection and the read-along band share this geometry, so the two
+        highlights can never disagree about where a character is. */
+    juce::Range<float> textRangeXOnLine (int lineIndex, int start, int end) const
+    {
+        const auto& line = bodyLayout.getLine (lineIndex);
+        float minX = std::numeric_limits<float>::max();
+        float maxX = -std::numeric_limits<float>::max();
+
+        for (auto* run : line.runs)
+        {
+            const int glyphs = run->glyphs.size();
+            for (int g = 0; g < glyphs; ++g)
+            {
+                const int rangeStart = run->stringRange.getStart()
+                                       + charOffsetInRun (*run, g);
+                const int rangeEnd = run->stringRange.getStart()
+                                     + charOffsetInRun (*run, g + 1);
+                if (rangeEnd <= start || rangeStart >= end)
+                    continue;
+                const auto& glyph = run->glyphs.getReference (g);
+                const float x = line.lineOrigin.x + glyph.anchor.x;
+                minX = juce::jmin (minX, x);
+                maxX = juce::jmax (maxX, x + glyph.width);
+            }
+        }
+
+        return maxX > minX ? juce::Range<float> (minX, maxX)
+                           : juce::Range<float>();
+    }
+
+    /** Paint the read-along BLOCK: the mapped span as a solid fill, with a
+        couple of pixels of horizontal breathing room so the letters never
+        touch its edge. The glyphs are not touched here - they are inked over
+        the block after the body draws (paintActiveSourceBandInk). Under the
+        reader's selection, so a drag still reads as a layer of its own. */
+    void paintActiveSourceBandBackground (juce::Graphics& g,
+                                          juce::Rectangle<float> area) const
     {
         if (activeSourceSpan.isEmpty())
             return;
 
         const auto mapped = mapActiveSourceSpanToLayout();
-        paintTextRangeBand (g, area, mapped.getStart(), mapped.getEnd(),
-                            ebs::accent().withAlpha (0.14f));
+        if (mapped.isEmpty() || bodyLayout.getNumLines() == 0)
+            return;
+
+        g.setColour (activeSpanBandColour);
+
+        for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+        {
+            const auto x = textRangeXOnLine (i, mapped.getStart(),
+                                             mapped.getEnd());
+            if (x.isEmpty())
+                continue;
+
+            const auto y = bodyLayout.getLine (i).getLineBoundsY();
+            const auto left = juce::jmax (area.getX(),
+                                          area.getX() + x.getStart() - 2.0f);
+            const auto right = juce::jmin (area.getRight(),
+                                           area.getX() + x.getEnd() + 2.0f);
+            if (right > left)
+                g.fillRect (left, area.getY() + y.getStart(),
+                            right - left, y.getLength());
+        }
+    }
+
+    /** Repaint the span's glyphs in the band's ink, on top of the block and of
+        the body's light text. Same glyphs, same fonts, same positions as the
+        layout: only the colour changes, so the font shaping is never re-run
+        and the band cannot re-flow a word. */
+    void paintActiveSourceBandInk (juce::Graphics& g,
+                                   juce::Rectangle<float> area) const
+    {
+        if (activeSourceSpan.isEmpty())
+            return;
+
+        const auto mapped = mapActiveSourceSpanToLayout();
+        if (mapped.isEmpty() || bodyLayout.getNumLines() == 0)
+            return;
+
+        juce::GlyphArrangement ink;
+        for (int i = 0; i < bodyLayout.getNumLines(); ++i)
+        {
+            const auto& line = bodyLayout.getLine (i);
+            for (auto* run : line.runs)
+            {
+                const int glyphs = run->glyphs.size();
+                for (int gi = 0; gi < glyphs; ++gi)
+                {
+                    const int rangeStart = run->stringRange.getStart()
+                                           + charOffsetInRun (*run, gi);
+                    const int rangeEnd = run->stringRange.getStart()
+                                         + charOffsetInRun (*run, gi + 1);
+                    if (rangeEnd <= mapped.getStart()
+                        || rangeStart >= mapped.getEnd())
+                        continue;
+
+                    const auto& glyph = run->glyphs.getReference (gi);
+                    ink.addGlyph (juce::PositionedGlyph (
+                        run->font, 0, glyph.glyphCode,
+                        area.getX() + line.lineOrigin.x + glyph.anchor.x,
+                        area.getY() + line.lineOrigin.y + glyph.anchor.y,
+                        glyph.width, false));
+                }
+            }
+        }
+
+        g.setColour (activeSpanInk);
+        ink.draw (g);
     }
 
     /** `activeSourceSpan` in PROCESSED offsets, or an empty range. */
@@ -2709,6 +2808,12 @@ private:
     std::vector<SourceAnchor> sourceAnchors;
     /** The read-along band, in SOURCE offsets; empty = nothing active. */
     juce::Range<int> activeSourceSpan;
+    /** The band's block fill and the ink its glyphs are redrawn in. A vivid
+        amber block with near-black letters is the shipped pair: the first band
+        was `accent()` at 14 % under light glyphs, and on the dark transcript
+        that read as "no highlight at all" (author report 2026-11-09). */
+    juce::Colour activeSpanBandColour { 0xffffd84d };
+    juce::Colour activeSpanInk { 0xff111111 };
     /** Height the layout had to add BELOW its last line for a drawing that
         sits at the end of the message (a TextLayout drops trailing blanks). */
     float visualTailHeight = 0.0f;

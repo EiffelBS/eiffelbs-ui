@@ -1411,9 +1411,9 @@ int main()
             check (heightBefore == heightAfter,
                    "setting the band never re-measures the body");
 
-            // PAINT: the band is visible where the mapped span is, it sits
-            // UNDER the glyphs, and the reader's own selection still paints on
-            // top of it.
+            // PAINT: the band is a BLOCK - a solid vivid fill with the span's
+            // glyphs redrawn in dark ink - and the reader's own selection still
+            // paints on top of it.
             ebs::ChatBubble painted;
             painted.setText ("Alpha beta gamma delta.");
             const int paintH = painted.requiredHeightForWidth (420);
@@ -1430,8 +1430,11 @@ int main()
             painted.setActiveSourceSpan ({ 6, 10 });   // "beta"
             const auto band = renderBubble (painted);
 
+
+            const auto blockColour = juce::Colour (0xffffd84d);
             int bandPixels = 0;
-            int tintedGlyphs = 0;
+            int blockPixels = 0;
+            int inkGlyphPixels = 0;
             for (int y = 0; y < band.getHeight(); ++y)
                 for (int x = 0; x < band.getWidth(); ++x)
                 {
@@ -1440,13 +1443,19 @@ int main()
                     if (now == was)
                         continue;
                     ++bandPixels;
-                    if (was == ebs::text())
-                        ++tintedGlyphs;
+                    if (now == blockColour)
+                        ++blockPixels;
+                    else if (was.getBrightness() > 0.55f
+                             && now.getBrightness() < 0.35f)
+                        ++inkGlyphPixels;
                 }
+
             check (bandPixels > 40,
-                   "the read-along band paints a visible wash under its sentence");
-            check (tintedGlyphs == 0,
-                   "the band sits under the glyphs and never tints the letters");
+                   "the read-along band paints a visible block under its sentence");
+            check (blockPixels > 100,
+                   "the block is a solid vivid fill, not a faint wash");
+            check (inkGlyphPixels > 20,
+                   "the sentence inside the block is redrawn in dark ink");
 
             painted.setTextSelection (0, 5);   // "Alpha", another sentence
             const auto bandAndSelection = renderBubble (painted);
@@ -1477,6 +1486,31 @@ int main()
                        && painted.getTextSelection()
                               == juce::Range<int> (0, 5),
                    "an active band never touches the reader's selection");
+
+            // The pair is host-tunable without touching mapping or layout: the
+            // same glyphs, the same geometry, only the two colours change.
+            painted.setActiveSourceSpanColours (juce::Colours::magenta,
+                                                juce::Colours::white);
+            const auto customBand = renderBubble (painted);
+            int magentaPixels = 0;
+            int whiteInkPixels = 0;
+            for (int y = 0; y < customBand.getHeight(); ++y)
+                for (int x = 0; x < customBand.getWidth(); ++x)
+                {
+                    const auto was = bandAndSelection.getPixelAt (x, y);
+                    const auto now = customBand.getPixelAt (x, y);
+                    if (now == was)
+                        continue;
+                    if (now == juce::Colours::magenta)
+                        ++magentaPixels;
+                    else if (now.getBrightness() > 0.90f
+                             && was.getBrightness() < 0.40f)
+                        ++whiteInkPixels;   // the ink used to be dark here
+                }
+            check (magentaPixels > 100,
+                   "a host can choose the block colour");
+            check (whiteInkPixels > 10,
+                   "a host can choose the ink the sentence is redrawn in");
 
             // CLEAR: the render is pixel-identical to a bubble that never had
             // a span - no leftover wash, no re-layout.

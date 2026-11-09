@@ -268,13 +268,19 @@ project(eiffelbs-ui VERSION 0.83.0 LANGUAGES C CXX)
 # edge inside dropped Markdown clamps to the nearest visible character - a span
 # over "**bold**" covers "bold", a span over a link label covers the label, a
 # span wholly inside a dropped fence / Mermaid body / rolled table maps to
-# nothing - and out-of-range offsets clamp inside the layout. It paints UNDER
-# the glyphs and UNDER the reader's own selection as accent at 14 % alpha, so
-# the selection still reads on top unchanged; it never takes focus, handles no
-# mouse or keyboard input, and never touches getSelectedText() /
-# setTextSelection(). activeSourceSpanLayoutForTest() is the gate seam.
-# Additive and default-off: a bubble that never sets a span paints exactly the
-# pixels it painted in v0.82.1 and returns the same renderedTextForTest().
+# nothing - and out-of-range offsets clamp inside the layout. It is a BLOCK,
+# not a wash: a vivid amber fill with the span's own glyphs redrawn over it in
+# near-black ink (the ship state's accent-at-14 % band was invisible on the
+# dark transcript - author report 2026-11-09). The block is painted under the
+# reader's selection and under the body's light text, then the span's glyphs
+# are re-inked on top: same layout, same glyph positions, only the colour
+# changes, so the text colour moves WITHOUT a re-layout or a re-shape - and the
+# reader's selection still reads on top unchanged. setActiveSourceSpanColours()
+# tunes the two colours per host. It never takes focus, handles no mouse or
+# keyboard input, and never touches getSelectedText() / setTextSelection().
+# activeSourceSpanLayoutForTest() is the gate seam. Additive and default-off: a
+# bubble that never sets a span paints exactly the pixels it painted in
+# v0.82.1 and returns the same renderedTextForTest().
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
