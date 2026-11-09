@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.82.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.83.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -256,6 +256,25 @@ project(eiffelbs-ui VERSION 0.82.1 LANGUAGES C CXX)
 # placeholder), and the audio player is capped at 360 px and centred. An HTML
 # <audio> element is consumed up to </audio>, so its "your browser does not
 # support the audio element" fallback is no longer printed under the player.
+
+# v0.83.0: ChatBubble grows a NON-INTERACTIVE READ-ALONG BAND. The host that
+# reads an answer aloud knows its sentences as offsets into the SOURCE text it
+# gave setText/appendText; setActiveSourceSpan(Range<int>) highlights one of
+# them in place, and getActiveSourceSpan() reads it back (an empty range clears
+# the band). The bubble owns the source -> processed mapping: anchors are
+# recorded while the Markdown body is built (per line / styled segment, never
+# per character) and a span is mapped at paint time by binary search, so
+# setting or clearing the band repaints and NEVER re-measures the message. An
+# edge inside dropped Markdown clamps to the nearest visible character - a span
+# over "**bold**" covers "bold", a span over a link label covers the label, a
+# span wholly inside a dropped fence / Mermaid body / rolled table maps to
+# nothing - and out-of-range offsets clamp inside the layout. It paints UNDER
+# the glyphs and UNDER the reader's own selection as accent at 14 % alpha, so
+# the selection still reads on top unchanged; it never takes focus, handles no
+# mouse or keyboard input, and never touches getSelectedText() /
+# setTextSelection(). activeSourceSpanLayoutForTest() is the gate seam.
+# Additive and default-off: a bubble that never sets a span paints exactly the
+# pixels it painted in v0.82.1 and returns the same renderedTextForTest().
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

@@ -84,6 +84,27 @@ namespace
         }
     }
 
+    /** Image-level check: two offscreen renders agree on EVERY pixel. A colour
+        tolerance would hide a leftover wash, and "the band is invisible when
+        nothing is active" is an exact promise, not an approximate one. */
+    void checkSamePixels (const juce::Image& a, const juce::Image& b,
+                          const char* what)
+    {
+        bool same = a.getWidth() == b.getWidth()
+                    && a.getHeight() == b.getHeight();
+        if (same)
+            for (int y = 0; y < a.getHeight() && same; ++y)
+                for (int x = 0; x < a.getWidth(); ++x)
+                    if (a.getPixelAt (x, y) != b.getPixelAt (x, y))
+                    {
+                        same = false;
+                        break;
+                    }
+        std::printf ("[%s] %s\n", same ? "PASS" : "FAIL", what);
+        if (! same)
+            ++failures;
+    }
+
     /** Render `draw` into a fresh opaque ARGB image (pre-filled black). */
     template <typename Fn>
     juce::Image renderToImage (int w, int h, Fn&& draw)
@@ -1237,6 +1258,245 @@ int main()
             b.mouseUp (makeEvent (lineStart, 1));
             check (! b.hasTextSelection(),
                    "a plain click leaves no highlight behind");
+        }
+
+        // ACTIVE SOURCE SPAN (read-along): a NON-INTERACTIVE band inside a
+        // chat body, addressed in SOURCE offsets and mapped onto the processed
+        // text the layout actually drew. OpenTimbre reads an answer aloud and
+        // the reader must see which sentence is audible; the band must never
+        // fight the reader's own selection, and it must never touch the text
+        // itself.
+        {
+            // Plain prose: the span maps exactly.
+            ebs::ChatBubble plain;
+            plain.setText ("Alpha beta gamma delta.");
+            (void) plain.requiredHeightForWidth (420);
+            const auto plainRendered = plain.renderedTextForTest();
+            plain.setActiveSourceSpan ({ 6, 10 });   // "beta"
+            check (plain.getActiveSourceSpan() == juce::Range<int> (6, 10),
+                   "an active source span reads back in source offsets");
+            auto mapped = plain.activeSourceSpanLayoutForTest();
+            check (plain.renderedTextForTest().substring (mapped.getStart(),
+                                                          mapped.getEnd())
+                       == "beta",
+                   "a plain-prose span maps onto exactly the word it names");
+            check (plain.renderedTextForTest() == plainRendered,
+                   "the read-along band never changes the processed text");
+
+            // An invalid or empty range clears the band.
+            plain.setActiveSourceSpan ({ 8, 8 });
+            check (plain.getActiveSourceSpan().isEmpty(),
+                   "an empty source span clears the band");
+            plain.setActiveSourceSpan ({ 10, 4 });   // backwards -> empty
+            check (plain.getActiveSourceSpan().isEmpty(),
+                   "a backwards source span clears the band");
+            plain.setActiveSourceSpan ({ 6, 10 });
+            plain.setActiveSourceSpan ({});
+            check (plain.getActiveSourceSpan().isEmpty()
+                       && plain.activeSourceSpanLayoutForTest().isEmpty(),
+                   "clearing the band empties the source and mapped ranges");
+
+            // Markdown markers are DROPPED but must not swallow the word they
+            // wrapped: an edge inside "**" clamps to the first / last VISIBLE
+            // character.
+            ebs::ChatBubble markers;
+            markers.setText ("Some **bold** words");
+            (void) markers.requiredHeightForWidth (420);
+            markers.setActiveSourceSpan ({ 7, 11 });   // "bold"
+            auto boldMapped = markers.activeSourceSpanLayoutForTest();
+            check (markers.renderedTextForTest().substring (
+                       boldMapped.getStart(), boldMapped.getEnd()) == "bold",
+                   "a span over bold text maps to the word, not the markers");
+            markers.setActiveSourceSpan ({ 5, 13 });   // the whole "**bold**"
+            boldMapped = markers.activeSourceSpanLayoutForTest();
+            check (markers.renderedTextForTest().substring (
+                       boldMapped.getStart(), boldMapped.getEnd()) == "bold",
+                   "a span over the whole **bold** clamps to its visible word");
+
+            // A link prints its LABEL, so a span over the label maps to it.
+            ebs::ChatBubble link;
+            link.setText ("See [the docs](https://example.com/x) now");
+            (void) link.requiredHeightForWidth (420);
+            link.setActiveSourceSpan ({ 5, 13 });   // "the docs"
+            const auto linkMapped = link.activeSourceSpanLayoutForTest();
+            check (link.renderedTextForTest().substring (
+                       linkMapped.getStart(), linkMapped.getEnd()) == "the docs",
+                   "a span over a link label maps to the printed label");
+
+            // Multi-paragraph: a span in the SECOND paragraph maps there.
+            ebs::ChatBubble paragraphs;
+            paragraphs.setText ("First paragraph here.\n"
+                                "\n"
+                                "Second paragraph here.");
+            (void) paragraphs.requiredHeightForWidth (420);
+            paragraphs.setActiveSourceSpan ({ 23, 29 });   // "Second"
+            const auto secondMapped =
+                paragraphs.activeSourceSpanLayoutForTest();
+            check (paragraphs.renderedTextForTest().substring (
+                       secondMapped.getStart(), secondMapped.getEnd())
+                       == "Second",
+                   "a span in the second paragraph maps into it, not the first");
+
+            // Clamping: an end past the source text still maps inside the
+            // layout; empty text is a no-op rather than a crash.
+            ebs::ChatBubble clamped;
+            clamped.setText ("Alpha beta");
+            (void) clamped.requiredHeightForWidth (420);
+            clamped.setActiveSourceSpan ({ 6, 1000 });
+            const auto clampedMapped = clamped.activeSourceSpanLayoutForTest();
+            check (clampedMapped.getStart() >= 0
+                       && clampedMapped.getEnd()
+                              <= clamped.renderedTextForTest().length()
+                       && clamped.renderedTextForTest().substring (
+                              clampedMapped.getStart(),
+                              clampedMapped.getEnd()) == "beta",
+                   "a span end past the text clamps inside the layout");
+
+            ebs::ChatBubble emptyBubble;
+            emptyBubble.setText ("");
+            (void) emptyBubble.requiredHeightForWidth (420);
+            emptyBubble.setActiveSourceSpan ({ 0, 3 });
+            check (emptyBubble.activeSourceSpanLayoutForTest().isEmpty(),
+                   "a span on empty text maps to nothing instead of crashing");
+
+            // A span entirely inside a DROPPED block (a Mermaid fence line and
+            // its source) maps to nothing and never escapes the layout.
+            ebs::ChatBubble dropped;
+            dropped.setText ("Before.\n"
+                             "```mermaid\n"
+                             "flowchart TD\n"
+                             "  A --> B\n"
+                             "```\n"
+                             "After.");
+            (void) dropped.requiredHeightForWidth (420);
+            dropped.setActiveSourceSpan ({ 8, 18 });   // the fence info line
+            check (dropped.activeSourceSpanLayoutForTest().isEmpty(),
+                   "a span over a dropped fence line maps to nothing");
+            dropped.setActiveSourceSpan ({ 19, 31 });   // the Mermaid source
+            const auto droppedMapped = dropped.activeSourceSpanLayoutForTest();
+            check (droppedMapped.isEmpty()
+                       || (droppedMapped.getStart() >= 0
+                           && droppedMapped.getEnd()
+                                  <= dropped.renderedTextForTest().length()),
+                   "a span inside a dropped Mermaid body never escapes the layout");
+
+            // Incremental: appendText rebuilds the anchors, so the span keeps
+            // naming the same words and a span over the appended delta maps.
+            ebs::ChatBubble incremental;
+            incremental.setText ("Alpha beta");
+            (void) incremental.requiredHeightForWidth (420);
+            incremental.setActiveSourceSpan ({ 6, 10 });   // "beta"
+            incremental.appendText (" gamma");
+            (void) incremental.requiredHeightForWidth (420);
+            auto incrementalMapped =
+                incremental.activeSourceSpanLayoutForTest();
+            check (incremental.renderedTextForTest().substring (
+                       incrementalMapped.getStart(),
+                       incrementalMapped.getEnd()) == "beta",
+                   "appendText rebuilds the anchors under an active span");
+            check (incrementalMapped.getEnd()
+                       <= incremental.renderedTextForTest().length(),
+                   "the mapped range stays inside the grown text");
+            incremental.setActiveSourceSpan ({ 11, 16 });   // "gamma"
+            incrementalMapped = incremental.activeSourceSpanLayoutForTest();
+            check (incremental.renderedTextForTest().substring (
+                       incrementalMapped.getStart(),
+                       incrementalMapped.getEnd()) == "gamma",
+                   "a span over appended text maps against the new text");
+
+            // Setting a band is a REPAINT, not a re-layout.
+            const int heightBefore = incremental.requiredHeightForWidth (420);
+            incremental.setActiveSourceSpan ({ 0, 5 });
+            const int heightAfter = incremental.requiredHeightForWidth (420);
+            check (heightBefore == heightAfter,
+                   "setting the band never re-measures the body");
+
+            // PAINT: the band is visible where the mapped span is, it sits
+            // UNDER the glyphs, and the reader's own selection still paints on
+            // top of it.
+            ebs::ChatBubble painted;
+            painted.setText ("Alpha beta gamma delta.");
+            const int paintH = painted.requiredHeightForWidth (420);
+            painted.setBounds (0, 0, 420, paintH);
+            const auto renderBubble = [] (ebs::ChatBubble& bubble)
+            {
+                juce::Image img (juce::Image::ARGB, bubble.getWidth(),
+                                 bubble.getHeight(), true);
+                juce::Graphics g (img);
+                bubble.paintEntireComponent (g, true);
+                return img;
+            };
+            const auto noBand = renderBubble (painted);
+            painted.setActiveSourceSpan ({ 6, 10 });   // "beta"
+            const auto band = renderBubble (painted);
+
+            int bandPixels = 0;
+            int tintedGlyphs = 0;
+            for (int y = 0; y < band.getHeight(); ++y)
+                for (int x = 0; x < band.getWidth(); ++x)
+                {
+                    const auto was = noBand.getPixelAt (x, y);
+                    const auto now = band.getPixelAt (x, y);
+                    if (now == was)
+                        continue;
+                    ++bandPixels;
+                    if (was == ebs::text())
+                        ++tintedGlyphs;
+                }
+            check (bandPixels > 40,
+                   "the read-along band paints a visible wash under its sentence");
+            check (tintedGlyphs == 0,
+                   "the band sits under the glyphs and never tints the letters");
+
+            painted.setTextSelection (0, 5);   // "Alpha", another sentence
+            const auto bandAndSelection = renderBubble (painted);
+            int selectionPixels = 0;
+            for (int y = 0; y < bandAndSelection.getHeight(); ++y)
+                for (int x = 0; x < bandAndSelection.getWidth(); ++x)
+                    if (bandAndSelection.getPixelAt (x, y)
+                        != band.getPixelAt (x, y))
+                        ++selectionPixels;
+            check (selectionPixels > 40,
+                   "the reader's selection still paints over an active band");
+
+            painted.setActiveSourceSpan ({});
+            const auto selectionOnly = renderBubble (painted);
+            int bandPixelsUnderSelection = 0;
+            for (int y = 0; y < bandAndSelection.getHeight(); ++y)
+                for (int x = 0; x < bandAndSelection.getWidth(); ++x)
+                    if (bandAndSelection.getPixelAt (x, y)
+                        != selectionOnly.getPixelAt (x, y))
+                        ++bandPixelsUnderSelection;
+            check (bandPixelsUnderSelection > 40,
+                   "the band still paints while a reader selection is active");
+
+            // The band is a DISPLAY: it never becomes the reader's selection
+            // or changes it.
+            painted.setActiveSourceSpan ({ 6, 10 });
+            check (painted.getSelectedText() == "Alpha"
+                       && painted.getTextSelection()
+                              == juce::Range<int> (0, 5),
+                   "an active band never touches the reader's selection");
+
+            // CLEAR: the render is pixel-identical to a bubble that never had
+            // a span - no leftover wash, no re-layout.
+            ebs::ChatBubble cleared;
+            cleared.setText ("Alpha beta gamma delta.");
+            const int clearedH = cleared.requiredHeightForWidth (420);
+            cleared.setBounds (0, 0, 420, clearedH);
+            cleared.setActiveSourceSpan ({ 6, 10 });
+            cleared.setActiveSourceSpan ({});
+            ebs::ChatBubble never;
+            never.setText ("Alpha beta gamma delta.");
+            const int neverH = never.requiredHeightForWidth (420);
+            never.setBounds (0, 0, 420, neverH);
+            check (cleared.renderedTextForTest() == never.renderedTextForTest()
+                       && clearedH == neverH,
+                   "clearing the band leaves the layout untouched");
+            const auto clearedImage = renderBubble (cleared);
+            const auto neverImage = renderBubble (never);
+            checkSamePixels (clearedImage, neverImage,
+                             "a cleared band paints the pixels of a bubble that never had one");
         }
 
         // SPLITTER HANDLE: drag, clamp, and a visible grip in both directions.

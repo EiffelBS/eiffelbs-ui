@@ -22,6 +22,11 @@
 //      any chat app. The copy button stays for "give me all of it", but a
 //      sentence of a long answer is now selectable in place instead of
 //      forcing the whole message onto the clipboard.
+//   5. READ-ALONG. A host that speaks an answer aloud sets the sentence it is
+//      reading (setActiveSourceSpan, in the SOURCE text's offsets) and the
+//      bubble washes it under the glyphs, under the reader's selection and
+//      without taking focus: a sentence being heard is a place in the text,
+//      not a second cursor, and it must never fight the reader's own drag.
 //
 // The height depends on the WIDTH the caller gives, so a bubble is measured
 // before it is placed: requiredHeightForWidth() then setBounds(). The
@@ -38,6 +43,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -305,6 +311,59 @@ public:
         or show a status line. The copy button keeps using onCopy. */
     std::function<void (const juce::String&)> onSelectionCopied;
 
+    // === read-along band ==================================================
+    //
+    // A host that READS an answer aloud knows its sentences as offsets into
+    // the SOURCE text it handed to setText/appendText, while the body, the
+    // layout and the selection all index the PROCESSED string (the Markdown
+    // markers are gone). The host must not have to know what the Markdown
+    // emitter did, so the bubble owns the mapping: anchors are recorded while
+    // the body is built, and a span is mapped onto the drawn text at paint
+    // time.
+    //
+    // The band is a DISPLAY, never a second selection: it takes no focus,
+    // handles no mouse or keyboard input, and never touches the reader's own
+    // selection. It paints UNDER the glyphs and UNDER that selection, as a
+    // quiet accent wash, so a reader dragging over a word still sees their
+    // highlight on top of the sentence being spoken.
+
+    /** Highlight the sentence the reader HEARS. `sourceSpan` indexes the text
+        given to setText/appendText exactly as the host that speaks it sees
+        it. An invalid or empty range clears the band.
+
+        The mapping onto the processed body is computed lazily from anchors
+        recorded during layout, so setting or clearing the band repaints and
+        never re-measures the message - a streamed answer keeps its O(1)
+        delta, and a bubble that never sets a span paints the pixels it
+        painted before. */
+    void setActiveSourceSpan (juce::Range<int> sourceSpan)
+    {
+        const int s = juce::jmax (0, sourceSpan.getStart());
+        const int e = juce::jmax (0, sourceSpan.getEnd());
+        const juce::Range<int> normalised = e > s ? juce::Range<int> (s, e)
+                                                  : juce::Range<int>();
+        if (activeSourceSpan == normalised)
+            return;
+        activeSourceSpan = normalised;
+        repaint();
+    }
+
+    /** The active band, in SOURCE offsets. Empty when none is set. */
+    juce::Range<int> getActiveSourceSpan() const noexcept
+    {
+        return activeSourceSpan;
+    }
+
+    /** Tests: the band mapped onto the PROCESSED body - offsets into exactly
+        the string renderedTextForTest() returns. Empty when nothing is active,
+        or when the source range covers no visible character (a span wholly
+        inside a Mermaid fence, a fence info string or a rolled table
+        separator). */
+    juce::Range<int> activeSourceSpanLayoutForTest() const
+    {
+        return mapActiveSourceSpanToLayout();
+    }
+
     /** Host seams for images embedded by the Markdown. `getChatImage` returns
         the cached image for a URL (invalid when absent); `requestChatImage`
         asks the host to fetch it. The host must re-run the bubble's layout
@@ -563,9 +622,12 @@ public:
 
         const auto bodyArea = bodyAreaForWidth (w).toFloat();
 
-        // The highlight goes UNDER the glyphs: a fill painted after the text
-        // would tint the letters themselves, which is not what a selected
-        // word looks like anywhere else.
+        // Two washes at most, on the SAME layer and both UNDER the glyphs: a
+        // fill painted after the text would tint the letters themselves, which
+        // is not what a selected word looks like anywhere else. The read-along
+        // band comes first so the reader's own selection always reads on top
+        // of it, and neither changes the text colour.
+        paintActiveSourceBand (g, bodyArea);
         paintTextSelection (g, bodyArea);
         bodyLayout.draw (g, bodyArea);
 
@@ -973,6 +1035,25 @@ public:
     }
 
 private:
+    /** One 1:1 run of the SOURCE text and the PROCESSED body: source offsets
+        [sourceStart, sourceStart + sourceLength) are the characters at
+        [layoutStart, layoutStart + layoutLength) in the rendered string.
+        `sourceLength` is larger than `layoutLength` only for a run that
+        contains a backslash escape (two source characters, one drawn).
+
+        Dropped Markdown is simply NOT covered - a marker, a link URL, a fence
+        info string, a Mermaid body or a rolled table - so the mapper can snap
+        a span edge across the gap to the nearest visible character. Anchors
+        are recorded per line or styled segment, never per character: a
+        20 000-character answer lays out a few hundred of them. */
+    struct SourceAnchor
+    {
+        int sourceStart   = 0;
+        int sourceLength  = 0;
+        int layoutStart   = 0;
+        int layoutLength  = 0;
+    };
+
     static Avatar::Who whoFor (Side s) noexcept
     {
         return s == Side::user ? Avatar::Who::user : Avatar::Who::assistant;
@@ -999,19 +1080,40 @@ private:
                                        : w - avatarReserve() - bubbleWidthFor (w);
     }
 
+    /** How many whitespace characters `s` begins with. The Markdown emitter
+        trims a block element's line before rewriting it, and a read-along
+        anchor has to name the character it was built from, so the trim is
+        measured rather than assumed. */
+    static int leadingWhitespaceCount (const juce::String& s)
+    {
+        int i = 0;
+        while (i < s.length()
+               && juce::CharacterFunctions::isWhitespace (s[i]))
+            ++i;
+        return i;
+    }
+
     /** Rebuild the measured layout for the width the caller is about to
      *  give. Nothing here touches the bounds: setBounds() comes from the
      *  caller and triggers resized(), which places the children. */
     /** Inline Markdown -> styled runs. Supported: **bold**, *italic*,
         `code`, [label](url). The URL itself is not printed (a weather answer's
         links would double the paragraph); the label is accented, which is the
-        same affordance the rest of the app uses for a link. */
+        same affordance the rest of the app uses for a link.
+
+        `sourceStart` is the offset of `line[0]` in the SOURCE text, or -1 when
+        the caller only measures (a table cell reflows its source, so it maps
+        nothing). When it is non-negative, every visible run is recorded as a
+        SourceAnchor, which is what lets the read-along span survive the
+        markers this function drops. */
     static void appendInlineRuns (juce::AttributedString& as,
                                   const juce::String& line,
                                   juce::Font base, juce::Colour ink,
                                   juce::Font mono,
                                   int& pos,
-                                  std::vector<LinkSpan>* spans = nullptr)
+                                  std::vector<LinkSpan>* spans = nullptr,
+                                  int sourceStart = -1,
+                                  std::vector<SourceAnchor>* anchors = nullptr)
     {
         const auto styleOf = [] (juce::Font f, bool bold, bool italic)
         {
@@ -1023,13 +1125,29 @@ private:
         };
         bool bold = false, italic = false;
         juce::String run;
+        int runSourceStart  = 0;   // index in `line` of the run's first char
+        int runSourceLength = 0;   // source characters the run consumed
+        int runLayoutStart  = 0;   // processed offset the run will be drawn at
         const auto flush = [&]
         {
             if (run.isEmpty())
                 return;
+            if (anchors != nullptr && sourceStart >= 0)
+                anchors->push_back ({ sourceStart + runSourceStart,
+                                      runSourceLength, runLayoutStart,
+                                      run.length() });
             as.append (run, styleOf (base, bold, italic), ink);
             pos += run.length();
             run.clear();
+            runSourceLength = 0;
+        };
+        const auto beginRun = [&] (int indexInLine)
+        {
+            if (run.isEmpty())
+            {
+                runSourceStart = indexInLine;
+                runLayoutStart = pos;
+            }
         };
         for (int i = 0; i < line.length(); ++i)
         {
@@ -1044,7 +1162,12 @@ private:
                     || escaped == '[' || escaped == ']' || escaped == '('
                     || escaped == ')' || escaped == '\\' || escaped == '|')
                 {
+                    // Two source characters become one drawn character, so
+                    // the anchor spans a longer source run than layout run
+                    // and the mapper scales inside it.
+                    beginRun (i);
                     run << escaped;
+                    runSourceLength += 2;
                     ++i;
                     continue;
                 }
@@ -1074,6 +1197,10 @@ private:
                     if (url.length() > 8)
                     {
                         flush();
+                        if (anchors != nullptr && sourceStart >= 0)
+                            anchors->push_back ({ sourceStart + i,
+                                                  url.length(), pos,
+                                                  url.length() });
                         if (spans != nullptr)
                             spans->push_back ({ pos, pos + url.length(),
                                                 url, url });
@@ -1089,9 +1216,20 @@ private:
             {
                 flush();
                 int end = line.indexOfChar (i + 1, '`');
-                if (end < 0) { run << c; continue; }
+                if (end < 0)
+                {
+                    beginRun (i);
+                    run << c;
+                    ++runSourceLength;
+                    continue;
+                }
                 {
                     const auto code = line.substring (i + 1, end);
+                    if (anchors != nullptr && sourceStart >= 0
+                        && code.isNotEmpty())
+                        anchors->push_back ({ sourceStart + i + 1,
+                                              code.length(), pos,
+                                              code.length() });
                     as.append (code, mono,
                                ebs::accent().withMultipliedBrightness (1.1f));
                     pos += code.length();
@@ -1118,6 +1256,11 @@ private:
                     flush();
                     const auto label = line.substring (i + 1, close);
                     const auto url = line.substring (open + 1, shut).trim();
+                    if (anchors != nullptr && sourceStart >= 0
+                        && label.isNotEmpty())
+                        anchors->push_back ({ sourceStart + i + 1,
+                                              label.length(), pos,
+                                              label.length() });
                     if (spans != nullptr)
                         spans->push_back ({ pos, pos + label.length(),
                                             url, label });
@@ -1138,14 +1281,18 @@ private:
                            i > 0 ? line[i - 1] : juce::juce_wchar (0))
                     && juce::CharacterFunctions::isLetterOrDigit (next))
                 {
+                    beginRun (i);
                     run << c;
+                    ++runSourceLength;
                     continue;
                 }
                 flush();
                 italic = ! italic;
                 continue;
             }
+            beginRun (i);
             run << c;
+            ++runSourceLength;
         }
         flush();
     }
@@ -1331,7 +1478,14 @@ private:
         and a rule under its header; a flowchart is handed to
         ebs::MermaidFlowchart and an embedded image to the host's cache, both
         painted over blank lines reserved in the layout, so a drawing between
-        two paragraphs costs the text nothing. */
+        two paragraphs costs the text nothing.
+
+        Every visible run is also recorded in `anchorsOut` with the SOURCE
+        offset it came from, which is what the read-along band maps through.
+        Block syntax the emitter DROPS (a fence line and its info string, a
+        Mermaid body that became a diagram, an image or audio element, a
+        table's separator and reflowed rows, a heading's hashes, a list
+        marker) simply leaves a gap in the anchors. */
     static juce::AttributedString markdownBody (
         const juce::String& raw,
         juce::Font base,
@@ -1339,7 +1493,8 @@ private:
         std::vector<LinkSpan>& spansOut,
         float maxWidth,
         std::vector<VisualBlock>& blocksOut,
-        const std::function<ImageBox (const juce::String&)>& imageBoxFor)
+        const std::function<ImageBox (const juce::String&)>& imageBoxFor,
+        std::vector<SourceAnchor>& anchorsOut)
     {
         const auto mono = monospaceFontForBody (base.getHeight());
         juce::AttributedString as;
@@ -1380,6 +1535,34 @@ private:
         };
 
         const auto lines = juce::StringArray::fromLines (raw);
+
+        // The SOURCE offset of every line, computed with exactly the splitting
+        // rule juce::StringArray::fromLines uses (a '\r' before a '\n' is the
+        // same terminator, and a terminator at the end still yields one empty
+        // final line). An anchor that names the wrong character maps the
+        // read-along band one line off, which is worse than not mapping at
+        // all, so the two views are kept in step here, once.
+        std::vector<int> lineStarts;
+        {
+            const int n = raw.length();
+            int lineStart = 0;
+            bool finished = (n == 0);
+            while (! finished)
+            {
+                lineStarts.push_back (lineStart);
+                int i = lineStart;
+                while (i < n && raw[i] != '\n' && raw[i] != '\r')
+                    ++i;
+                if (i >= n)
+                    finished = true;
+                else if (raw[i] == '\r' && i + 1 < n && raw[i + 1] == '\n')
+                    lineStart = i + 2;
+                else
+                    lineStart = i + 1;
+            }
+        }
+        jassert ((int) lineStarts.size() == lines.size());
+
         bool inFence = false;
         for (int n = 0; n < lines.size(); ++n)
         {
@@ -1393,7 +1576,8 @@ private:
                     // Collect the fence body and consume BOTH fences: a
                     // diagram must not leak its source into the transcript.
                     juce::StringArray body;
-                    int closing = n + 1;
+                    const int bodyFirst = n + 1;
+                    int closing = bodyFirst;
                     for (; closing < lines.size(); ++closing)
                     {
                         if (lines[closing].trimStart().startsWith ("```"))
@@ -1451,8 +1635,15 @@ private:
                     // Not a diagram these renderers understand: show the
                     // source as the code block it is, rather than inventing a
                     // picture.
-                    for (const auto& codeLine : body)
+                    for (int k = 0; k < body.size(); ++k)
+                    {
+                        const auto& codeLine = body[k];
+                        if (codeLine.isNotEmpty())
+                            anchorsOut.push_back (
+                                { lineStarts[(size_t) (bodyFirst + k)],
+                                  codeLine.length(), pos, codeLine.length() });
                         emit (codeLine + "\n", mono, ebs::textDim());
+                    }
                     continue;
                 }
                 inFence = ! inFence;
@@ -1461,11 +1652,22 @@ private:
             if (inFence)
             {
                 closeParagraph();
+                // The fence's own lines are drawn verbatim, so their content
+                // maps one to one; the trailing newline is generated.
+                if (line.isNotEmpty())
+                    anchorsOut.push_back ({ lineStarts[(size_t) n],
+                                            line.length(), pos,
+                                            line.length() });
                 emit (line + "\n", mono, ebs::textDim());
                 continue;
             }
 
             auto trimmed = line.trim();
+            // Where the line and its trimmed form begin in the SOURCE text,
+            // so a block element that rewrites the line (a heading drops its
+            // hashes, a bullet its marker) can still anchor the words it kept.
+            const int lineStart = lineStarts[(size_t) n];
+            const int trimmedStart = lineStart + leadingWhitespaceCount (line);
             if (trimmed.isEmpty())
             {
                 closeParagraph();
@@ -1746,7 +1948,11 @@ private:
                                          base.getHeight() + 3.0f
                                              - (float) level));
                 f.setStyleFlags (juce::Font::bold);
-                appendInlineRuns (as, title, f, ink, mono, pos, &spansOut);
+                appendInlineRuns (as, title, f, ink, mono, pos, &spansOut,
+                                  trimmedStart + level
+                                      + leadingWhitespaceCount (
+                                            trimmed.substring (level)),
+                                  &anchorsOut);
                 emit ("\n", f, ink);
                 continue;
             }
@@ -1762,10 +1968,12 @@ private:
                 closeParagraph();
                 emit (indentPrefix + juce::String::fromUTF8 ("\u258f "), mono,
                       ebs::textDim());
-                appendInlineRuns (as,
-                                  trimmed.length() > 2 ? trimmed.substring (2)
-                                                       : juce::String(),
-                                  base, ebs::textDim(), mono, pos, &spansOut);
+                const auto quoteText = trimmed.length() > 2
+                                           ? trimmed.substring (2)
+                                           : juce::String();
+                appendInlineRuns (as, quoteText, base, ebs::textDim(), mono,
+                                  pos, &spansOut, trimmedStart + 2,
+                                  &anchorsOut);
                 emit ("\n", base, ink);
                 continue;
             }
@@ -1774,6 +1982,7 @@ private:
             {
                 closeParagraph();
                 auto content = trimmed.substring (2);
+                int contentSource = trimmedStart + 2;
                 // The glyph follows the DEPTH, the way a browser renders a
                 // nested list: a level-two bullet drawn with the same disc as
                 // its parent reads as a sibling, not as a child.
@@ -1787,15 +1996,18 @@ private:
                 {
                     marker = juce::String::fromUTF8 ("\u2610 ");
                     content = content.substring (4);
+                    contentSource += 4;
                 }
                 else if (content.startsWith ("[x] ")
                          || content.startsWith ("[X] "))
                 {
                     marker = juce::String::fromUTF8 ("\u2611 ");
                     content = content.substring (4);
+                    contentSource += 4;
                 }
                 emit (indentPrefix + marker, base, ebs::textDim());
-                appendInlineRuns (as, content, base, ink, mono, pos, &spansOut);
+                appendInlineRuns (as, content, base, ink, mono, pos, &spansOut,
+                                  contentSource, &anchorsOut);
                 emit ("\n", base, ink);
                 continue;
             }
@@ -1815,7 +2027,8 @@ private:
                     emit (indentPrefix + trimmed.substring (0, digits + 1) + " ",
                           base, ebs::textDim());
                     appendInlineRuns (as, trimmed.substring (digits + 2),
-                                      base, ink, mono, pos, &spansOut);
+                                      base, ink, mono, pos, &spansOut,
+                                      trimmedStart + digits + 2, &anchorsOut);
                     emit ("\n", base, ink);
                     continue;
                 }
@@ -1829,7 +2042,8 @@ private:
                 emit (" ", base, ink);
             else
                 paragraphOpen = true;
-            appendInlineRuns (as, line, base, ink, mono, pos, &spansOut);
+            appendInlineRuns (as, line, base, ink, mono, pos, &spansOut,
+                              lineStart, &anchorsOut);
         }
         closeParagraph();
         return as;
@@ -2009,17 +2223,19 @@ private:
             });
     }
 
-    /** Paint the highlight under the glyphs it covers. One rectangle per line
-        is enough because a selection is a contiguous character range, and it
-        avoids the seams a rectangle per glyph leaves at fractional widths. */
-    void paintTextSelection (juce::Graphics& g, juce::Rectangle<float> area) const
+    /** Paint [start, end) of the PROCESSED body as one rectangle per line,
+        UNDER the glyphs. The reader's selection and the read-along band share
+        this geometry, so the two highlights can never disagree about where a
+        character is; a contiguous character range is one rectangle per line,
+        which also avoids the seams a rectangle per glyph leaves at fractional
+        widths. */
+    void paintTextRangeBand (juce::Graphics& g, juce::Rectangle<float> area,
+                             int start, int end, juce::Colour colour) const
     {
-        if (! hasTextSelection())
+        if (end <= start || bodyLayout.getNumLines() == 0)
             return;
 
-        const int start = juce::jmin (selAnchor, selCaret);
-        const int end   = juce::jmax (selAnchor, selCaret);
-        g.setColour (ebs::accent().withAlpha (0.30f));
+        g.setColour (colour);
 
         for (int i = 0; i < bodyLayout.getNumLines(); ++i)
         {
@@ -2052,6 +2268,123 @@ private:
                             maxX - minX, y.getLength());
             }
         }
+    }
+
+    /** Paint the reader's selection. Unchanged contract: accent at 30 % alpha,
+        under the glyphs, above the read-along band. */
+    void paintTextSelection (juce::Graphics& g, juce::Rectangle<float> area) const
+    {
+        if (! hasTextSelection())
+            return;
+
+        paintTextRangeBand (g, area,
+                            juce::jmin (selAnchor, selCaret),
+                            juce::jmax (selAnchor, selCaret),
+                            ebs::accent().withAlpha (0.30f));
+    }
+
+    /** Paint the read-along band: `activeSourceSpan`, mapped from the SOURCE
+        text onto the processed body, as a quiet accent wash. Painted before
+        the reader's selection and under the glyphs, so both the highlight and
+        the letters keep the layer the reader expects. */
+    void paintActiveSourceBand (juce::Graphics& g,
+                                juce::Rectangle<float> area) const
+    {
+        if (activeSourceSpan.isEmpty())
+            return;
+
+        const auto mapped = mapActiveSourceSpanToLayout();
+        paintTextRangeBand (g, area, mapped.getStart(), mapped.getEnd(),
+                            ebs::accent().withAlpha (0.14f));
+    }
+
+    /** `activeSourceSpan` in PROCESSED offsets, or an empty range. */
+    juce::Range<int> mapActiveSourceSpanToLayout() const
+    {
+        return mapSourceRange (activeSourceSpan, sourceAnchors,
+                               layoutText.length());
+    }
+
+    /** Map a range of SOURCE offsets onto the processed body. A start inside
+        a dropped gap snaps FORWARD to the next visible character and an end
+        snaps BACKWARD to the last visible one, which is what makes a span
+        over "**bold**" cover "bold" instead of the asterisks or nothing at
+        all. Binary search over the anchors keeps a paint frame allocation-free
+        and O(log anchors). */
+    static juce::Range<int> mapSourceRange (
+        juce::Range<int> sourceSpan,
+        const std::vector<SourceAnchor>& anchors,
+        int layoutLength)
+    {
+        if (sourceSpan.isEmpty() || anchors.empty() || layoutLength <= 0)
+            return {};
+
+        // One anchor's own offset. A run with escapes is scaled, because two
+        // source characters became one glyph: the mapping stays monotone and
+        // inside the run's drawn characters.
+        const auto offsetInAnchor = [] (const SourceAnchor& anchor,
+                                        int sourceOffset)
+        {
+            const int within = sourceOffset - anchor.sourceStart;
+
+            if (within <= 0)
+                return anchor.layoutStart;
+            if (within >= anchor.sourceLength)
+                return anchor.layoutStart + anchor.layoutLength;
+            if (anchor.sourceLength == anchor.layoutLength)
+                return anchor.layoutStart + within;
+
+            return anchor.layoutStart
+                   + juce::jlimit (0, anchor.layoutLength,
+                                   (int) (((juce::int64) within
+                                           * anchor.layoutLength)
+                                          / anchor.sourceLength));
+        };
+
+        const int start = juce::jmax (0, sourceSpan.getStart());
+        const int end   = juce::jmax (0, sourceSpan.getEnd());
+
+        // First anchor whose source run ends AFTER the span's first character.
+        const auto firstAfterStart = std::lower_bound (
+            anchors.begin(), anchors.end(), start,
+            [] (const SourceAnchor& anchor, int offset)
+            {
+                return anchor.sourceStart + anchor.sourceLength <= offset;
+            });
+
+        int mappedStart = -1;
+        if (firstAfterStart != anchors.end())
+        {
+            mappedStart = firstAfterStart->sourceStart <= start
+                              ? offsetInAnchor (*firstAfterStart, start)
+                              : firstAfterStart->layoutStart;
+        }
+
+        // Last anchor that begins BEFORE the span's end, so the end clamps
+        // BACKWARD to the last visible character.
+        const auto firstAtOrAfterEnd = std::lower_bound (
+            anchors.begin(), anchors.end(), end,
+            [] (const SourceAnchor& anchor, int offset)
+            {
+                return anchor.sourceStart < offset;
+            });
+
+        int mappedEnd = -1;
+        if (firstAtOrAfterEnd != anchors.begin())
+        {
+            const auto& anchor = *(firstAtOrAfterEnd - 1);
+            mappedEnd = end <= anchor.sourceStart + anchor.sourceLength
+                            ? offsetInAnchor (anchor, end)
+                            : anchor.layoutStart + anchor.layoutLength;
+        }
+
+        if (mappedStart < 0 || mappedEnd < 0)
+            return {};
+
+        const int mappedFrom = juce::jlimit (0, layoutLength, mappedStart);
+        const int mappedTo   = juce::jlimit (0, layoutLength, mappedEnd);
+        return mappedTo > mappedFrom ? juce::Range<int> (mappedFrom, mappedTo)
+                                     : juce::Range<int>();
     }
 
     /** The character span a glyph covers: a ligature is ONE glyph over several
@@ -2096,12 +2429,14 @@ private:
         const int textW = juce::jmax (24, bubbleWidthFor (w) - padH * 2);
         linkSpans.clear();
         visuals.clear();
+        sourceAnchors.clear();
         const auto imageBox = [this, textW] (const juce::String& url)
         {
             return imageBoxFor (url, (float) textW);
         };
         auto as = markdownBody (text, f, italic ? ebs::textDim() : ebs::text(),
-                                linkSpans, (float) textW, visuals, imageBox);
+                                linkSpans, (float) textW, visuals, imageBox,
+                                sourceAnchors);
         // The processed string is what the layout draws and what a selection
         // indexes: keep exactly that one, or a copy would return the Markdown
         // markers the reader never saw.
@@ -2368,6 +2703,12 @@ private:
         they live in holes reserved in the text, so they never touch
         `layoutText`. */
     std::vector<VisualBlock> visuals;
+    /** SOURCE offset -> PROCESSED offset, recorded while the body is built
+        (see SourceAnchor). Rebuilt with the layout and only read by the
+        read-along mapper, so a span costs no re-layout. */
+    std::vector<SourceAnchor> sourceAnchors;
+    /** The read-along band, in SOURCE offsets; empty = nothing active. */
+    juce::Range<int> activeSourceSpan;
     /** Height the layout had to add BELOW its last line for a drawing that
         sits at the end of the message (a TextLayout drops trailing blanks). */
     float visualTailHeight = 0.0f;
