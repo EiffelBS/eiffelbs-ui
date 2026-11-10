@@ -181,6 +181,105 @@ public:
     static constexpr int kPopupHeaderH = 36;   // top grip band + search row + gap
     static constexpr int kPopupPad     = 8;    // resized()'s reduced(4) x2
 
+    /** The popup's resize GRIPS: the left/right and top strips share one
+        width, the bottom strip is slightly taller because that is the edge a
+        reader grabs most. The clamp bounds are the same for every open
+        gesture, so a dragged popup can never leave the size range a new popup
+        is born in. */
+    static constexpr int kPopupGripW      = 6;
+    static constexpr int kPopupBottomGripH = 8;
+    static constexpr int kPopupMinW       = 240;
+    static constexpr int kPopupMaxW       = 900;
+
+    /** A CORNER accepts the pointer over this square, measured from the very
+        corner. It is deliberately larger than a strip: 6x6 px is a hard
+        mouse target, and the corners sit where no row can be clicked (the
+        rows start below the top strip and stop above the footer block). */
+    static constexpr int kPopupCornerGrip = 12;
+
+    /** The popup's eight resize ZONES. Every edge resizes on its AXIS and a
+        corner resizes BOTH at once, so a reader can widen the popup for a
+        long model label and add rows for a tall catalog in one gesture.
+        Corners are reported FIRST: within the corner square the two axes are
+        both live, and reporting one edge would silently drop the other. */
+    enum class PopupResizeZone
+    {
+        none, top, bottom, left, right,
+        topLeft, topRight, bottomLeft, bottomRight
+    };
+
+    /** Which resize zone a popup of `width` x `height` reports for a
+        window-local point. Pure geometry: the popup and this self-test read
+        the SAME function. */
+    static PopupResizeZone popupResizeZoneAt (juce::Point<int> p,
+                                              int width, int height)
+    {
+        if (p.x <= kPopupCornerGrip && p.y <= kPopupCornerGrip)
+            return PopupResizeZone::topLeft;
+        if (p.x >= width - kPopupCornerGrip && p.y <= kPopupCornerGrip)
+            return PopupResizeZone::topRight;
+        if (p.x <= kPopupCornerGrip && p.y >= height - kPopupCornerGrip)
+            return PopupResizeZone::bottomLeft;
+        if (p.x >= width - kPopupCornerGrip && p.y >= height - kPopupCornerGrip)
+            return PopupResizeZone::bottomRight;
+        if (p.y <= kPopupGripW)                 return PopupResizeZone::top;
+        if (p.y >= height - kPopupBottomGripH)  return PopupResizeZone::bottom;
+        if (p.x <= kPopupGripW)                 return PopupResizeZone::left;
+        if (p.x >= width - kPopupGripW)         return PopupResizeZone::right;
+        return PopupResizeZone::none;
+    }
+
+    /** The pointer for a zone: the edge cursors stay one-axis, the corners
+        carry the DIAGONAL cursor, which is what tells a reader the gesture
+        resizes both dimensions at once. */
+    static juce::MouseCursor popupResizeCursorFor (PopupResizeZone zone)
+    {
+        switch (zone)
+        {
+            case PopupResizeZone::top:
+            case PopupResizeZone::bottom:      return juce::MouseCursor::UpDownResizeCursor;
+            case PopupResizeZone::left:
+            case PopupResizeZone::right:       return juce::MouseCursor::LeftRightResizeCursor;
+            case PopupResizeZone::topLeft:     return juce::MouseCursor::TopLeftCornerResizeCursor;
+            case PopupResizeZone::topRight:    return juce::MouseCursor::TopRightCornerResizeCursor;
+            case PopupResizeZone::bottomLeft:  return juce::MouseCursor::BottomLeftCornerResizeCursor;
+            case PopupResizeZone::bottomRight: return juce::MouseCursor::BottomRightCornerResizeCursor;
+            default:                           return juce::MouseCursor::NormalCursor;
+        }
+    }
+
+    /** The size a drag asks for, from the zone it started in and the distance
+        from the drag start. GROWING FROM THE TOP is the whole point for a
+        picker near the bottom of the screen, so the vertical delta is
+        inverted there; a corner applies BOTH its axes. Pure maths, clamped
+        exactly like the live popup, so the two cannot drift. */
+    static juce::Point<int> popupResizedSizeFor (PopupResizeZone zone,
+                                                 int startW, int startH,
+                                                 int dx, int dy)
+    {
+        const bool left   = zone == PopupResizeZone::left
+                         || zone == PopupResizeZone::topLeft
+                         || zone == PopupResizeZone::bottomLeft;
+        const bool right  = zone == PopupResizeZone::right
+                         || zone == PopupResizeZone::topRight
+                         || zone == PopupResizeZone::bottomRight;
+        const bool top    = zone == PopupResizeZone::top
+                         || zone == PopupResizeZone::topLeft
+                         || zone == PopupResizeZone::topRight;
+        const bool bottom = zone == PopupResizeZone::bottom
+                         || zone == PopupResizeZone::bottomLeft
+                         || zone == PopupResizeZone::bottomRight;
+        int w = startW;
+        int h = startH;
+        if (left)        w = startW - dx;
+        else if (right)  w = startW + dx;
+        if (top)         h = startH - dy;
+        else if (bottom) h = startH + dy;
+        return { juce::jlimit (kPopupMinW, kPopupMaxW, w),
+                 juce::jlimit (popupHeightForRows (4),
+                               popupHeightForRows (24), h) };
+    }
+
     /** ALPHABETICAL ordering - the DEFAULT for every picker in the app.
 
         A list a reader browses is searched by name, so the order must be the
@@ -1084,72 +1183,36 @@ private:
         static constexpr int kRowH = 24;
         static constexpr int kFooterH = 18;   // ONE row: link left, count right
         static constexpr int kDefaultViewRows = 10;   // rows shown at open
-        static constexpr int kGripH = 6;       // side/top strip that resizes
-        static constexpr int kBottomGripH = 8; // bottom strip
 
-        /** Which EDGE the pointer is on (0 none). Every edge resizes: a
-            picker whose button sits near the bottom of the screen can only be
-            made taller UPWARD, and a long model label is unreadable in a
-            narrow menu. */
-        enum class Edge { none, bottom, top, left, right };
-
-        Edge edgeAt (const juce::MouseEvent& e) const
+        /** The popup's own eight zones (corners included) come from the ONE
+            geometry above, read by every pointer event. */
+        SearchableModelPicker::PopupResizeZone zoneAt (const juce::MouseEvent& e) const
         {
-            const auto p = e.getPosition();
-            if (p.y >= getHeight() - kBottomGripH)      return Edge::bottom;
-            if (p.y <= kGripH)                          return Edge::top;
-            if (p.x <= kGripH)                          return Edge::left;
-            if (p.x >= getWidth() - kGripH)             return Edge::right;
-            return Edge::none;
-        }
-
-        bool nearGrip (const juce::MouseEvent& e) const
-        {
-            return edgeAt (e) != Edge::none;
-        }
-
-        juce::MouseCursor cursorFor (Edge e) const
-        {
-            switch (e)
-            {
-                case Edge::top:    return juce::MouseCursor::UpDownResizeCursor;
-                case Edge::bottom: return juce::MouseCursor::UpDownResizeCursor;
-                case Edge::left:   return juce::MouseCursor::LeftRightResizeCursor;
-                case Edge::right:  return juce::MouseCursor::LeftRightResizeCursor;
-                default:           return juce::MouseCursor::NormalCursor;
-            }
+            return SearchableModelPicker::popupResizeZoneAt (
+                e.getPosition(), getWidth(), getHeight());
         }
 
         void mouseDrag (const juce::MouseEvent& e) override
         {
-            if (resizeEdge == Edge::none)
+            if (resizeZone == SearchableModelPicker::PopupResizeZone::none)
                 return;
-            const int lo = SearchableModelPicker::popupHeightForRows (4);
-            const int hi = SearchableModelPicker::popupHeightForRows (24);
-            // GROWING FROM THE TOP is the whole point for a picker near the
-            // bottom of the screen: the drag distance is inverted, so pulling
-            // up adds rows instead of removing them.
-            const int dy = e.getDistanceFromDragStartY();
-            const int dx = e.getDistanceFromDragStartX();
-            int w = resizeStartW;
-            int h = resizeStartH;
-            if (resizeEdge == Edge::top)         h = resizeStartH - dy;
-            else if (resizeEdge == Edge::bottom) h = resizeStartH + dy;
-            else if (resizeEdge == Edge::left)   w = resizeStartW - dx;
-            else if (resizeEdge == Edge::right)  w = resizeStartW + dx;
-            w = juce::jlimit (240, 900, w);
-            h = juce::jlimit (lo, hi, h);
+            // A corner moves BOTH axes in the same gesture; the maths lives in
+            // the pure helper so the self-test proves the diagonal, not just
+            // the two single-edge drags.
+            const auto size = SearchableModelPicker::popupResizedSizeFor (
+                resizeZone, resizeStartW, resizeStartH,
+                e.getDistanceFromDragStartX(), e.getDistanceFromDragStartY());
             // ONLY the content is resized: juce::CallOutBox re-fits itself
             // from it (childBoundsChanged -> updatePosition), and it knows its
             // OWN border size. Resizing the box by hand with a guessed border
             // painted it one frame short, which is what made the bottom edge
             // vanish exactly while dragging it.
-            setSize (w, h);
+            setSize (size.x, size.y);
         }
 
         void mouseUp (const juce::MouseEvent&) override
         {
-            resizeEdge = Edge::none;
+            resizeZone = SearchableModelPicker::PopupResizeZone::none;
         }
 
         /** Three ticks in the corner: the only sign that the edge is live. */
@@ -1161,7 +1224,8 @@ private:
                 g.fillRect (x + i * 3, y - i * 3 - 2, 2, 2);
         }
 
-        Edge resizeEdge = Edge::none;
+        SearchableModelPicker::PopupResizeZone resizeZone
+            = SearchableModelPicker::PopupResizeZone::none;
         int  resizeStartH = 0;
         int  resizeStartW = 0;
         static constexpr int kBarW = 12;          // scrollbar strip when content scrolls
@@ -1172,7 +1236,7 @@ private:
             // The TOP strip is reserved before the search field: a resize
             // handle that overlaps a text field steals the click that was
             // meant to focus it.
-            b.removeFromTop (kGripH);
+            b.removeFromTop (kPopupGripW);
             search.setBounds (b.removeFromTop (24));
             b.removeFromTop (4);
             // The footer BLOCK: extra filter rows above, the link/count line
@@ -1450,7 +1514,7 @@ private:
 
         void mouseMove (const juce::MouseEvent& e) override
         {
-            setMouseCursor (cursorFor (edgeAt (e)));
+            setMouseCursor (SearchableModelPicker::popupResizeCursorFor (zoneAt (e)));
             if (owner == nullptr)
                 return;
             const bool overLink = owner->onManageModels != nullptr
@@ -1511,10 +1575,10 @@ private:
             // The bottom strip belongs to the RESIZE, before any row hit: the
             // footer is paged by a click, and a reader who grabs the edge is
             // asking for more rows, not for another page.
-            resizeEdge = edgeAt (e);
+            resizeZone = zoneAt (e);
             resizeStartH = getHeight();
             resizeStartW = getWidth();
-            if (resizeEdge != Edge::none)
+            if (resizeZone != SearchableModelPicker::PopupResizeZone::none)
                 return;
             if (owner == nullptr)
                 return;

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.83.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.83.1 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -281,6 +281,19 @@ project(eiffelbs-ui VERSION 0.83.0 LANGUAGES C CXX)
 # activeSourceSpanLayoutForTest() is the gate seam. Additive and default-off: a
 # bubble that never sets a span paints exactly the pixels it painted in
 # v0.82.1 and returns the same renderedTextForTest().
+
+# v0.83.1: SearchableModelPicker's popup resizes from its CORNERS as well as
+# its edges. The popup used to resolve the pointer to one Edge, so a corner
+# drag moved a single axis (author report 2026-11-09: "on ne peut pas
+# redimensionner les deux a la fois via un pointeur de souris sur les angles").
+# popupResizeZoneAt() now reports EIGHT zones - a 12 px square from each
+# corner, checked FIRST so a corner never silently drops one axis, then the
+# edge strips - popupResizeCursorFor() gives each corner its own diagonal
+# cursor, and popupResizedSizeFor() applies both axes with the top/left deltas
+# inverted and both dimensions clamped to the picker's own min/max (so a
+# dragged popup can never leave the range a fresh one is born in). The three
+# are pure public statics: the live popup and the gate read the SAME
+# functions. Additive: an edge drag is unchanged.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)
