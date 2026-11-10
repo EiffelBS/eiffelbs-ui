@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.83.1 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.83.2 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -294,6 +294,23 @@ project(eiffelbs-ui VERSION 0.83.1 LANGUAGES C CXX)
 # dragged popup can never leave the range a fresh one is born in). The three
 # are pure public statics: the live popup and the gate read the SAME
 # functions. Additive: an edge drag is unchanged.
+
+# v0.83.2: ModelMenuButton's next layer opens AFTER the box it was chosen in
+# has finished dismissing. The effort list is a native juce::PopupMenu posted
+# from the Model/Effort row's mouseDown while the CallOutBox was still hiding;
+# a native menu enters modal state WITHOUT taking the keyboard, so the
+# key-window change caused by hiding that box reached the fresh menu as an
+# input attempt, and PopupMenu answers an attempt outside its own rectangle by
+# DISMISSING itself - the menu vanished right after it opened unless the click
+# already sat inside its future area (author report 2026-11-09). The row now
+# dismisses the box and calls ONE menuRowClicked(row), which posts
+# onMenuResult() one message tick later (juce::MessageManager::callAsync, with
+# a SafePointer) - the same deferral the chat template picker already uses for
+# its next modal. Both rows go through it, so the Model row's picker (a
+# CallOutBox, which DOES take the keyboard) cannot reintroduce the race through
+# a future next-layer change. clickMenuRowForTest() drives the real handler and
+# OpenTimbre's OtSelectsSelfTest proves the picker stays closed inside the box
+# dismissal and opens on the next tick.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

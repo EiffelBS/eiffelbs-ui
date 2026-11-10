@@ -205,6 +205,14 @@ public:
     void chooseMenuResultForTest (int row) { onMenuResult (row + 1); }
     /** Drive the shared picker's list the way the popup would. */
     void pickerOpenForTest() { picker.openForTest(); }
+    /** Whether the shared picker's popup is open: the Model row's next layer,
+        observed by the deferral proof (a row click must NOT open it inside
+        the box's dismissal). */
+    bool pickerPopupOpenForTest() const { return picker.popupOpenForTest(); }
+    void pickerCloseForTest() { picker.closeForTest(); }
+    /** Drive the REAL row-click handler without a window (0 = Model,
+        1 = Effort): the handler must POST the next layer, not run it. */
+    void clickMenuRowForTest (int row) { menuRowClicked (row); }
     int pickerVisibleCountForTest() const { return picker.visibleIdCountForTest(); }
     void pickerSearchForTest (const juce::String& t)
     {
@@ -256,6 +264,33 @@ private:
             showEffortMenu();
     }
 
+    /** A Model/Effort row was clicked (0 = Model, 1 = Effort) and its box is
+        already dismissing. The NEXT layer is POSTED one message tick later,
+        never opened from inside that dismissal.
+
+        MEASURED 2026-11-09 (author report): the effort menu vanished right
+        after it opened whenever the click had landed outside the menu's
+        future rectangle. The native effort menu enters modal state WITHOUT
+        taking the keyboard, so the key-window change caused by hiding the
+        Model/Effort box is delivered to the freshly shown menu as an input
+        attempt - and PopupMenu answers an attempt outside its own rectangle
+        by DISMISSING itself. Deferring the open until the box is gone removes
+        the race. The Model row's picker did not show the defect because a
+        CallOutBox DOES take the keyboard; the deferral covers both rows so a
+        future next-layer change cannot reintroduce it. Same pattern as the
+        chat template picker's next modal
+        (LlmChatPanel::applyTemplatePick). */
+    void menuRowClicked (int row)
+    {
+        juce::Component::SafePointer<ModelMenuButton> safe (this);
+        const int next = row + 1;
+        juce::MessageManager::callAsync ([safe, next]
+        {
+            if (safe != nullptr)
+                safe->onMenuResult (next);
+        });
+    }
+
     void showEffortMenu()
     {
         if (effortIds.isEmpty())
@@ -288,8 +323,10 @@ private:
         chevron vers la droite pour aller au sous-menu"). A native PopupMenu
         draws its submenu arrow only on real submenus, and the filterable
         model list cannot live in one - so both rows are drawn here in the
-        frame's menu language. Each row dismisses this box BEFORE opening the
-        next menu, so two popups never stack. */
+        frame's menu language. Each row dismisses this box FIRST and only then
+        - one message tick later - posts the next menu, so two popups never
+        stack and the next layer cannot be dismissed by THIS box's teardown
+        (see menuRowClicked for the measured defect). */
     struct MenuRows : juce::Component
     {
         // The button may be gone before this box is: the popup outlives no UI.
@@ -364,7 +401,7 @@ private:
             if (auto* box = findParentComponentOfClass<juce::CallOutBox>())
                 box->dismiss();   // dismiss THIS box first, so two popups never stack
             if (o != nullptr && (row == 0 || row == 1))
-                o->onMenuResult (row + 1);
+                o->menuRowClicked (row);
         }
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MenuRows)
