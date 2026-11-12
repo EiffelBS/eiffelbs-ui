@@ -751,7 +751,7 @@ private:
                            bool filledStar = true)
     {
         // Glyphs stay pixel-identical to IconButton widgets through the
-        // shared renderer (SVG-sourced lock/wand/refresh/hand included).
+        // shared renderer (SVG-sourced lock/menu/refresh/hand included).
         g.setColour (colour);
         const auto glyphBox = box.withSizeKeepingCentre (10.0f, 10.0f);
         g.fillPath (IconButton::glyphPath (shape, glyphBox, filledStar,

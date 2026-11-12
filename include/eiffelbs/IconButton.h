@@ -49,7 +49,7 @@ static const char* const kSvgSearch = R"(<svg viewBox="0 0 24 24" fill="none" st
 static const char* const kSvgLock   = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>)";
 static const char* const kSvgRefresh = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>)";
 
-static const char* const kSvgWand = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>)";
+static const char* const kSvgMenu = R"(<svg viewBox="0 0 24 24" fill="none" stroke="#010101" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>)";
 // Material "download" (arrow into tray) - model install actions.
 static const char* const kSvgDownload = R"(<svg viewBox="0 0 24 24" fill="#010101"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>)";
 // Feather "eye" - visible state of the model visibility toggle.
@@ -137,7 +137,7 @@ public:
      *  expand / compress = fullscreen enter / exit pair (four corners
      *  pointing out / in - one glyph for both would name no direction). */
     enum class Shape { play, stop, cross, refresh, folder, grip,
-                       undo, redo, settings, star, wand, tool, search,
+                       undo, redo, settings, star, menu, tool, search,
                        lock, download, eye, eyeOff, rewind, copy, sparkle,
                        kebab, music, layers, activity, chat, mic, keys,
                        repeat, zoomIn, zoomOut, chevronUp, chevronDown,
@@ -160,7 +160,7 @@ public:
                        pause,
                        // Add / create: the one glyph a button that MAKES a
                        // provider, a model or a template needs. Added rather
-                       // than borrowed - `wand` means "generate", `save`
+                       // than borrowed - `sparkle` means "generate", `save`
                        // means "keep", and a plus is the shape a reader
                        // already reads as "one more".
                        plus,
@@ -173,7 +173,7 @@ public:
      *  order: Component::setColour() override > LookAndFeel::
      *  widgetThemeColour() hook > built-in shape-aware palette default.
      *  iconColourId maps to transparent at theme level by default so each
-     *  shape keeps its semantic default (red cross, blue wand, ...). */
+     *  shape keeps its semantic default (red cross, blue menu, ...). */
     enum ColourIds
     {
         iconColourId          = 0x1e4b0101,  ///< glyph colour
@@ -226,7 +226,7 @@ public:
             // per-instance or theme overrides go through iconColourId.
             icon = juce::Colour (0xffe8c34a);
         }
-        else if (s == Shape::wand)
+        else if (s == Shape::menu)
         {
             setTooltip ("Menu");
             icon = accent();
@@ -669,7 +669,7 @@ private:
             case Shape::redo:     return kSvgRedo;
             case Shape::settings: return kSvgGear;
             case Shape::refresh:  return kSvgRefresh;
-            case Shape::wand:     return kSvgWand;
+            case Shape::menu:     return kSvgMenu;
             case Shape::grip:     return kSvgHand;
             case Shape::tool:     return kSvgTool;
             case Shape::search:   return kSvgSearch;

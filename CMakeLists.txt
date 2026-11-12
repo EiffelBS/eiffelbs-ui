@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.83.2 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.84.0 LANGUAGES C CXX)
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
@@ -311,6 +311,16 @@ project(eiffelbs-ui VERSION 0.83.2 LANGUAGES C CXX)
 # a future next-layer change. clickMenuRowForTest() drives the real handler and
 # OpenTimbre's OtSelectsSelfTest proves the picker stays closed inside the box
 # dismissal and opens on the next tick.
+
+# v0.84.0: the "wand" shape was a THREE-LINES glyph all along. The SVG that
+# ships (ebs::kSvgMenu) draws three horizontal lines - the row-menu affordance
+# - and the shape's own tooltip already said "Menu"; only the NAME outlived
+# the drawing, and it cost every consumer the wrong word (a guide could not
+# tell its reader to look for a "wand"). ebs::IconButton::Shape::wand is now
+# Shape::menu and ebs::kSvgWand is ebs::kSvgMenu, with the glyph and the
+# pixels untouched - the same hard rename the earlier Shape::lips ->
+# Shape::micHand correction made. Consumers that spelled the old name update
+# in one line; nothing else moves.
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

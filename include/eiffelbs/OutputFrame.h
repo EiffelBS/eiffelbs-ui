@@ -165,7 +165,7 @@ private:
     WaveformRegionSelector selector;
     juce::Label nameCaption;
     ebs::ClearableEditor nameEditor;
-    // SPARKLE, not the wand glyph: the wand reads as three menu lines at
+    // SPARKLE, not the three-lines glyph: that one reads as a MENU at
     // 14 px (author report 2026-10-29). Sparkle is this design system's "AI /
     // magic" mark.
     ebs::PillButton enhanceButton { ebs::IconButton::Shape::sparkle, "Enhance" };

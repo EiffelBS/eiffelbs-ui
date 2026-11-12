@@ -1941,7 +1941,7 @@ int main()
             ebs::IconButton::Shape::folder,  ebs::IconButton::Shape::grip,
             ebs::IconButton::Shape::undo,    ebs::IconButton::Shape::redo,
             ebs::IconButton::Shape::settings, ebs::IconButton::Shape::star,
-            ebs::IconButton::Shape::wand,    ebs::IconButton::Shape::tool,
+            ebs::IconButton::Shape::menu,    ebs::IconButton::Shape::tool,
             ebs::IconButton::Shape::search,  ebs::IconButton::Shape::lock,
             ebs::IconButton::Shape::download, ebs::IconButton::Shape::eye,
             ebs::IconButton::Shape::eyeOff,  ebs::IconButton::Shape::rewind,
@@ -2457,7 +2457,7 @@ int main()
             {
                 ebs::IconButton::Shape::play, ebs::IconButton::Shape::stop,
                 ebs::IconButton::Shape::star, ebs::IconButton::Shape::lock,
-                ebs::IconButton::Shape::grip, ebs::IconButton::Shape::wand,
+                ebs::IconButton::Shape::grip, ebs::IconButton::Shape::menu,
                 ebs::IconButton::Shape::cross,
                 ebs::IconButton::Shape::refresh,
                 ebs::IconButton::Shape::download,
