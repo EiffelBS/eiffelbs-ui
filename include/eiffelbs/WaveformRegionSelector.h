@@ -31,9 +31,13 @@ class WaveformRegionSelector : public juce::Component,
 public:
     WaveformRegionSelector()
     {
-        setTooltip ("Drag to select the zone that will be added to the"
-                    " library. Drag inside to move it, an edge to resize it,"
-                    " click to seek, double-click to clear.");
+        // The GENERIC wording, because what a zone is FOR belongs to the
+        // host: it is filed into a library (the output frames), dragged out
+        // (the stores) or used to prepare a treatment (the Voice tab). The
+        // default says only what the GESTURE does; a host that files the
+        // zone into a library says so itself.
+        setTooltip ("Drag to select a zone. Drag inside to move it, an edge"
+                    " to resize it, click to seek, double-click to clear.");
         setMouseCursor (juce::MouseCursor::CrosshairCursor);
     }
 

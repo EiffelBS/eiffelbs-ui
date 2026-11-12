@@ -321,6 +321,14 @@ project(eiffelbs-ui VERSION 0.84.0 LANGUAGES C CXX)
 # pixels untouched - the same hard rename the earlier Shape::lips ->
 # Shape::micHand correction made. Consumers that spelled the old name update
 # in one line; nothing else moves.
+#
+# The same release also stops the zone selector from claiming what a zone is
+# FOR: ebs::WaveformRegionSelector's default tooltip said "the zone that will
+# be added to the library", which is true of the OUTPUT frames and of nothing
+# else - a store drags its zone out, the Voice tab converts that zone. The
+# default now describes the GESTURE only, and the hosts that file a zone
+# into a library say so themselves (the OutputFrame keeps the old wording on
+# purpose).
 
 add_library(eiffelbs-ui INTERFACE)
 add_library(eiffelbs::ui ALIAS eiffelbs-ui)

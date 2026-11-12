@@ -209,6 +209,12 @@ inline OutputFrame::OutputFrame (Bindings b) : bindings (std::move (b))
     waveform.setBackgroundVisible (false);
     clip.addAndMakeVisible (selector);
     selector.setLabelStripVisible (false);   // the frame owns the zone readout
+    // THIS frame is the case the zone belongs to a library: the zone is what
+    // the frame exports and what its "Add to ... Library" button files, so
+    // the selector says so (the widget's own default stays generic).
+    selector.setTooltip ("Drag to select the zone that will be added to the"
+                         " library. Drag inside to move it, an edge to resize"
+                         " it, click to seek, double-click to clear.");
     selector.onSelectionChanged = [this] (double, double)
     { setPlaying (false); updateZone(); };
     selector.onSelectionCleared = [this] { setPlaying (false); updateZone(); };
