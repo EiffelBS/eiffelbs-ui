@@ -889,6 +889,12 @@ public:
         click's SCREEN position). Consumers may show a menu there (e.g.
         remove a pending job); when unset, every click opens the log. */
     std::function<void (juce::Point<int> screenPos)> onQueueClicked;
+
+    /** Host action icon drawn to the LEFT of the meters zone (and clear of
+        the window resize grip when no meters are shown). Clicking it invokes
+        this callback instead of opening the log. */
+    std::function<void()> onActionButton;
+    juce::String actionButtonTooltip { "Release GPU memory (unload models)" };
     /** JUCE-standard colour hooks. Resolution order: Component::setColour()
      *  override > ebs::LookAndFeel::widgetThemeColour() hook > built-in
      *  palette default. See IconButton::ColourIds for the full contract. */
@@ -1088,6 +1094,7 @@ public:
         // compact view drops the value text entirely. Drawn BEFORE the
         // log line so the text shrinks.
         meterZoneBounds = {};
+        actionButtonBounds = {};
         const float meterSep = 12.0f;           // divider line + margins
         int maxMeters = getWidth() >= 700 ? 5 : getWidth() >= 480 ? 2 : 1;
         // Percentages flip between 1 and 3 digits ("5 %" / "100 %") -
@@ -1136,12 +1143,28 @@ public:
         }
         if (! shownIds.empty())
             meterZoneW -= meterSep;             // no trailing divider
+
+        const bool hasAction = (onActionButton != nullptr);
+        const float actionW = hasAction ? 18.0f : 0.0f;
+        const float actionGap = hasAction ? 6.0f : 0.0f;
+        // Keep clear of the window resize grip in the bottom-right corner.
+        const float gripClear = 14.0f;
+
+        float logRightLimit = (float) getWidth() - 8.0f;
         if (meterZoneW > 10.0f)
         {
             const float mx = (float) getWidth() - 8.0f - meterZoneW + 10.0f;
             meterZoneBounds = { mx, 0.0f,
                                 (float) getWidth() - 8.0f - mx,
                                 (float) getHeight() };
+            logRightLimit = mx;
+            if (hasAction)
+            {
+                const float ax = mx - actionGap - actionW;
+                actionButtonBounds = { ax, 0.0f, actionW, (float) getHeight() };
+                logRightLimit = ax - 4.0f;
+            }
+
             float cx = mx;
             for (size_t idx = 0; idx < shownIds.size(); ++idx)
             {
@@ -1203,11 +1226,34 @@ public:
                 }
             }
         }
+        else if (hasAction)
+        {
+            // No meters: place the icon near the right edge but clear of the
+            // window resize grip in the corner.
+            const float ax = (float) getWidth() - 8.0f - gripClear - actionW;
+            actionButtonBounds = { ax, 0.0f, actionW, (float) getHeight() };
+            logRightLimit = ax - 4.0f;
+        }
+
+        if (hasAction && actionButtonBounds.getWidth() > 0.0f)
+        {
+            g.setColour (accent().withAlpha (0.95f));
+            const float icx = actionButtonBounds.getCentreX();
+            // "Unload/free memory": a module block with an arrow out to the right.
+            g.drawRoundedRectangle (icx - 6.5f, cy - 4.0f, 7.5f, 8.0f, 1.5f, 1.15f);
+            juce::Path arrow;
+            arrow.startNewSubPath (icx + 2.0f, cy);
+            arrow.lineTo (icx + 7.0f, cy);
+            arrow.startNewSubPath (icx + 4.8f, cy - 2.3f);
+            arrow.lineTo (icx + 7.0f, cy);
+            arrow.lineTo (icx + 4.8f, cy + 2.3f);
+            g.strokePath (arrow, juce::PathStrokeType (1.15f));
+        }
 
         // Last line, LEFT-TRUNCATED (the tail is what matters), in the
-        // space the slots and the meters left over.
+        // space the slots, action icon and meters left over.
         g.setColour (resolved (textColourId, textDim()));
-        const auto avail = (float) getWidth() - x - meterZoneW - 8.0f;
+        const auto avail = juce::jmax (0.0f, logRightLimit - x - 8.0f);
         auto text   = lastLine;
         const float w = juce::GlyphArrangement::getStringWidth (
                             g.getCurrentFont(), text);
@@ -1225,6 +1271,11 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (onActionButton != nullptr && actionButtonBounds.contains (e.position))
+        {
+            onActionButton();
+            return;
+        }
         // The meter zone owns ANY click (user feedback 2026-08-28: the
         // add/remove menu opens on a PLAIN click too - a left click on
         // a meter must never fall through to the log window).
@@ -1238,6 +1289,20 @@ public:
             onQueueClicked (e.getScreenPosition());
         else
             showLogWindow();
+    }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        if (onActionButton != nullptr && actionButtonBounds.contains (e.position)
+            && actionButtonTooltip.isNotEmpty())
+            setTooltip (actionButtonTooltip);
+        else
+            setTooltip ("Click to open the full log");
+    }
+
+    void mouseExit (const juce::MouseEvent&) override
+    {
+        setTooltip ("Click to open the full log");
     }
     /** Open (or focus) the floating Log window from the HOST's own UI, e.g. a
         Settings section that offers a "Show log" action. Same window, same
@@ -1491,7 +1556,10 @@ private:
         view->setNotice (truncationNotice());
 
         auto* window = new LogWindow();
-        window->setContentOwned (view, true);
+        // resizeToFitWhenContentChangesSize=false: keep the content component
+        // sized to the window client area so the editor (and its vertical
+        // scrollbar) cannot be pushed outside the visible bounds.
+        window->setContentOwned (view, false);
         // DialogWindow has NO resizable ctor arg (that 4th bool is
         // addToDesktop): resizability must be turned on EXPLICITLY here.
         window->setResizable (true, true);            // + corner grip handle
@@ -1536,6 +1604,7 @@ private:
     int          queueDone = 0, queueTotal = 0;
     juce::Time   queueBurstStart;                 // valid -> total elapsed shown
     juce::Rectangle<float> queueSlotBounds;   // click target (set in paint)
+    juce::Rectangle<float> actionButtonBounds; // host action, left of meters (paint)
 
     // Resource meters (message thread only; entries hop). Default set =
     // VRAM only (user decision 2026-08-28); the consumer persists the
