@@ -142,6 +142,8 @@ namespace ebs
             playhead = -1.0;
             state = PlayheadState::Stopped;
             selection = {};
+            visibleStartSec = 0.0;
+            visibleEndSec = 0.0;
             ready = file.existsAsFile() ? ReadyState::Loading : ReadyState::Empty;
             if (file.existsAsFile())
             {
@@ -245,6 +247,69 @@ namespace ebs
         double playheadSeconds() const noexcept { return playhead; }
         PlayheadState playheadState() const noexcept { return state; }
 
+        // === View range =====================================================
+        /** Show only [start, end] of the file, in seconds. A host that zooms
+            to a selected zone uses this; the selection itself is still stored
+            in FILE seconds. Invalid/reversed ranges clear the zoom. */
+        void setViewRange (double start, double end)
+        {
+            const double total = totalSeconds();
+            if (total <= 0.0 || start < 0.0 || end <= start)
+            {
+                clearViewRange();
+                return;
+            }
+            visibleStartSec = juce::jlimit (0.0, total, start);
+            const double wantedEnd = juce::jmax (end, visibleStartSec + 1.0e-6);
+            visibleEndSec = juce::jlimit (visibleStartSec, total, wantedEnd);
+            if (visibleEndSec <= visibleStartSec)
+                clearViewRange();
+            updateSelectionBounds();
+            repaint();
+        }
+
+        void clearViewRange()
+        {
+            if (visibleEndSec <= visibleStartSec)
+                return;
+            visibleStartSec = 0.0;
+            visibleEndSec = 0.0;
+            updateSelectionBounds();
+            repaint();
+        }
+
+        bool hasViewRange() const noexcept
+        {
+            return visibleEndSec > visibleStartSec + 1.0e-9;
+        }
+
+        double viewStartSeconds() const noexcept
+        {
+            const double total = totalSeconds();
+            return hasViewRange() ? juce::jlimit (0.0, total, visibleStartSec)
+                                  : 0.0;
+        }
+
+        double viewEndSeconds() const noexcept
+        {
+            const double total = totalSeconds();
+            return hasViewRange() ? juce::jlimit (0.0, total, visibleEndSec)
+                                  : total;
+        }
+
+        /** Seconds -> x with the CURRENT zoom, for an overlay that draws on
+            top of this widget. */
+        int xForSeconds (double seconds) const noexcept
+        {
+            return secondsToX (seconds);
+        }
+
+        /** x -> file seconds with the current zoom. */
+        double secondsForX (int x) const noexcept
+        {
+            return xToSeconds (x);
+        }
+
         // === Selection ======================================================
 
         /** The band in seconds. Clamped to the file; a reversed or empty range
@@ -263,6 +328,13 @@ namespace ebs
             selection = { start, end };
             updateSelectionBounds();
             repaint();
+        }
+
+        /** Allow a press on empty waveform space to START a new selection
+            by dragging. Off by default: existing hosts use the press to seek. */
+        void setSelectionCreationEnabled (bool on) noexcept
+        {
+            selectionCreationEnabled = on;
         }
 
         void clearSelection()
@@ -350,23 +422,27 @@ namespace ebs
         double xToSeconds (int x) const noexcept
         {
             const auto area = paintArea();
-            const double total = totalSeconds();
-            if (total <= 0.0 || area.getWidth() <= 0)
+            const double first = viewStartSeconds();
+            const double last = viewEndSeconds();
+            if (last <= first || area.getWidth() <= 0)
                 return 0.0;
             const double frac = juce::jlimit (0.0, 1.0,
                 (double) (x - area.getX()) / (double) area.getWidth());
-            return frac * total;
+            return first + frac * (last - first);
         }
 
         /** seconds -> x (widget-local). */
         int secondsToX (double seconds) const noexcept
         {
             const auto area = paintArea();
-            const double total = totalSeconds();
-            if (total <= 0.0)
+            const double first = viewStartSeconds();
+            const double last = viewEndSeconds();
+            if (last <= first)
                 return area.getX();
             return area.getX() + (int) std::round (
-                area.getWidth() * juce::jlimit (0.0, 1.0, seconds / total));
+                area.getWidth()
+                * juce::jlimit (0.0, 1.0,
+                                (seconds - first) / (last - first)));
         }
 
         // === Paint ==========================================================
@@ -400,13 +476,16 @@ namespace ebs
                                 band.getHeight());
                 }
 
+                const double viewFirst = viewStartSeconds();
+                const double viewLast = viewEndSeconds();
                 g.setColour (accent);
-                thumbnail.drawChannels (g, area, 0.0, total, kThumbnailGain);
+                thumbnail.drawChannels (g, area, viewFirst, viewLast,
+                                        kThumbnailGain);
 
                 if (state != PlayheadState::Stopped && playhead >= 0.0)
                 {
                     const double t = juce::jlimit (0.0, total, playhead);
-                    const double from = juce::jlimit (0.0, total,
+                    const double from = juce::jlimit (viewFirst, viewLast,
                                                       fillStartSec);
                     const int startX = secondsToX (from);
                     const int playedW = juce::jmax (0,
@@ -418,7 +497,7 @@ namespace ebs
                             startX, area.getY(), playedW,
                             area.getHeight()));
                         g.setColour (played);
-                        thumbnail.drawChannels (g, area, 0.0, total,
+                        thumbnail.drawChannels (g, area, viewFirst, viewLast,
                                                 kThumbnailGain);
                         g.restoreState();
                     }
@@ -529,6 +608,15 @@ namespace ebs
                 drag = Drag::move;
                 dragStartX = e.position.x;
             }
+            else if (selectionCreationEnabled)
+            {
+                drag = Drag::create;
+                createPrevious = selection;
+                createAnchorSec = xToSeconds ((int) e.position.x);
+                selection = { createAnchorSec, createAnchorSec };
+                updateSelectionBounds();
+                repaint();
+            }
             else
             {
                 drag = Drag::seek;
@@ -547,10 +635,19 @@ namespace ebs
                     onSeek (xToSeconds ((int) e.position.x));
                 return;
             }
+            if (drag == Drag::create)
+            {
+                const double at = xToSeconds ((int) e.position.x);
+                selection = { juce::jmin (createAnchorSec, at),
+                              juce::jmax (createAnchorSec, at) };
+                updateSelectionBounds();
+                repaint();
+                return;
+            }
             const double total = totalSeconds();
             if (total <= 0.0 || ! selection)
                 return;
-            const double secPerPx = total
+            const double secPerPx = (viewEndSeconds() - viewStartSeconds())
                                   / (double) juce::jmax (1,
                                                          paintArea().getWidth());
             const double delta = (double) (e.position.x - dragStartX) * secPerPx;
@@ -592,6 +689,26 @@ namespace ebs
             drag = Drag::none;
             // A selection gesture reports ONCE, at the end: a host rebuilding a
             // take list on every pixel of a drag is a host that drops rows.
+            if (what == Drag::create)
+            {
+                if (selection
+                    && selection->second > selection->first + 1.0e-4)
+                {
+                    if (onSelectionChanged != nullptr)
+                        onSelectionChanged (selection->first,
+                                            selection->second);
+                }
+                else
+                {
+                    // A plain click is not a selection: restore what the host
+                    // showed before it.
+                    selection = createPrevious;
+                    updateSelectionBounds();
+                    repaint();
+                }
+                createPrevious.reset();
+                return;
+            }
             if (what == Drag::move || what == Drag::resize)
             {
                 if (onSelectionChanged != nullptr)
@@ -655,7 +772,7 @@ namespace ebs
                                 juce::jmax (2, x1 - x0), area.getHeight() };
         }
 
-        enum class Drag { none, seek, move, resize };
+        enum class Drag { none, seek, move, resize, create };
 
         // ownCache is declared FIRST and cache SECOND: the thumbnail
         // is built from *cache, so both must exist before it, and
@@ -673,6 +790,8 @@ namespace ebs
         PlayheadState state = PlayheadState::Stopped;
         /** Painted as a background block unless a parent owns the surface. */
         bool backgroundVisible = true;
+        double visibleStartSec = 0.0;
+        double visibleEndSec = 0.0;
         double playhead = -1.0;
         juce::Colour accent { ebs::accent() };
         double fillStartSec = 0.0;   // played fill begins here
@@ -691,6 +810,9 @@ namespace ebs
         Drag drag = Drag::none;
         int dragStartX = 0;
         int resizeEdge = 0;
+        double createAnchorSec = 0.0;
+        std::optional<std::pair<double, double>> createPrevious;
+        bool selectionCreationEnabled = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Waveform)
     };
