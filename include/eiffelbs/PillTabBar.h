@@ -123,7 +123,9 @@ public:
             g.setColour (on ? text() : textDim());
             g.setFont (fontHint());
             g.drawFittedText (tabLabels[i], textArea.toNearestInt(),
-                              juce::Justification::centredLeft, 1);
+                              glyph.has_value()
+                                  ? juce::Justification::centredLeft
+                                  : juce::Justification::centred, 1);
         }
     }
 
@@ -203,7 +205,7 @@ private:
         int widest = 0;
         for (const auto& label : tabLabels)
         {
-            const int icons = 16;
+            const int icons = onTabIcon != nullptr ? 16 : 0;
             widest = juce::jmax (widest,
                                  (int) juce::GlyphArrangement::getStringWidth (
                                      fontHint(), label) + icons + 16);
