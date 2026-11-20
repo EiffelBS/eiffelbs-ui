@@ -373,6 +373,10 @@ namespace ebs
         /** The band changed by the user, in seconds. (0,0) = cleared. */
         std::function<void (double start, double end)> onSelectionChanged;
 
+        /** Pointer entered/left the waveform (host overlays use it to show
+            their own handles only while hovered). */
+        std::function<void (bool)> onHoverChanged;
+
         // === Test hooks ======================================================
 
         juce::Rectangle<int> selectionRectForTest() const noexcept
@@ -724,6 +728,12 @@ namespace ebs
 
         void mouseMove (const juce::MouseEvent& e) override
         {
+            if (! hovered)
+            {
+                hovered = true;
+                if (onHoverChanged != nullptr)
+                    onHoverChanged (true);
+            }
             const auto edge = edgeAt (e.position);
             if (edge != 0)
                 setMouseCursor (juce::MouseCursor::LeftRightResizeCursor);
@@ -731,7 +741,18 @@ namespace ebs
                                                             (int) e.position.y))
                 setMouseCursor (juce::MouseCursor::DraggingHandCursor);
             else
-                setMouseCursor (juce::MouseCursor::PointingHandCursor);
+                setMouseCursor (selectionCreationEnabled
+                                    ? juce::MouseCursor::CrosshairCursor
+                                    : juce::MouseCursor::PointingHandCursor);
+        }
+
+        void mouseExit (const juce::MouseEvent&) override
+        {
+            if (! hovered)
+                return;
+            hovered = false;
+            if (onHoverChanged != nullptr)
+                onHoverChanged (false);
         }
 
         /** -1 = left edge, 1 = right edge, 0 = not on an edge. */
@@ -813,6 +834,7 @@ namespace ebs
         double createAnchorSec = 0.0;
         std::optional<std::pair<double, double>> createPrevious;
         bool selectionCreationEnabled = false;
+        bool hovered = false;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Waveform)
     };
