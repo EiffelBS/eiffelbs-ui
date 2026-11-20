@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.84.0 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.84.2 LANGUAGES C CXX)
+
+# v0.84.2: Waveform gains an optional view range and opt-in selection
+# creation, a hover callback, a mirrored display for reverse playback and a
+# per-column gain envelope for fades/levels. Every new path is opt-in; existing
+# hosts keep the same look and gestures.
 
 
 # eiffelbs-ui: header-only shared JUCE library implementing the EiffelBS
