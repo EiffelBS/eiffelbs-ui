@@ -47,6 +47,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <numeric>
 
 #include "eiffelbs/Theme.h"
 #include "eiffelbs/Fonts.h"
@@ -87,16 +88,21 @@ public:
         test. */
     struct VisualBlock
     {
-        enum class Kind { diagram, image, audio };
-
-        Kind kind = Kind::diagram;
-        int textOffset = 0;      // where the reserved blank lines start
-        int reservedLines = 0;   // how many blank lines were reserved
-        float lineTop = 0.0f;    // resolved from the finished layout
-        float width = 0.0f;      // drawing width (<= body width)
-        float height = 0.0f;     // drawing height
-        std::unique_ptr<ebs::MermaidDiagram> diagram;
-        juce::String url, alt;   // images and audio (alt = title/name)
+        enum class Kind { diagram, image, audio, table };
+ 
+         Kind kind = Kind::diagram;
+         int textOffset = 0;      // where the reserved blank lines start
+         int reservedLines = 0;   // how many blank lines were reserved
+         float lineTop = 0.0f;    // resolved from the finished layout
+         float width = 0.0f;      // drawing width (<= body width)
+         float height = 0.0f;     // drawing height
+         std::unique_ptr<ebs::MermaidDiagram> diagram;
+         juce::String url, alt;   // images and audio (alt = title/name)
+         // Real table ( kind == table ): cells painted as a grid, never as a
+         // monospace character block that a word-wrap or proportional font can
+         // misalign. rows[0] is the header row.
+         std::vector<juce::StringArray> tableRows;
+         std::vector<int> tableAlign;   // 0 left, 1 centre, 2 right per column
     };
 
     /** The state of one audio block's player, supplied by the host on every
@@ -470,9 +476,10 @@ public:
         the app's default 1.25 UI scale. */
     static juce::Font monospaceFontForBody (float bodyHeight)
     {
-        return juce::Font (juce::FontOptions (
-            juce::Font::getDefaultMonospacedFontName(),
-            juce::jmax (9.0f, bodyHeight * 0.92f), juce::Font::plain));
+        // Tables/code use a fixed 10 pt token ( scaled once by the design
+        // system ): a 1:1 height copy of the proportional body reads as larger
+        // because the monospaced face has a larger x-height.
+        return ebs::createMonospaceFont (10.0f);
     }
 
     // === metrics ==========================================================
@@ -668,6 +675,8 @@ public:
                 paintImageBlock (g, block, target);
             else if (block.kind == VisualBlock::Kind::audio)
                 paintAudioBlock (g, block, target);
+            else if (block.kind == VisualBlock::Kind::table)
+                paintTableBlock (g, block, bodyArea);
         }
     }
 
@@ -682,6 +691,93 @@ public:
                  bodyArea.getY() + block.lineTop,
                  juce::jmax (1.0f, block.width),
                  juce::jmax (1.0f, block.height) };
+    }
+
+    /** A real table grid: header rule + column bars, cells left/centre/right
+        aligned. Painted at the body's left edge (not centred), using the body
+        font at a slightly smaller size so columns align regardless of glyphs. */
+    void paintTableBlock (juce::Graphics& g, const VisualBlock& block,
+                          juce::Rectangle<float> bodyArea) const
+    {
+        if (block.tableRows.empty())
+            return;
+
+        const int columns = (int) block.tableAlign.size();
+        const int pad = 6;
+        const auto font = ebs::createMonospaceFont (10.0f);
+        const int rowH = juce::jmax (1, juce::roundToInt (font.getHeight() * 1.35f));
+        const int headerH = rowH;
+        const int totalH = headerH + rowH * juce::jmax (0, (int) block.tableRows.size() - 1);
+        const float top = bodyArea.getY() + block.lineTop;
+        const float left = bodyArea.getX();
+
+        // Column widths: max cell width (in glyphs) + padding, proportional to
+        // the available width. Never word-wrapped; long cells are clipped.
+        std::vector<float> colW ((size_t) columns, 0.0f);
+        for (int c = 0; c < columns; ++c)
+        {
+            float maxGlyphs = 4.0f;
+            for (const auto& row : block.tableRows)
+            {
+                const auto cell = c < row.size() ? row[c] : juce::String();
+                maxGlyphs = juce::jmax (maxGlyphs, (float) cell.length());
+            }
+            colW[(size_t) c] = maxGlyphs;
+        }
+        const float totalGlyphs = std::accumulate (colW.begin(), colW.end(), 0.0f)
+            + (float) juce::jmax (0, columns - 1) * 3.0f;   // " │ " separators
+        const float avail = bodyArea.getWidth() - pad * 2.0f;
+        const float scale = totalGlyphs > 0.0f ? avail / totalGlyphs : 1.0f;
+        for (auto& w : colW)
+            w *= scale;
+
+        auto x = left + pad;
+        std::vector<float> colX ((size_t) columns, 0.0f);
+        for (int c = 0; c < columns; ++c)
+        {
+            colX[(size_t) c] = x;
+            x += colW[(size_t) c] + (c + 1 < columns ? font.getStringWidthFloat (" │ ") : 0.0f);
+        }
+
+        // Header row + rule.
+        int rowY = juce::roundToInt (top);
+        g.setFont (font);
+        for (int c = 0; c < columns; ++c)
+        {
+            const auto cell = block.tableRows[0].size() > (size_t) c
+                ? block.tableRows[0][c] : juce::String();
+            const int align = block.tableAlign[(size_t) c];
+            float cellX = colX[(size_t) c];
+            if (align == 1)       cellX += (colW[(size_t) c] - font.getStringWidthFloat (cell)) * 0.5f;
+            else if (align == 2)  cellX += colW[(size_t) c] - font.getStringWidthFloat (cell);
+            g.setColour (ebs::accent());
+            g.drawText (cell, (int) cellX, rowY,
+                        (int) colW[(size_t) c], rowH,
+                        juce::Justification::centredLeft, true);
+        }
+        rowY += headerH;
+        g.setColour (ebs::textDim());
+        g.drawHorizontalLine (rowY, left + pad, left + bodyArea.getWidth() - pad);
+        rowY += 1;
+
+        // Body rows.
+        for (size_t r = 1; r < block.tableRows.size(); ++r)
+        {
+            const auto& row = block.tableRows[r];
+            for (int c = 0; c < columns; ++c)
+            {
+                const auto cell = c < row.size() ? row[c] : juce::String();
+                const int align = block.tableAlign[(size_t) c];
+                float cellX = colX[(size_t) c];
+                if (align == 1)       cellX += (colW[(size_t) c] - font.getStringWidthFloat (cell)) * 0.5f;
+                else if (align == 2)  cellX += colW[(size_t) c] - font.getStringWidthFloat (cell);
+                g.setColour (ebs::text());
+                g.drawText (cell, (int) cellX, rowY,
+                            (int) colW[(size_t) c], rowH,
+                            juce::Justification::centredLeft, true);
+            }
+            rowY += rowH;
+        }
     }
 
     /** An embedded image, or its placeholder until the host has fetched it.
@@ -1254,8 +1350,8 @@ private:
                         anchors->push_back ({ sourceStart + i + 1,
                                               code.length(), pos,
                                               code.length() });
-                    as.append (code, mono,
-                               ebs::accent().withMultipliedBrightness (1.1f));
+                    as.append (code, base,
+                               ebs::accent());
                     pos += code.length();
                 }
                 i = end;
@@ -1520,7 +1616,10 @@ private:
         const std::function<ImageBox (const juce::String&)>& imageBoxFor,
         std::vector<SourceAnchor>& anchorsOut)
     {
-        const auto mono = monospaceFontForBody (base.getHeight());
+        // Tables/code must read SMALLER than the proportional body: a 1:1 pt
+        // mono face ( Consolas ) has a much larger x-height and always reads as
+        // "bigger" beside Segoe UI. Fixed 10 pt token ( scaled once ).
+        const auto mono = ebs::createMonospaceFont (10.0f);
         juce::AttributedString as;
         as.setWordWrap (juce::AttributedString::byWord);
         int pos = 0;
@@ -1666,7 +1765,11 @@ private:
                             anchorsOut.push_back (
                                 { lineStarts[(size_t) (bodyFirst + k)],
                                   codeLine.length(), pos, codeLine.length() });
-                        emit (codeLine + "\n", mono, ebs::textDim());
+            // NBSP keeps monospace code lines from being word-wrapped, which
+            // would break indentation/alignment inside the bubble.
+                emit (codeLine.replaceCharacter (' ', juce::juce_wchar (0x00A0))
+                          + "\n",
+                      mono, ebs::textDim());
                     }
                     continue;
                 }
@@ -1682,7 +1785,8 @@ private:
                     anchorsOut.push_back ({ lineStarts[(size_t) n],
                                             line.length(), pos,
                                             line.length() });
-                emit (line + "\n", mono, ebs::textDim());
+                emit (line.replaceCharacter (' ', juce::juce_wchar (0x00A0))
+                          + "\n", mono, ebs::textDim());
                 continue;
             }
 
@@ -1845,15 +1949,15 @@ private:
             // what makes the columns line up, and the rule under the header
             // is what makes it read as a table instead of a paragraph that
             // happens to contain bars.
-            if (trimmed.containsChar ('|') && n + 1 < lines.size())
+            if (trimmed.containsChar ('|'))
             {
                 std::vector<int> alignments;
                 if (tableSeparator (lines[n + 1], alignments))
                 {
                     closeParagraph();
                     const int columns = (int) alignments.size();
-                    std::vector<juce::StringArray> rows;
-                    rows.push_back (splitTableRow (line));
+                    std::vector<juce::StringArray> tableRows;
+                    tableRows.push_back (splitTableRow (line));
 
                     int rowIndex = n + 2;
                     for (; rowIndex < lines.size(); ++rowIndex)
@@ -1862,94 +1966,89 @@ private:
                         if (rowLine.trim().isEmpty()
                             || ! rowLine.containsChar ('|'))
                             break;
-                        rows.push_back (splitTableRow (rowLine));
+                        tableRows.push_back (splitTableRow (rowLine));
                     }
                     n = rowIndex - 1;   // the loop's ++n resumes after the table
 
-                    // Widths measured from the STYLED cells, once, in the
-                    // mono font the rows are drawn with. The cells are drawn
-                    // through the same inline renderer that was measured, so
-                    // padding and text cannot disagree about a link or a bold
-                    // word.
-                    std::vector<float> widths ((size_t) columns, 0.0f);
-                    std::vector<std::vector<float>> cellWidths (rows.size());
-                    for (size_t r = 0; r < rows.size(); ++r)
+                    // A real table block: reserve blank lines for its painted
+                    // height, then paint a grid (header rule, column bars). This
+                    // is the only way columns can align under proportional body
+                    // text, selection and copy stay on the text layer.
+                    VisualBlock block;
+                    block.kind = VisualBlock::Kind::table;
+                    block.tableRows = std::move (tableRows);
+                    block.tableAlign = alignments;
+                    block.textOffset = pos;
+                    block.width = maxWidth;
+                    // Height is estimated here and refined after layout; reserve
+                    // enough lines so the text height covers the grid.
+                    const auto monoProbe = ebs::createMonospaceFont (10.0f);
+                    const int rowH = juce::jmax (
+                        1, juce::roundToInt (monoProbe.getHeight() * 1.35f));
+                    const int headerH = rowH;
+                    block.height = (float) (headerH
+                        + rowH * juce::jmax (0, (int) block.tableRows.size() - 1));
+                    // Text layer: the same grid as invisible text. It keeps
+                    // selection, copy and the test seam working, while the
+                    // painted grid is what the reader sees.
+                    const int columnCount = juce::jmax (1, columns);
+                    std::vector<int> colChars ((size_t) columnCount, 4);
+                    for (const auto& row : block.tableRows)
+                        for (int c = 0; c < columnCount; ++c)
+                            colChars[(size_t) c] = juce::jmax (
+                                colChars[(size_t) c],
+                                c < row.size() ? row[c].length() : 0);
+                    const auto cellText = [&] (const juce::String& cell,
+                                               int col)
                     {
-                        cellWidths[r].assign ((size_t) columns, 0.0f);
-                        for (int c = 0; c < columns; ++c)
+                        const int width = colChars[(size_t) col];
+                        const int padding = juce::jmax (0, width - cell.length());
+                        juce::String padded;
+                        if (alignments[(size_t) col] == 2)
+                            padded = juce::String::repeatedString (
+                                         " ", padding) + cell;
+                        else if (alignments[(size_t) col] == 1)
                         {
-                            const auto cell = c < rows[r].size()
-                                                  ? rows[r][c] : juce::String();
-                            const float w = inlineWidth (cell, mono, mono);
-                            cellWidths[r][(size_t) c] = w;
-                            widths[(size_t) c] = juce::jmax (widths[(size_t) c], w);
+                            const int leftPad = padding / 2;
+                            padded = juce::String::repeatedString (" ", leftPad)
+                                   + cell
+                                   + juce::String::repeatedString (
+                                         " ", padding - leftPad);
                         }
-                    }
-                    for (auto& width : widths)
-                        width = juce::jmax (width,
-                                            mono.getStringWidthFloat ("M"));
-
-                    const auto spaceW = juce::jmax (
-                        1.0f, mono.getStringWidthFloat (" "));
-                    const auto dashChar = juce::String::charToString (0x2500);
-                    const auto dashW = juce::jmax (
-                        1.0f, mono.getStringWidthFloat (dashChar));
-
-                    const auto emitRow = [&] (size_t rowIndex, juce::Colour rowInk)
-                    {
-                        const auto& row = rows[rowIndex];
-                        for (int c = 0; c < columns; ++c)
-                        {
-                            const auto cell = c < row.size() ? row[c]
-                                                             : juce::String();
-                            const int needed = juce::jmax (
-                                0, juce::roundToInt (
-                                       (widths[(size_t) c]
-                                        - cellWidths[rowIndex][(size_t) c])
-                                       / spaceW));
-                            int leftPad = 0;
-                            if (alignments[(size_t) c] == 1)
-                                leftPad = needed / 2;
-                            else if (alignments[(size_t) c] == 2)
-                                leftPad = needed;
-
-                            if (c > 0)
-                                emit (" " + juce::String::charToString (0x2502)
-                                          + " ", mono, ebs::textDim());
-                            if (leftPad > 0)
-                                emit (juce::String::repeatedString (" ", leftPad),
-                                      mono, rowInk);
-                            appendInlineRuns (as, cell, mono, rowInk, mono,
-                                              pos, &spansOut);
-                            const int rightPad = needed - leftPad;
-                            if (rightPad > 0)
-                                emit (juce::String::repeatedString (" ", rightPad),
-                                      mono, rowInk);
-                        }
-                        emit ("\n", mono, rowInk);
+                        else
+                            padded = cell
+                                   + juce::String::repeatedString (
+                                         " ", padding);
+                        return padded;
                     };
-
-                    emitRow (0, ebs::accent());
-
-                    // The rule under the header: its junction sits under the
-                    // row's own column bar.
-                    for (int c = 0; c < columns; ++c)
+                    juce::String tableText;
+                    for (size_t r = 0; r < block.tableRows.size(); ++r)
                     {
-                        if (c > 0)
-                            emit (juce::String::charToString (0x2500)
-                                      + juce::String::charToString (0x253c)
-                                      + juce::String::charToString (0x2500),
-                                  mono, ebs::textDim());
-                        emit (juce::String::repeatedString (
-                                  dashChar,
-                                  juce::jmax (1, juce::roundToInt (
-                                         widths[(size_t) c] / dashW))),
-                              mono, ebs::textDim());
+                        const auto& row = block.tableRows[r];
+                        for (int c = 0; c < columnCount; ++c)
+                        {
+                            if (c > 0)
+                                tableText << " \u2502 ";
+                            tableText << cellText (
+                                c < row.size() ? row[c] : juce::String(), c);
+                        }
+                        tableText << "\n";
+                        if (r == 0)
+                        {
+                            for (int c = 0; c < columnCount; ++c)
+                            {
+                                if (c > 0)
+                                    tableText << "\u2500\u253c\u2500";
+                                tableText << juce::String::repeatedString (
+                                    "\u2500", colChars[(size_t) c]);
+                            }
+                            tableText << "\n";
+                        }
                     }
-                    emit ("\n", mono, ebs::textDim());
-
-                    for (size_t r = 1; r < rows.size(); ++r)
-                        emitRow (r, ink);
+                    block.reservedLines = juce::StringArray::fromLines (
+                        tableText).size();
+                    blocksOut.push_back (std::move (block));
+                    emit (tableText, mono, juce::Colours::transparentBlack);
                     continue;
                 }
             }

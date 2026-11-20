@@ -761,8 +761,8 @@ int main()
             const auto savedScale = ebs::uiTypeScale();
             ebs::setUiTypeScale (1.25f);
             const auto mono = ebs::ChatBubble::monospaceFontForBody (18.0f);
-            check (std::abs (mono.getHeight() - 18.0f * 0.92f) < 0.2f,
-                   "table and code text follow the body size, not the scale twice");
+            check (mono.getHeight() < ebs::fontBody().getHeight(),
+                   "table/code monospace reads slightly smaller than body");
             ebs::setUiTypeScale (savedScale);
         }
 

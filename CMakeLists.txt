@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.84.2 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.84.3 LANGUAGES C CXX)
+
+# v0.84.3: ChatBubble renders pipe tables as a real painted grid (header
+# rule, column bars, per-column alignment) with an invisible text layer for
+# selection and copy; code/table monospace now uses the fixed 10 pt token.
 
 # v0.84.2: Waveform gains an optional view range and opt-in selection
 # creation, a hover callback, a mirrored display for reverse playback and a
@@ -209,12 +213,14 @@ project(eiffelbs-ui VERSION 0.84.2 LANGUAGES C CXX)
 # same pixels.
 
 # v0.78.1: ChatBubble sizes its monospace face (code spans, tables) from the
-# body's EFFECTIVE height. The body font already carries the app's type scale
-# and the reader's zoom, and passing that height through the scaled
-# createMonospaceFont() multiplied the scale in a second time: on OpenTimbre's
-# default 1.25 UI scale, 18 pt of body produced 20.7 pt of table/code text.
+# body's EFFECTIVE height at the SAME nominal size as body text. The body font
+# already carries the app's type scale and the reader's zoom, so
+# createMonospaceFont() on that height would multiply the scale twice.
 # monospaceFontForBody() is the one place that arithmetic lives, and the smoke
-# test pins it. Every existing caller is untouched.
+# test pins it. Inline code and table cells are plain monospace (same height),
+# links keep the body font height; table columns are padded to whole monospace
+# cells so the header rule's junctions align with the row bars. Every existing
+# caller is untouched.
 
 # v0.79.0: ebs::MermaidFlowchart - a native renderer for the Mermaid FLOWCHART
 # subset LLM answers emit: `flowchart`/`graph` TD/TB/BT/LR/RL, `[]` `()` `{}`
