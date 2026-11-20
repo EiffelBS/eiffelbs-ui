@@ -287,6 +287,21 @@ namespace ebs
             repaint();
         }
 
+        // === Direction ======================================================
+        /** Show the file right-to-left. File seconds and selections stay in
+            FILE order; only the x mapping and the trace are mirrored. */
+        void setReversed (bool shouldReverse)
+        {
+            if (reversed == shouldReverse)
+                return;
+            reversed = shouldReverse;
+            envelopeDirty = true;
+            updateSelectionBounds();
+            repaint();
+        }
+
+        bool isReversed() const noexcept { return reversed; }
+
         // === View range =====================================================
         /** Show only [start, end] of the file, in seconds. A host that zooms
             to a selected zone uses this; the selection itself is still stored
@@ -474,7 +489,8 @@ namespace ebs
                 return 0.0;
             const double frac = juce::jlimit (0.0, 1.0,
                 (double) (x - area.getX()) / (double) area.getWidth());
-            return first + frac * (last - first);
+            return reversed ? last - frac * (last - first)
+                            : first + frac * (last - first);
         }
 
         /** seconds -> x (widget-local). */
@@ -485,10 +501,10 @@ namespace ebs
             const double last = viewEndSeconds();
             if (last <= first)
                 return area.getX();
+            const double frac = juce::jlimit (
+                0.0, 1.0, (seconds - first) / (last - first));
             return area.getX() + (int) std::round (
-                area.getWidth()
-                * juce::jlimit (0.0, 1.0,
-                                (seconds - first) / (last - first)));
+                area.getWidth() * (reversed ? 1.0 - frac : frac));
         }
 
         // === Paint ==========================================================
@@ -538,9 +554,15 @@ namespace ebs
                 }
                 else
                 {
+                    g.saveState();
+                    if (reversed)
+                        g.addTransform (juce::AffineTransform::scale (-1.0f, 1.0f)
+                            .translated ((float) (area.getX() + area.getRight()),
+                                         0.0f));
                     g.setColour (accent);
                     thumbnail.drawChannels (g, area, viewFirst, viewLast,
                                             kThumbnailGain * baseGain);
+                    g.restoreState();
                 }
 
                 if (state != PlayheadState::Stopped && playhead >= 0.0)
@@ -568,6 +590,11 @@ namespace ebs
                             g.reduceClipRegion (juce::Rectangle<int> (
                                 startX, area.getY(), playedW,
                                 area.getHeight()));
+                            if (reversed)
+                                g.addTransform (juce::AffineTransform::scale (
+                                    -1.0f, 1.0f).translated (
+                                        (float) (area.getX() + area.getRight()),
+                                        0.0f));
                             g.setColour (played);
                             thumbnail.drawChannels (g, area, viewFirst,
                                                     viewLast,
@@ -661,9 +688,10 @@ namespace ebs
                 const double last = viewEndSeconds();
                 for (int x = 0; x < width; ++x)
                 {
-                    const double t0 = first + (double) x / (double) width
+                    const int displayX = reversed ? width - 1 - x : x;
+                    const double t0 = first + (double) displayX / (double) width
                                              * (last - first);
-                    const double t1 = first + (double) (x + 1)
+                    const double t1 = first + (double) (displayX + 1)
                                              / (double) width
                                              * (last - first);
                     const float gain = juce::jlimit (
@@ -764,7 +792,8 @@ namespace ebs
             const double secPerPx = (viewEndSeconds() - viewStartSeconds())
                                   / (double) juce::jmax (1,
                                                          paintArea().getWidth());
-            const double delta = (double) (e.position.x - dragStartX) * secPerPx;
+            const double delta = (double) (e.position.x - dragStartX) * secPerPx
+                               * (reversed ? -1.0 : 1.0);
             dragStartX = e.position.x;
 
             if (drag == Drag::move)
@@ -778,7 +807,8 @@ namespace ebs
             }
             else
             {
-                if (resizeEdge < 0)
+                const bool leftEdgeIsFirst = (resizeEdge < 0) != reversed;
+                if (leftEdgeIsFirst)
                 {
                     double start = juce::jlimit (0.0, selection->second,
                                                  selection->first + delta);
@@ -899,8 +929,9 @@ namespace ebs
             const int x0 = secondsToX (selection->first);
             const int x1 = secondsToX (selection->second);
             const auto area = paintArea();
-            selectionBounds = { x0, area.getY(),
-                                juce::jmax (2, x1 - x0), area.getHeight() };
+            selectionBounds = { juce::jmin (x0, x1), area.getY(),
+                                juce::jmax (2, std::abs (x1 - x0)),
+                                area.getHeight() };
         }
 
         enum class Drag { none, seek, move, resize, create };
@@ -923,6 +954,7 @@ namespace ebs
         bool backgroundVisible = true;
         double visibleStartSec = 0.0;
         double visibleEndSec = 0.0;
+        bool reversed = false;
         std::function<float (double)> gainEnvelope;
         float baseGain = 1.0f;
         juce::Image envelopeImage;
