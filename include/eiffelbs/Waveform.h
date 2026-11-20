@@ -978,7 +978,13 @@ namespace ebs
         std::optional<std::pair<double, double>> selection;
         juce::Rectangle<int> selectionBounds;
         Drag drag = Drag::none;
-        int dragStartX = 0;
+        // Sub-pixel, on purpose: mouseDrag integrates (x - dragStartX) between
+        // EVENTS, so an int here throws away the fraction on every step. On a
+        // slow drag (or a zoomed view, where one pixel is many milliseconds)
+        // the selection edge then drifts away from the pointer instead of
+        // tracking it. Keep the float so consecutive deltas sum to the exact
+        // pointer travel.
+        float dragStartX = 0.0f;
         int resizeEdge = 0;
         double createAnchorSec = 0.0;
         std::optional<std::pair<double, double>> createPrevious;
