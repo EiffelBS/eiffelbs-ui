@@ -144,6 +144,7 @@ namespace ebs
             selection = {};
             visibleStartSec = 0.0;
             visibleEndSec = 0.0;
+            envelopeDirty = true;
             ready = file.existsAsFile() ? ReadyState::Loading : ReadyState::Empty;
             if (file.existsAsFile())
             {
@@ -171,6 +172,7 @@ namespace ebs
         {
             if (accent == c) return;
             accent = c;
+            envelopeDirty = true;
             repaint();
         }
 
@@ -247,6 +249,43 @@ namespace ebs
         double playheadSeconds() const noexcept { return playhead; }
         PlayheadState playheadState() const noexcept { return state; }
 
+        // === Display gain envelope ==========================================
+        /** Optional per-file-second amplitude multiplier for the TRACE. The
+            waveform is rendered column by column, so a fade curve or a gain
+            changes the trace's shape instead of covering it. The host calls
+            refreshGainEnvelope() after the values it captures have changed. */
+        void setGainEnvelope (std::function<float (double)> envelope)
+        {
+            gainEnvelope = std::move (envelope);
+            envelopeDirty = true;
+            repaint();
+        }
+
+        void clearGainEnvelope()
+        {
+            if (gainEnvelope == nullptr)
+                return;
+            gainEnvelope = nullptr;
+            envelopeDirty = true;
+            repaint();
+        }
+
+        void setBaseGain (float gain)
+        {
+            const auto next = juce::jlimit (0.0f, 2.0f, gain);
+            if (std::abs (baseGain - next) < 1.0e-5f)
+                return;
+            baseGain = next;
+            envelopeDirty = true;
+            repaint();
+        }
+
+        void refreshGainEnvelope()
+        {
+            envelopeDirty = true;
+            repaint();
+        }
+
         // === View range =====================================================
         /** Show only [start, end] of the file, in seconds. A host that zooms
             to a selected zone uses this; the selection itself is still stored
@@ -262,6 +301,7 @@ namespace ebs
             visibleStartSec = juce::jlimit (0.0, total, start);
             const double wantedEnd = juce::jmax (end, visibleStartSec + 1.0e-6);
             visibleEndSec = juce::jlimit (visibleStartSec, total, wantedEnd);
+            envelopeDirty = true;
             if (visibleEndSec <= visibleStartSec)
                 clearViewRange();
             updateSelectionBounds();
@@ -274,6 +314,7 @@ namespace ebs
                 return;
             visibleStartSec = 0.0;
             visibleEndSec = 0.0;
+            envelopeDirty = true;
             updateSelectionBounds();
             repaint();
         }
@@ -482,9 +523,16 @@ namespace ebs
 
                 const double viewFirst = viewStartSeconds();
                 const double viewLast = viewEndSeconds();
-                g.setColour (accent);
-                thumbnail.drawChannels (g, area, viewFirst, viewLast,
-                                        kThumbnailGain);
+                if (gainEnvelope != nullptr)
+                {
+                    drawEnvelopeTrace (g, area, accent);
+                }
+                else
+                {
+                    g.setColour (accent);
+                    thumbnail.drawChannels (g, area, viewFirst, viewLast,
+                                            kThumbnailGain * baseGain);
+                }
 
                 if (state != PlayheadState::Stopped && playhead >= 0.0)
                 {
@@ -496,14 +544,25 @@ namespace ebs
                         secondsToX (t) - startX + 1);
                     if (playedW > 0 && t > from)
                     {
-                        g.saveState();
-                        g.reduceClipRegion (juce::Rectangle<int> (
-                            startX, area.getY(), playedW,
-                            area.getHeight()));
-                        g.setColour (played);
-                        thumbnail.drawChannels (g, area, viewFirst, viewLast,
-                                                kThumbnailGain);
-                        g.restoreState();
+                        if (gainEnvelope != nullptr)
+                        {
+                            g.setColour (played.withAlpha (0.55f));
+                            g.fillRect (juce::Rectangle<int> (
+                                startX, area.getY(), playedW,
+                                area.getHeight()));
+                        }
+                        else
+                        {
+                            g.saveState();
+                            g.reduceClipRegion (juce::Rectangle<int> (
+                                startX, area.getY(), playedW,
+                                area.getHeight()));
+                            g.setColour (played);
+                            thumbnail.drawChannels (g, area, viewFirst,
+                                                    viewLast,
+                                                    kThumbnailGain * baseGain);
+                            g.restoreState();
+                        }
                     }
                     g.setColour (played);
                     g.fillRect (secondsToX (t), area.getY(), 1,
@@ -574,6 +633,46 @@ namespace ebs
         }
 
     private:
+        void drawEnvelopeTrace (juce::Graphics& g, juce::Rectangle<int> area,
+                                juce::Colour colour)
+        {
+            const int width = area.getWidth();
+            const int height = area.getHeight();
+            if (width <= 0 || height <= 0 || gainEnvelope == nullptr)
+                return;
+            if (envelopeDirty || envelopeImage.isNull()
+                || envelopeWidth != width || envelopeHeight != height)
+            {
+                envelopeImage = juce::Image (juce::Image::ARGB, width, height,
+                                             true);
+                juce::Graphics imageGraphics (envelopeImage);
+                const double first = viewStartSeconds();
+                const double last = viewEndSeconds();
+                for (int x = 0; x < width; ++x)
+                {
+                    const double t0 = first + (double) x / (double) width
+                                             * (last - first);
+                    const double t1 = first + (double) (x + 1)
+                                             / (double) width
+                                             * (last - first);
+                    const float gain = juce::jlimit (
+                        0.0f, 2.5f,
+                        gainEnvelope ((t0 + t1) * 0.5) * baseGain);
+                    if (gain <= 0.0005f)
+                        continue;
+                    imageGraphics.setColour (colour);
+                    thumbnail.drawChannels (
+                        imageGraphics,
+                        juce::Rectangle<int> (x, 0, 2, height),
+                        t0, t1, kThumbnailGain * gain);
+                }
+                envelopeWidth = width;
+                envelopeHeight = height;
+                envelopeDirty = false;
+            }
+            g.drawImageAt (envelopeImage, area.getX(), area.getY());
+        }
+
         void paintLabel (juce::Graphics& g, const juce::String& text,
                          int x, bool left) const
         {
@@ -813,6 +912,12 @@ namespace ebs
         bool backgroundVisible = true;
         double visibleStartSec = 0.0;
         double visibleEndSec = 0.0;
+        std::function<float (double)> gainEnvelope;
+        float baseGain = 1.0f;
+        juce::Image envelopeImage;
+        bool envelopeDirty = true;
+        int envelopeWidth = 0;
+        int envelopeHeight = 0;
         double playhead = -1.0;
         juce::Colour accent { ebs::accent() };
         double fillStartSec = 0.0;   // played fill begins here
