@@ -191,6 +191,7 @@ namespace ebs
         {
             if (played == c) return;
             played = c;
+            envelopeDirty = true;
             repaint();
         }
 
@@ -525,7 +526,7 @@ namespace ebs
                 const double viewLast = viewEndSeconds();
                 if (gainEnvelope != nullptr)
                 {
-                    drawEnvelopeTrace (g, area, accent);
+                    drawEnvelopeTrace (g, area, accent, false);
                 }
                 else
                 {
@@ -546,10 +547,12 @@ namespace ebs
                     {
                         if (gainEnvelope != nullptr)
                         {
-                            g.setColour (played.withAlpha (0.55f));
-                            g.fillRect (juce::Rectangle<int> (
+                            g.saveState();
+                            g.reduceClipRegion (juce::Rectangle<int> (
                                 startX, area.getY(), playedW,
                                 area.getHeight()));
+                            drawEnvelopeTrace (g, area, played, true);
+                            g.restoreState();
                         }
                         else
                         {
@@ -634,18 +637,18 @@ namespace ebs
 
     private:
         void drawEnvelopeTrace (juce::Graphics& g, juce::Rectangle<int> area,
-                                juce::Colour colour)
+                                juce::Colour colour, bool played)
         {
             const int width = area.getWidth();
             const int height = area.getHeight();
             if (width <= 0 || height <= 0 || gainEnvelope == nullptr)
                 return;
-            if (envelopeDirty || envelopeImage.isNull()
+            auto& image = played ? envelopePlayedImage : envelopeImage;
+            if (envelopeDirty || image.isNull()
                 || envelopeWidth != width || envelopeHeight != height)
             {
-                envelopeImage = juce::Image (juce::Image::ARGB, width, height,
-                                             true);
-                juce::Graphics imageGraphics (envelopeImage);
+                image = juce::Image (juce::Image::ARGB, width, height, true);
+                juce::Graphics imageGraphics (image);
                 const double first = viewStartSeconds();
                 const double last = viewEndSeconds();
                 for (int x = 0; x < width; ++x)
@@ -670,7 +673,7 @@ namespace ebs
                 envelopeHeight = height;
                 envelopeDirty = false;
             }
-            g.drawImageAt (envelopeImage, area.getX(), area.getY());
+            g.drawImageAt (image, area.getX(), area.getY());
         }
 
         void paintLabel (juce::Graphics& g, const juce::String& text,
@@ -915,6 +918,7 @@ namespace ebs
         std::function<float (double)> gainEnvelope;
         float baseGain = 1.0f;
         juce::Image envelopeImage;
+        juce::Image envelopePlayedImage;
         bool envelopeDirty = true;
         int envelopeWidth = 0;
         int envelopeHeight = 0;
