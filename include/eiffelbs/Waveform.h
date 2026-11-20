@@ -524,6 +524,14 @@ namespace ebs
 
                 const double viewFirst = viewStartSeconds();
                 const double viewLast = viewEndSeconds();
+                if (gainEnvelope != nullptr && envelopeDirty)
+                {
+                    // The accent render clears envelopeDirty, so both traces
+                    // must be dropped here: otherwise the played trace keeps
+                    // the previous view/envelope and only partially recolours.
+                    envelopeImage = {};
+                    envelopePlayedImage = {};
+                }
                 if (gainEnvelope != nullptr)
                 {
                     drawEnvelopeTrace (g, area, accent, false);
@@ -671,7 +679,7 @@ namespace ebs
                 }
                 envelopeWidth = width;
                 envelopeHeight = height;
-                envelopeDirty = false;
+                envelopeDirty = thumbnail.getProportionComplete() < 1.0;
             }
             g.drawImageAt (image, area.getX(), area.getY());
         }
