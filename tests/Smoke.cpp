@@ -31,6 +31,8 @@
 // class redefinition.
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <eiffelbs/eiffelbs.h>
+// Opt-in header (not in the umbrella): the waveform owns an AudioThumbnail.
+#include <eiffelbs/Waveform.h>
 
 #include <cmath>
 #include <cstdio>
@@ -4783,6 +4785,17 @@ int main()
 
             check (bareDiff > 0 && bareDiff <= stripArea,
                    "an empty band paints its tint and trim inside the curve, and nothing outside them");
+        }
+
+        {
+            // A selection-edge drag integrates pointer deltas between events.
+            // The anchor used to be an int, so every sub-pixel step was
+            // truncated and the band drifted away from a slow pointer. The
+            // anchor must survive the exact float the event carried.
+            ebs::Waveform w;
+            w.setDragXForTest (123.75f);
+            check (std::abs (w.dragXForTest() - 123.75f) < 1.0e-4f,
+                   "a waveform drag keeps its sub-pixel anchor, so the edge tracks the pointer");
         }
 
     std::printf ("\neiffelbs-ui smoke: %s (%d failure%s)\n",

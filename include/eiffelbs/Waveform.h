@@ -444,6 +444,11 @@ namespace ebs
         {
             return xToSeconds (x);
         }
+        /** The drag anchor must survive a sub-pixel pointer position: a previous
+            int anchor quietly truncated every drag step and the selection edge
+            drifted away from the pointer. */
+        void setDragXForTest (float x) noexcept { dragStartX = x; }
+        float dragXForTest() const noexcept { return dragStartX; }
 
     private:
         static constexpr int kThumbnailSamples = 512;

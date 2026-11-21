@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(eiffelbs-ui VERSION 0.84.4 LANGUAGES C CXX)
+project(eiffelbs-ui VERSION 0.84.5 LANGUAGES C CXX)
 
 # v0.84.4: PillTabBar measures a text-only tab without the icon column and
 # centres its label; the last tab no longer overflows its track.
